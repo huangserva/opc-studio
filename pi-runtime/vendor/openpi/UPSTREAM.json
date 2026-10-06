@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/openpi-dev/openpi",
+  "commit": "c7862b852d866123e2b32c79d309bd49a3cf515f",
+  "license": "MIT",
+  "original_sha256": {
+    "controller.ts": "ed8272678df13e62e08d9b7ca8c9ec44d2dfa7778812f2d75add9ac8ef722841",
+    "sandbox.ts": "a80893c8f5ee672a07cd9de764ff23f9c77193c0db36c9aa82db4b69166d0bf2",
+    "sandbox-child.cjs": "ea7b7a5b96abaf7399953ffd8fe9fd156639c988ef33e7f87df9ed883bc5c31f",
+    "serialization.ts": "8f8d0aff856b8a3e7d5cb483e79e6f07563a3eb07a0153e555c192f2b0d20a86"
+  },
+  "adaptation": "controller.ts and sandbox.ts import the four extracted upstream limits from limits.mjs; execution logic is unchanged. Type-only shared imports are removed at runtime by Node. Full extensions, TUI, global discovery and coding tools are not loaded."
+}

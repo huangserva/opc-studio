@@ -1,0 +1,36 @@
+# Local application data and generated artifacts
+/workspace/
+/library/
+/inbox/
+/knowledge/
+/github/
+/work/
+/outputs/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Private configuration and credentials
+.env
+.env.*
+!.env.example
+/private/
+*.key
+*.pem
+*.p12
+models.json
+auth.json
+
+# Installed dependencies and caches
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+*.log

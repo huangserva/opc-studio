@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "内容工作台 · 本机 X 发布",
+  "version": "0.1.33",
+  "description": "使用本机已登录 Chrome 上传 X 文章草稿；公开发布须在工作台确认。",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["https://x.com/*"],
+  "background": {"service_worker": "worker.js"},
+  "content_scripts": [
+    {"matches": ["http://127.0.0.1:8766/*", "http://localhost:8766/*"], "js": ["bridge.js"]},
+    {"matches": ["https://x.com/*"], "js": ["x.js"]}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "content-studio-checks",
+  "version": "1.0.0",
+  "private": true,
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "test:ui": "node --test tests/*.cjs tests/test_request_context.mjs",
+    "test:offline": "python3 scripts/check_offline.py"
+  },
+  "devDependencies": { "jsdom": "26.1.0" }
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>事项与日程 · 内容工作台</title><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/events.css"><script src="/events.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script></head>
+<body class="events-workspace">
+<aside class="sidebar">
+  <a class="brand" href="/"><span class="brand-icon">▤</span><span>内容工作台<small>CONTENT STUDIO</small></span></a>
+  <nav class="ev-main-nav" aria-label="工作台栏目"><a href="/?collection=all">▤ 我的作品</a><a href="/knowledge.html">▥ 知识库</a><a class="selected" href="/events.html" aria-current="page">◷ 事项与日程</a><a href="/feedback.html">↗ 发布反馈</a><a href="/schedules.html">◴ 定时任务</a><a href="/clues.html">⌁ 线索中心</a><a href="/deals.html">▣ 商单管理</a></nav>
+  <div class="nav-heading">事项视图</div>
+  <nav id="ev-view-nav" aria-label="事项筛选">
+    <button data-view="all" class="selected" aria-pressed="true"><span>全部事项</span><small data-count="all">—</small></button>
+    <button data-view="important" aria-pressed="false"><span>重大事项</span><small data-count="important">—</small></button>
+    <button data-view="mine" aria-pressed="false"><span>由我跟进</span><small data-count="mine_actions">—</small></button>
+    <button data-view="waiting" aria-pressed="false"><span>等待回复</span><small data-count="waiting">—</small></button>
+    <button data-view="confirm" aria-pressed="false"><span>待确认</span><small data-count="confirm">—</small></button>
+    <button data-view="calendar" aria-pressed="false"><span>日程</span><small data-count="calendar">—</small></button>
+  </nav>
+  <div class="ev-sidebar-note">从资料中留下依据，<br>把下一步交给明确的人。</div>
+  <div class="local-note"><span></span>事项与证据保存在本机</div>
+</aside>
+<main class="main">
+  <header class="topbar"><div class="breadcrumb">我的知识 <span>/</span> <b>事项与日程</b></div><div class="top-actions"><button id="ev-refresh" class="button">刷新</button><button id="ev-new" class="button primary">＋ 从资料建立事项</button></div></header>
+  <section class="ev-canvas">
+    <div class="ev-heading"><div><span class="eyebrow">EVIDENCE TO ACTION</span><h1>重要的事，留下依据与下一步。</h1><p>记录来龙去脉、约定和跟进事项，随时回到原文核对。</p></div><span id="ev-total" class="ev-total">正在读取本机事项…</span></div>
+    <form id="ev-search-form" class="ev-search"><label><span>⌕</span><input id="ev-query" type="search" aria-label="搜索事项" placeholder="搜索事项、人物或跟进内容" maxlength="200"></label><select id="ev-mobile-view" aria-label="事项视图"><option value="all">全部事项</option><option value="important">重大事项</option><option value="mine">由我跟进</option><option value="waiting">等待回复</option><option value="confirm">待确认</option><option value="calendar">日程</option></select><button class="button">搜索</button></form>
+    <div id="ev-status" class="ev-status" role="status" aria-live="polite"></div>
+    <div class="ev-body"><section class="ev-list-column" aria-label="事项列表"><div class="ev-list-heading"><strong id="ev-view-title">全部事项</strong><span id="ev-result-count"></span></div><p id="ev-view-help" class="ev-view-help">重大事项与需要跟进的记录，都在这里。</p><div id="ev-list" aria-live="polite"><div class="ev-empty">正在读取事项…</div></div></section><aside id="ev-detail" class="ev-detail" aria-label="事项详情"><div class="ev-empty"><span class="ev-empty-icon">◷</span><h2>选择一件事，查看完整脉络。</h2><p>证据、行动与每次人工修改，都会保留在这里。</p></div></aside></div>
+  </section>
+</main>
+<dialog id="ev-event-dialog">
+  <div class="dialog-head"><h2 id="ev-editor-title">从资料建立事项</h2><button type="button" class="icon-button" data-close aria-label="关闭事项编辑">×</button></div>
+  <form id="ev-event-form">
+    <label>事项名称<input id="ev-event-title" required maxlength="200" placeholder="用一句话说明这件事"></label>
+    <label>概要<textarea id="ev-event-summary" rows="3" maxlength="4000" placeholder="发生了什么、哪些信息尚待核实"></textarea></label>
+    <div class="ev-form-grid"><label>重要程度<select id="ev-event-priority"><option value="normal">普通事项</option><option value="important">重大事项</option></select></label><label class="ev-checkbox"><input id="ev-event-confirm" type="checkbox">这件事仍需确认</label></div>
+    <section class="ev-picker" aria-label="事项依据"><div class="ev-section-heading"><h3>依据资料</h3><small id="ev-existing-evidence"></small></div><div id="ev-picks"></div><small id="ev-pick-budget">选择至少一个具体片段，保留原文定位。</small>
+      <div class="ev-knowledge-search"><input id="ev-knowledge-query" type="search" aria-label="检索依据资料" maxlength="200" placeholder="输入资料中的关键词"><button id="ev-knowledge-search" type="button" class="button">检索知识库</button></div><div id="ev-knowledge-results"></div><button id="ev-knowledge-more" type="button" class="button" hidden>加载更多资料</button><p id="ev-knowledge-status" class="ev-form-status" role="status"></p>
+    </section>
+    <div id="ev-proposed-actions" hidden></div>
+    <label>修改原因<input id="ev-event-reason" maxlength="2000" placeholder="例如：核实了约定内容，补充一条依据"></label>
+    <div class="dialog-actions"><button type="button" class="button" data-close>取消编辑</button><button id="ev-event-save" class="button primary">确认建立事项</button></div><p id="ev-event-status" class="ev-form-status" role="status"></p>
+  </form>
+</dialog>
+<dialog id="ev-document-dialog"><div class="dialog-head"><h2 id="ev-document-title"></h2><button type="button" class="icon-button" data-close aria-label="关闭原文">×</button></div><dl id="ev-document-origin" class="ev-provenance"></dl><textarea id="ev-document-body" readonly rows="13" aria-label="资料原文，可选中需要引用的片段"></textarea><div class="dialog-actions"><a id="ev-document-link" class="button" target="_blank" rel="noreferrer">在知识库核对原文 ↗</a><button id="ev-pick-selection" type="button" class="button primary">使用选中文字</button></div><p id="ev-document-status" class="ev-form-status" role="status">选中与这件事有关的原文，保留具体范围。</p></dialog>
+<dialog id="ev-action-dialog"><div class="dialog-head"><h2 id="ev-action-editor-title">添加行动</h2><button type="button" class="icon-button" data-close aria-label="关闭行动编辑">×</button></div><form id="ev-action-form">
+  <label>下一步做什么<textarea id="ev-action-summary" required maxlength="1000" rows="3" placeholder="明确需要跟进的事情"></textarea></label>
+  <div class="ev-form-grid"><label>负责人（可留空）<input id="ev-action-owner" maxlength="200" placeholder="尚未明确可留空"></label><label class="ev-checkbox"><input id="ev-action-self" type="checkbox">由我跟进</label></div>
+  <label>约定时间（含时区；未明确则留空）<input id="ev-action-due" placeholder="2026-10-05T14:00:00+08:00" maxlength="50"><small>只填写原文或本人已确认的时间。留空会显示“时间待确认”。</small></label>
+  <label>行动状态<select id="ev-action-status"><option value="open">待跟进</option><option value="waiting">等待回复</option><option value="needs_confirmation">待确认</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label>
+  <fieldset id="ev-action-evidence"><legend>选择行动依据（至少一项）</legend></fieldset>
+  <label>修改原因<input id="ev-action-reason" maxlength="2000" placeholder="例如：本人确认了完成状态或时间"></label>
+  <div class="dialog-actions"><button type="button" class="button" data-close>取消编辑</button><button id="ev-action-save" class="button primary">保存行动</button></div><p id="ev-action-form-status" class="ev-form-status" role="status"></p>
+</form></dialog>
+</body></html>

@@ -1,0 +1,301 @@
+"""Local clue threads: immutable evidence, append-only updates, no model calls."""
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import hashlib
+import json
+import math
+import re
+import os
+from pathlib import Path
+import sqlite3
+import uuid
+import threading
+from functools import wraps
+from zoneinfo import ZoneInfo
+from events_store import EventConflict, identity, text, flag, due_time
+
+CATEGORIES={'business':'商单','technology':'新技术','topics':'热点话题','projects':'项目进展','other':'其他'}
+ZONE=ZoneInfo('Asia/Shanghai')
+FIELDS={'title','summary','relevance','categories','priority','kind','tracking','status','tags'}
+TECH_TAGS={'agents':'Agent 与自动化','memory':'记忆与检索','inference':'推理与显存','models':'模型与训练','tools':'开发工具','multimodal':'图像音视频','hardware':'硬件与设备','security':'安全与隐私','other-tech':'未归类技术'}
+TECH_PATTERNS={
+ 'agents':r'agent|智能体|自动化|工作流|harness|mcp|openclaw|workbuddy',
+ 'memory':r'记忆|检索|知识库|向量|\brag\b|embedding|memos|remio',
+ 'inference':r'推理|显存|量化|预填充|prefill|token[s]?/s|\bkv\b|cuda|gguf|tensor|hipblas|kernel|deltanet|gather|dma',
+ 'models':r'模型|训练|微调|蒸馏|qwen|千问|claude|gpt|gemini|deepseek|llama|moe',
+ 'tools':r'开发|编程|代码|\bcli\b|\bsdk\b|ide|开源|github|gitlab|截图|prettyshot|浏览器|插件|编辑器',
+ 'multimodal':r'图像|图片|视频|音频|语音|多模态|tts|asr|diffusion|flux|sora',
+ 'hardware':r'硬件|显卡|gpu|cpu|nvlink|rtx|\bv100\b|\bh100\b|芯片|服务器|nvidia|amd|苹果|macbook',
+ 'security':r'安全|隐私|漏洞|权限|加密|鉴权|认证|攻击',
+}
+def tech_tags(data):
+    if 'technology' not in data.get('categories',[]):return []
+    if isinstance(data.get('tags'),list):return data['tags'] or ['other-tech']
+    content=(data.get('title','')+' '+data.get('summary','')).casefold()
+    return [tag for tag,pattern in TECH_PATTERNS.items() if re.search(pattern,content)] or ['other-tech']
+
+
+def now():return datetime.now(timezone.utc).isoformat()
+def digest(value):return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+
+def source_clock(snapshot):
+    p=snapshot.get('provenance') or {}
+    if snapshot.get('kind') in ('wechat','wechat_links'):
+        value=p.get('timestamp')
+        if type(value) in (float,int) and math.isfinite(value) and 0<value<=253402300799:
+            return datetime.fromtimestamp(value,timezone.utc).isoformat(),'微信消息时间'
+    if snapshot.get('kind')=='github' and p.get('updated_at'):
+        try:
+            date=datetime.fromisoformat(p['updated_at'].replace('Z','+00:00'))
+            if date.utcoffset() is not None:return date.isoformat(),'GitHub 原文更新时间'
+        except (ValueError,TypeError,OverflowError):pass
+    if snapshot.get('kind')=='mail' and p.get('date_sent'):
+        try:
+            date=parsedate_to_datetime(p['date_sent'])
+            if date.utcoffset() is not None:return date.isoformat(),'邮件头发信时间'
+        except (ValueError,TypeError,OverflowError):pass
+    return '', '来源发生时间未知'
+
+def serialized(fn):
+    @wraps(fn)
+    def wrapped(self,*args,**kwargs):
+        with self.lock:return fn(self,*args,**kwargs)
+    return wrapped
+
+class Clues:
+    def __init__(self,store):
+        self.store=store;self.lock=threading.RLock();self.root=Path(store.workspace)/'clues';self.root.mkdir(parents=True,mode=0o700,exist_ok=True);self.root.chmod(0o700)
+        self.path=self.root/'clues.db'
+        with self.db() as db:
+            db.executescript('''CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,data TEXT NOT NULL,revision INTEGER NOT NULL,seen_revision INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS entries(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id),data TEXT NOT NULL,created_at TEXT NOT NULL,clock TEXT NOT NULL,year TEXT NOT NULL,month TEXT NOT NULL,entry_type TEXT NOT NULL,producer_key TEXT UNIQUE);
+            CREATE INDEX IF NOT EXISTS entries_thread ON entries(thread_id,created_at);
+            CREATE INDEX IF NOT EXISTS entries_year ON entries(year,clock);''')
+        self.path.chmod(0o600)
+
+    @contextmanager
+    def db(self):
+        db=sqlite3.connect(self.path,timeout=15);db.row_factory=sqlite3.Row
+        db.execute('PRAGMA foreign_keys=ON');db.create_function('fold',1,lambda v:str(v or '').casefold())
+        db.create_function('tech_tags',1,lambda value:json.dumps(tech_tags(json.loads(value))))
+        try:
+            with db:yield db
+        finally:db.close()
+
+    def _row(self,db,thread_id):
+        row=db.execute('SELECT * FROM threads WHERE id=?',(identity(thread_id,'线索编号'),)).fetchone()
+        if not row:raise ValueError('线索不存在')
+        data=json.loads(row['data']);data['tags_source']='manual' if isinstance(data.get('tags'),list) else 'suggested';data['tags']=tech_tags(data)
+        return {**data,**{k:row[k] for k in ('id','revision','seen_revision','created_at','updated_at')},'unread':row['revision']>row['seen_revision']}
+
+    def detail(self,thread_id,offset=0,limit=50):
+        if type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=100:raise ValueError("历史分页无效")
+        with self.db() as db:
+            item=self._row(db,thread_id)
+            item['entries']=[{**json.loads(r['data']),**{k:r[k] for k in ('id','created_at','clock','year','month','entry_type')}} for r in db.execute('SELECT * FROM entries WHERE thread_id=? ORDER BY rowid DESC LIMIT ? OFFSET ?',(thread_id,limit,offset))]
+            item['entries_total']=db.execute('SELECT COUNT(*) FROM entries WHERE thread_id=?',(thread_id,)).fetchone()[0]
+            item['entries_next_offset']=offset+limit if offset+limit<item['entries_total'] else None
+        for entry in item['entries']:
+            for evidence in entry.get('evidence',[]):
+                evidence['state']='saved'
+                if evidence.get('document_id'):
+                    try:evidence['state']='fresh' if self.store.knowledge.document(evidence['document_id'])['hash']==evidence['hash'] else 'changed'
+                    except ValueError:evidence['state']='unavailable'
+        return item
+
+    @staticmethod
+    def _fields(payload,before=None):
+        before=before or {};result={}
+        for name,maxlen,required in [('title',200,True),('summary',4000,False),('relevance',2000,False)]:result[name]=text(payload.get(name,before.get(name,'')),name,maxlen,required)
+        categories=payload.get('categories',before.get('categories',['other']))
+        if not isinstance(categories,list) or not categories or len(categories)>5 or any(not isinstance(c,str) or c not in CATEGORIES for c in categories):raise ValueError('请选择有效的线索分类')
+        result['categories']=list(dict.fromkeys(categories))
+        if len(result['categories'])>1:result['categories']=[c for c in result['categories'] if c!='other']
+        for name,allowed,default in [('priority',{'normal','important'},'normal'),('kind',{'information','discussion'},'information'),('status',{'candidate','verified','archived'},'candidate')]:
+            value=payload.get(name,before.get(name,default))
+            if not isinstance(value,str) or value not in allowed:raise ValueError('线索状态或类型无效')
+            result[name]=value
+        result['tracking']=flag(payload.get('tracking',before.get('tracking',False)),'持续跟踪')
+        tags=payload.get('tags',before.get('tags') if before.get('tags_source')!='suggested' else None)
+        if tags is not None and (not isinstance(tags,list) or len(tags)>len(TECH_TAGS) or any(not isinstance(t,str) or t not in TECH_TAGS for t in tags)):raise ValueError('技术标签无效')
+        result['tags']=list(dict.fromkeys(tags)) if tags is not None else None
+        result['event_id']=before.get('event_id','')
+        return result
+
+    def save(self,payload):
+        if not isinstance(payload,dict) or set(payload)-FIELDS-{'id','revision','picks','reason','occurred_at','note'}:raise ValueError('线索参数格式错误')
+        picks=payload.get('picks',[])
+        snapshots=self.store.events._capture(picks) if picks else []
+        for s in snapshots:s['origin_url']=f"/knowledge.html?document={s['document_id']}&start={s['start']}&end={s['end']}&hash={s['hash']}"
+        return self._save(payload,snapshots)
+
+    @serialized
+    def _save(self,payload,snapshots,producer_key=None,linked_event=None):
+        thread_id=identity(payload['id'],'线索编号') if payload.get('id') else uuid.uuid4().hex
+        occurred=due_time(payload.get('occurred_at',''))
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if producer_key:
+                prior=db.execute('SELECT thread_id FROM entries WHERE producer_key=?',(producer_key,)).fetchone()
+                if prior:return {'id':prior['thread_id'],'duplicate':True}
+            row=db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone();before=self._row(db,thread_id) if row else None
+            if payload.get('id') and not before:raise ValueError('线索不存在')
+            if before and (type(payload.get('revision')) is not int or payload['revision']!=before['revision']):raise EventConflict('线索已有新内容，请刷新后再保存')
+            fields=self._fields(payload,before)
+            if linked_event: fields['event_id']=identity(linked_event,'事项编号')
+            reason=text(payload.get('reason',''),'更新原因',2000)
+            note=text(payload.get('note',fields['summary'] if snapshots else reason),'本次变化',4000)
+            if not before and not snapshots:raise ValueError('新线索至少需要一份可追溯的原文依据')
+            if before and not snapshots and not reason:raise ValueError('调整分类或状态请填写原因')
+            if len(snapshots)>20 or sum(len(s.get('excerpt','')) for s in snapshots)>12000:raise ValueError('一次最多保留 20 个片段、合计 12,000 字')
+            before_fields=self._fields({},before) if before else None
+            if before and not snapshots and fields==before_fields:return {'id':thread_id,'revision':before['revision'],'unchanged':True}
+            stamp=now();revision=before['revision']+1 if before else 1
+            old=before_fields
+            db.execute('INSERT INTO threads VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,revision=excluded.revision,updated_at=excluded.updated_at',
+                       (thread_id,json.dumps(fields,ensure_ascii=False),revision,0,before['created_at'] if before else stamp,stamp))
+            clocks=[source_clock(s) for s in snapshots];known=[c for c in clocks if c[0]]
+            clock=occurred or (max(known,key=lambda c:datetime.fromisoformat(c[0]).timestamp())[0] if known else '')
+            clock_label='人工核对的发生时间' if occurred else '本次依据时间（最近）' if known else '发生时间未知'
+            local=datetime.fromisoformat(clock).astimezone(ZONE) if clock else None
+            entry_type='evidence' if snapshots else 'edit'
+            entry={'revision':revision,'before':old,'after':fields,'note':note,'reason':reason,'evidence':snapshots,'clock_label':clock_label,'occurred_at':occurred}
+            db.execute('INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,thread_id,json.dumps(entry,ensure_ascii=False),stamp,clock,str(local.year) if local else 'unknown',f'{local.month:02}' if local else '',entry_type,producer_key))
+        return {'id':thread_id,'revision':revision,'duplicate':False}
+
+    def seen(self,thread_id,revision):
+        if type(revision) is not int or revision<1:raise ValueError('已读版本无效')
+        with self.db() as db:
+            item=self._row(db,thread_id)
+            if revision>item['revision']:raise ValueError('已读版本超出当前版本')
+            db.execute('UPDATE threads SET seen_revision=MAX(seen_revision,?) WHERE id=?',(revision,thread_id))
+        return {'ok':True}
+
+    def listing(self,query='',category='',view='all',source='',year='',offset=0,limit=30,tag='',sort='updated',period='',priority=''):
+        query=text(query,'检索词',200).casefold();source=text(source,'来源',200)
+        if tag and tag not in TECH_TAGS:raise ValueError('技术标签无效')
+        if sort not in ('updated','source_desc','source_asc','priority'):raise ValueError('排序无效')
+        if period not in ('','today','7d','30d'):raise ValueError('时间范围无效')
+        if priority not in ('','important','normal'):raise ValueError('重要程度无效')
+        if category and category not in CATEGORIES:raise ValueError('分类无效')
+        if view not in ('all','latest','tracking','discussion','year','unread'):raise ValueError('视图无效')
+        if year and year!='unknown' and (not year.isdigit() or len(year)!=4):raise ValueError('年份无效')
+        try:offset=int(offset);limit=int(limit)
+        except (ValueError,TypeError):raise ValueError('分页无效') from None
+        if offset<0 or not 1<=limit<=100:raise ValueError('分页范围无效')
+        with self.db() as db:
+            # SQLite JSON is stored verbatim so history and frozen excerpts remain searchable.
+            where=['1'];args=[]
+            if query:
+                needle='%'+query.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+                where.append("(fold(t.data) LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM entries x WHERE x.thread_id=t.id AND fold(x.data) LIKE ? ESCAPE '\\'))");args.extend([needle,needle])
+            if source:
+                where.append("EXISTS(SELECT 1 FROM entries x,json_each(x.data,'$.evidence') e WHERE x.thread_id=t.id AND json_extract(e.value,'$.source')=?)");args.append(source)
+            if year:
+                where.append("EXISTS(SELECT 1 FROM entries x WHERE x.thread_id=t.id AND x.entry_type='evidence' AND x.year=?)");args.append(year)
+            source_time="(SELECT x.clock FROM entries x WHERE x.thread_id=t.id AND x.entry_type='evidence' ORDER BY x.rowid DESC LIMIT 1)"
+            if priority:where.append("json_extract(t.data,'$.priority')=?");args.append(priority)
+            if period:
+                stamp=datetime.now(ZONE)
+                if period=='today':cutoff=stamp.replace(hour=0,minute=0,second=0,microsecond=0).isoformat()
+                else:
+                    from datetime import timedelta
+                    cutoff=(stamp-timedelta(days=int(period[:-1]))).isoformat()
+                where.append(f'julianday({source_time})>=julianday(?)');args.append(cutoff)
+            common=' AND '.join(where)
+            counts={c:db.execute("SELECT COUNT(*) FROM threads t WHERE "+common+" AND EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)",[*args,c]).fetchone()[0] for c in CATEGORIES}
+            if category:where.append("EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)");args.append(category)
+            if view=='tracking':where.append("json_extract(t.data,'$.tracking')=1")
+            if view=='discussion':where.append("json_extract(t.data,'$.kind')='discussion'")
+            if view=='unread':where.append('t.revision>t.seen_revision')
+            if view!='all':where.append("json_extract(t.data,'$.status')!='archived'")
+            facets=' AND '.join(where)
+            tag_counts={r['tag']:r['n'] for r in db.execute('SELECT j.value tag,COUNT(*) n FROM threads t,json_each(tech_tags(t.data)) j WHERE '+facets+' GROUP BY j.value',args)}
+            if tag:where.append('EXISTS(SELECT 1 FROM json_each(tech_tags(t.data)) WHERE value=?)');args.append(tag)
+            clause=' AND '.join(where)
+            total=db.execute('SELECT COUNT(*) FROM threads t WHERE '+clause,args).fetchone()[0]
+            chronological=f'(julianday({source_time}) IS NULL),julianday({source_time}) '+('ASC' if sort=='source_asc' else 'DESC')+',t.updated_at DESC,t.id'
+            ordering={'updated':'t.updated_at DESC,t.id','source_desc':chronological,'source_asc':chronological,'priority':"CASE WHEN json_extract(t.data,'$.priority')='important' THEN 0 ELSE 1 END,"+chronological}[sort]
+            rows=db.execute('SELECT t.id FROM threads t WHERE '+clause+' ORDER BY '+ordering+' LIMIT ? OFFSET ?',[*args,limit,offset]).fetchall()
+            items=[]
+            for row in rows:
+                item=self._row(db,row['id'])
+                entry=db.execute("SELECT data,clock,created_at FROM entries WHERE thread_id=? AND entry_type='evidence' ORDER BY rowid DESC LIMIT 1",(row['id'],)).fetchone()
+                item['source_time']=entry['clock'] if entry else ''
+                item['latest_note']=json.loads(entry['data'])['note'] if entry else ''
+                sources=db.execute("SELECT DISTINCT json_extract(e.value,'$.source') source FROM entries x,json_each(x.data,'$.evidence') e WHERE x.thread_id=?",(row['id'],)).fetchall()
+                item['sources']=[r['source'] for r in sources];items.append(item)
+            timeline=[]
+            if view=='year':
+                timewhere=[clause,"x.thread_id=t.id","x.entry_type='evidence'"];timeargs=list(args)
+                if year:timewhere.append('x.year=?');timeargs.append(year)
+                if source:timewhere.append("EXISTS(SELECT 1 FROM json_each(x.data,'$.evidence') e WHERE json_extract(e.value,'$.source')=?)");timeargs.append(source)
+                timeline_total=db.execute('SELECT COUNT(*) FROM entries x,threads t WHERE '+' AND '.join(timewhere),timeargs).fetchone()[0]
+                records=db.execute('SELECT x.*,t.data thread FROM entries x,threads t WHERE '+' AND '.join(timewhere)+" ORDER BY (x.clock=''),x.clock DESC,x.created_at DESC,x.id LIMIT ? OFFSET ?",[*timeargs,limit,offset]).fetchall()
+                timeline=[{**dict(r),'data':json.loads(r['data']),'thread':json.loads(r['thread'])} for r in records];total=timeline_total
+            years=[r[0] for r in db.execute("SELECT DISTINCT year FROM entries WHERE entry_type='evidence' ORDER BY year DESC")]
+            sources=[r[0] for r in db.execute("SELECT DISTINCT json_extract(e.value,'$.source') FROM entries x,json_each(x.data,'$.evidence') e ORDER BY 1")]
+        return {'items':items,'timeline':timeline,'total':total,'next_offset':offset+limit if offset+limit<total else None,'categories':CATEGORIES,'counts':counts,'years':years,'sources':sources,'view':view,'tag_names':TECH_TAGS,'tag_counts':tag_counts,'sort':'source_desc' if view=='year' else sort}
+
+    @serialized
+    def import_event(self,event_id):
+        event=self.store.events.event(event_id)
+        snapshots=[]
+        for s in event['evidence']:
+            e={k:v for k,v in s.items() if k not in ('state','id')};e['origin_url']=f"/knowledge.html?document={e['document_id']}&start={e['start']}&end={e['end']}&hash={e['hash']}";snapshots.append(e)
+        producer=f"event:{event_id}:{event['revision']}"
+        with self.db() as db:existing=db.execute("SELECT id FROM threads WHERE json_extract(data,'$.event_id')=?",(event_id,)).fetchone()
+        payload={'title':event['title'],'summary':event['summary'],'relevance':'由已有事件导入，保留原有核对状态；分类待整理','categories':['other'],'priority':event['priority'],'status':'candidate' if event['needs_confirmation'] else 'verified','reason':'导入既有事件，不确认行动归属','note':event['summary']}
+        if existing:
+            current=self.detail(existing['id']);payload.update(id=current['id'],revision=current['revision'],categories=current['categories'],relevance=current['relevance'])
+        return self._save(payload,snapshots,producer,linked_event=event_id)
+
+    @serialized
+    def from_run(self,run_id):
+        run=self.store.schedules.get_run(run_id)
+        if run['snapshot'].get('kind')=='github_clues':raise ValueError('GitHub 任务通过原文引用直接生成线索，请查看本次运行里的线索链接')
+        if run['status']!='succeeded':raise ValueError('只有真实成功的运行结果可以入线索中心；失败请查看运行记录')
+        if not run['output'].strip():return {'skipped':True,'reason':'任务没有输出'}
+        if len(run['output'])>12000:raise ValueError('输出超过 12,000 字，请先人工选择原文片段')
+        task=run['snapshot'];fingerprint=digest({'task_id':run['task_id'],'body':task['body'],'kind':task['kind'],'output':run['output']})
+        producer='run:'+fingerprint
+        evidence={'kind':'task_run','source':'scheduled-tasks','title':task['name'],'run_id':run_id,'hash':digest({k:run[k] for k in ('id','snapshot','status','output','started_at','finished_at','exit_code')}),'start':0,'end':len(run['output']),'excerpt':run['output'],'modified':run['finished_at'],'captured_at':now(),'provenance':{'task_id':run['task_id'],'task_revision':task['revision'],'execution_status':run['status'],'exit_code':run['exit_code']},'origin_url':'/schedules.html?run='+run_id}
+        payload={'title':task['name'],'summary':run['output'][:4000],'relevance':'定时任务结果，尚未核对业务原文；执行成功不等于内容已证实','categories':[task.get('result_category','other')],'status':'candidate','reason':'成功运行结果写入工作台，不发送飞书','note':run['output'][:4000]}
+        thread_id=task.get('clue_id')
+        if thread_id:
+            current=self.detail(thread_id);payload.update(id=thread_id,revision=current['revision'],title=current['title'],categories=current['categories'],relevance=current['relevance'],tracking=current['tracking'],kind=current['kind'],status='archived' if current['status']=='archived' else 'candidate')
+        else:
+            with self.db() as db:existing=db.execute("SELECT thread_id FROM entries WHERE producer_key LIKE ? ORDER BY rowid LIMIT 1",('task:'+run['task_id']+':%',)).fetchone()
+            if existing:
+                current=self.detail(existing['thread_id']);payload.update(id=current['id'],revision=current['revision'],title=current['title'],categories=current['categories'],relevance=current['relevance'],tracking=current['tracking'],kind=current['kind'],status='archived' if current['status']=='archived' else 'candidate')
+        result=self._save(payload,[evidence],producer)
+        # An explicit producer association groups only this same task's future outputs.
+        with self.db() as db:
+            db.execute('INSERT OR IGNORE INTO entries VALUES(?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,result['id'],json.dumps({'note':'绑定此任务后续结果','evidence':[]},ensure_ascii=False),now(),'','unknown','','association','task:'+run['task_id']+':'+result['id']))
+        return result
+
+    @serialized
+    def promote(self,thread_id,revision):
+        current=self.detail(thread_id)
+        if current['revision']!=revision:raise EventConflict('线索已更新，请重新核对后建立事项')
+        if current.get('event_id'):return {'event_id':current['event_id'],'existing':True}
+        if current['entries_total']>50:raise ValueError('这条线索历史较长，请在事项页面明确选择所需依据')
+        picks=[];seen=set();size=0
+        fresh_documents={e['document_id'] for entry in current['entries'] for e in entry.get('evidence',[]) if e.get('document_id') and e['state']=='fresh'}
+        for entry in current['entries']:
+            for e in entry.get('evidence',[]):
+                if not e.get('document_id'):continue
+                key=(e['document_id'],e['hash'],e['start'],e['end'])
+                if key in seen:continue
+                if e['state']!='fresh':
+                    if e['document_id'] in fresh_documents:continue
+                    raise EventConflict('已有原文发生变化，请补充当前版本的依据后再建立事项')
+                if len(picks)>=20 or size+len(e['excerpt'])>12000:raise ValueError('依据超过事项上限，请在事项页面选择需要的片段')
+                picks.append({'id':key[0],'hash':key[1],'start':key[2],'end':key[3]});seen.add(key);size+=len(e['excerpt'])
+        if not picks:raise ValueError('任务输出不能替代业务原文；请先追加知识库原文依据')
+        event_id=hashlib.sha256(('clue-event:'+thread_id).encode()).hexdigest()[:32]
+        try:self.store.events.event(event_id)
+        except ValueError:self.store.events.save_event({'revision':0,'title':current['title'],'summary':current['summary'],'priority':current['priority'],'needs_confirmation':True,'picks':picks,'reason':'从线索建立待确认事项；未接受待办或安排日程'},creation_id=event_id)
+        self._save({'id':thread_id,'revision':revision,'reason':'建立待确认事项，保留线索与事项关联'},[],linked_event=event_id)
+        return {'event_id':event_id,'needs_confirmation':True}
