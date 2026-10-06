@@ -21,8 +21,11 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             pi-runtime/package-lock.json
-      - name: Install synthetic media tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install synthetic media tools and Chinese fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       - name: Install pinned Python dependencies
         run: python -m pip install -r requirements.txt
       - name: Install locked Node dependencies without lifecycle scripts

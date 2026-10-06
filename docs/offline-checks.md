@@ -10,7 +10,9 @@ entry point is never invoked.
 Use Python 3.14 and Node 22.19.0 or later, install `requirements.txt`, run `npm ci
 --ignore-scripts` at the root and in `pi-runtime`, and run `node
 pi-runtime/prepare.mjs`. FFmpeg and FFprobe must be on PATH; their fixtures use
-generated color frames and sine waves. Python's SQLite must support FTS5 with the
+generated color frames and sine waves. Chinese cover fixtures require macOS's
+system STHeiti font or `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`;
+on Ubuntu, install `fonts-noto-cjk` alongside `ffmpeg`. Python's SQLite must support FTS5 with the
 trigram tokenizer. A sandbox that blocks loopback listeners must allow the local
 test process to bind an ephemeral port. No production port is needed.
 

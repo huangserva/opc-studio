@@ -31,7 +31,7 @@
 
 ## 安装与检查
 
-需要 Python 3.14、Node.js 22.19.0 或更新版本。离线媒体测试还需要 PATH 中的 `ffmpeg` 和 `ffprobe`（macOS 可运行 `brew install ffmpeg`；Linux CI 已安装）。具体依赖以仓库锁定文件为准。在仓库根目录执行：
+需要 Python 3.14、Node.js 22.19.0 或更新版本。离线媒体测试还需要 PATH 中的 `ffmpeg` 和 `ffprobe`，中文封面需要中文字体（macOS 使用系统黑体，可运行 `brew install ffmpeg`；Ubuntu 可运行 `sudo apt-get install ffmpeg fonts-noto-cjk`，CI 已配置安装）。具体依赖以仓库锁定文件为准。在仓库根目录执行：
 
 ```sh
 python3 -m venv .venv
