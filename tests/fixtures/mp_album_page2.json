@@ -1,0 +1,26 @@
+{
+ "base_resp": {
+  "ret": 0,
+  "err_msg": "ok"
+ },
+ "getalbum_resp": {
+  "continue_flag": "0",
+  "verify_status": "1",
+  "base_info": {
+   "title": "占位合集",
+   "article_count": "3",
+   "nickname": "占位公众号",
+   "username": "gh_placeholder",
+   "is_reverse": "0"
+  },
+  "article_list": [
+   {
+    "title": "占位文章三",
+    "url": "http://mp.weixin.qq.com/s?__biz=MzAwMDAwMDAwMDE%3D%3D&mid=2647682482&idx=1&sn=a13eab9a7474afe7fd704943fa4bf9f5&chksm=cc33dd44#rd",
+    "create_time": 1779330810,
+    "msgid": "2647682482",
+    "itemidx": "1"
+   }
+  ]
+ }
+}

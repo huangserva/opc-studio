@@ -2,6 +2,8 @@ import json
 import tempfile
 import unittest
 from unittest.mock import patch
+
+from isolation_patches import module_time, skip_sleep
 from server import Store
 from generation.models import build
 from generation.progress import event_progress
@@ -46,7 +48,7 @@ class GenerationProgressTests(unittest.TestCase):
             client=Client()
             with patch.object(Generation,'media',lambda _s: client), \
                  patch.object(Generation,'_spawn_observer',lambda *_: None), \
-                 patch('generation.service.time.sleep'):
+                 module_time('generation.service', sleep=skip_sleep):
                 g.run(job['id'],None)
             saved=json.loads((g.folder/job['id']/'job.json').read_text())
             self.assertEqual(client.calls,['api0001']*3)

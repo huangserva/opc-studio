@@ -1,12 +1,12 @@
 """HTTP transport for the 4090 media API.
 
 Media jobs, reference uploads, progress and results travel over one HTTPS entry
-point (media.example.com/media/v1 -> FRP STCP visitor -> 127.0.0.1:8200).
+point (relay.yunzhong2020.com/media/v1 -> FRP STCP visitor -> 127.0.0.1:8200).
 This module deliberately has **no SSH fallback**: a transport failure is an
 unknown state, never a licence to submit the same work twice over another path.
 
 Configuration (server side only; never sent to the browser):
-  MEDIA_API_BASE       e.g. https://media.example.com/media/v1
+  MEDIA_API_BASE       e.g. https://relay.yunzhong2020.com/media/v1
   MEDIA_API_KEY_FILE   600 file holding the bearer token
   MEDIA_API_CONFIG     optional json {'base': ..., 'key_file': ...}
 TLS verification is always on; plaintext is only accepted for loopback tests.
@@ -26,7 +26,8 @@ import urllib.request
 from pathlib import Path
 
 # The workbench keeps its short model ids; the media API exposes explicit names.
-MODEL_IDS = {'qi21': 'qwen-image-2.1', 'h3': 'minimax-h3'}
+# krea2 maps to the API's own id and is served by the 4090 krea2 backend (8188).
+MODEL_IDS = {'qi21': 'qwen-image-2.1', 'krea2': 'krea2', 'h3': 'minimax-h3'}
 API_MODEL_IDS = {value: key for key, value in MODEL_IDS.items()}
 
 
@@ -70,7 +71,7 @@ def resolve_config(base=None, key_file=None):
     if not base:
         raise MediaApiError(
             '未配置媒体服务地址（MEDIA_API_BASE）。媒体任务不再通过 SSH 提交，'
-            '请先配置 HTTPS 入口，例如 https://media.example.com/media/v1')
+            '请先配置 HTTPS 入口，例如 https://relay.yunzhong2020.com/media/v1')
     parts = urllib.parse.urlsplit(base)
     if parts.scheme == 'http' and not _loopback(parts.hostname or ''):
         raise MediaApiError('MEDIA_API_BASE 非本机地址时必须使用 https')
@@ -233,7 +234,9 @@ class MediaApi:
             for chunk in iter(lambda: handle.read(1024 * 1024), b''):
                 digest.update(chunk)
         headers = {'X-File-Kind': kind,
-                   'X-File-Name': urllib.parse.quote(str(name)[:120]),
+                   # display metadata only; the API stores <uuid>.<ext>. Names are quoted so
+                   # CJK, spaces and parentheses (e.g. 'AI图片 (4).png') survive the header.
+                   'X-File-Name': urllib.parse.quote(str(name).strip()[:120]),
                    'X-Sha256': digest.hexdigest(),
                    'Content-Type': 'application/octet-stream',
                    'Content-Length': str(length)}

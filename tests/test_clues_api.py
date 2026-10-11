@@ -11,7 +11,12 @@ from server import Handler,Store,ThreadingHTTPServer
 from knowledge_store import Knowledge
 from scheduled_tasks import ScheduledTasks
 
+from isolation_patches import WECHAT_SOURCE_REASON, wechat_source_available
 class ClueAPITests(unittest.TestCase):
+    # hygiene-4：本类的每个用例都要把微信来源插件装起来才能跑（source_module 或
+    # patch model_service_status，而后者在模块级就会调 loader）。插件不在公开仓库里，
+    # 缺它时整类跳过。本机配置齐全时逐条照跑，行为与从前一致。
+    @unittest.skipUnless(wechat_source_available(), WECHAT_SOURCE_REASON)
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(self.tmp.name);self.store._knowledge=Knowledge(self.store,sources=[])
         with self.store.knowledge.db() as db:
@@ -76,7 +81,7 @@ class ClueAPITests(unittest.TestCase):
         self.assertEqual(self.api('/api/clues/wechat/status')['processed_versions'],1)
         self.assertEqual(self.api('/api/events')['counts']['total'],0)
 
-    def test_partial_wechat_api_preserves_valid_evidence_then_manual_retry_deduplicates(self):
+    def test_wechat_api_drops_one_bad_clue_and_never_duplicates_the_valid_one(self):
         from datetime import datetime,timezone
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -108,26 +113,28 @@ class ClueAPITests(unittest.TestCase):
 
         started=self.api('/api/clues/wechat/run',{'profile_id':'synthetic-partial','enabled':False})
         partial=finished(started['run_id'])
-        self.assertEqual(partial['status'],'partial',partial['output'])
-        self.assertIsNone(partial['exit_code'])
+        # One unusable clue is dropped on its own: the valid sibling is saved and
+        # the batch advances, so the run is not left waiting for a retry.
+        self.assertEqual(partial['status'],'succeeded',partial['output'])
+        self.assertEqual(partial['exit_code'],0)
         self.assertIsNone(partial.get('clue_id'))
         self.assertIsNone(partial.get('publication_error'))
         self.assertFalse(partial['snapshot']['enabled'])
         self.assertEqual(partial['snapshot']['result_destination'],'runs')
         self.assertEqual(partial['snapshot']['execution_trigger'],'manual')
         output=json.loads(partial['output'])
-        self.assertEqual(output['processed'],0)
-        self.assertEqual(output['deferred'],1)
-        self.assertTrue(output['has_more'])
+        self.assertEqual(output['processed'],1)
+        self.assertEqual(output['deferred'],0)
+        self.assertEqual(output['errors'],[])
+        self.assertFalse(output['has_more'])
         self.assertEqual(len(output['clues']),1)
-        self.assertEqual(output['errors'][0]['documents'],1)
-        self.assertEqual(output['errors'][0]['state'],'waiting')
-        self.assertTrue(output['errors'][0]['next_retry_at'])
-        self.assertEqual(primary_and_repair.call_count,2)
-        self.assertTrue(primary_and_repair.call_args_list[1].args[0].endswith('-repair'))
-        self.assertEqual(self.api('/api/clues/wechat/status')['processed_versions'],0)
+        self.assertEqual(output['format']['dropped_clues'],1)
+        self.assertEqual(output['dropped'][0]['reason'],'手抄引用未精确命中本批 evidence')
+        self.assertEqual(primary_and_repair.call_count,1)
+        self.assertEqual(self.api('/api/clues/wechat/status')['processed_versions'],1)
         with pipeline.db() as db:
-            self.assertEqual(db.execute('SELECT COUNT(*) FROM seen').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM seen').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM retry_documents').fetchone()[0],0)
         saved=self.api('/api/clues/'+output['clues'][0])
         self.assertEqual(saved['status'],'candidate')
         self.assertFalse(saved['event_id'])
@@ -140,15 +147,15 @@ class ClueAPITests(unittest.TestCase):
         self.assertEqual(evidence['excerpt'],self.doc['body'])
         self.assertIn('/knowledge.html?document='+source['id'],evidence['origin_url'])
         records=self.api('/api/schedules/runs?'+urllib.parse.urlencode(
-            {'status':'partial','task_id':started['task_id'],'page':1,'page_size':10}))
+            {'status':'succeeded','task_id':started['task_id'],'page':1,'page_size':10}))
         self.assertEqual(records['total'],1)
         self.assertEqual([item['id'] for item in records['runs']],[started['run_id']])
-        self.assertEqual(records['runs'][0]['status'],'partial')
+        self.assertEqual(records['runs'][0]['status'],'succeeded')
         self.assertEqual(self.api('/api/events')['counts']['total'],0)
         self.assertEqual(self.api('/api/events?view=mine')['counts']['mine_actions'],0)
         publisher.assert_not_called()
 
-        # Explicit manual retry must work before the recorded cooldown expires.
+        # A later pass over the same message must not duplicate the saved clue.
         recovered_pi=Mock(return_value=json.dumps({'clues':[valid]},ensure_ascii=False))
         pipeline.call_pi=recovered_pi
         retried=self.api('/api/schedules/'+started['task_id']+'/run',{})
@@ -157,12 +164,12 @@ class ClueAPITests(unittest.TestCase):
         self.assertEqual(recovered['exit_code'],0)
         self.assertIsNone(recovered.get('clue_id'))
         recovery=json.loads(recovered['output'])
-        self.assertEqual(recovery['processed'],1)
-        self.assertEqual(recovery['clues'],output['clues'])
+        self.assertEqual(recovery['processed'],0)
+        self.assertEqual(recovery['clues'],[])
         self.assertEqual(recovery['deferred'],0)
         self.assertEqual(recovery['errors'],[])
         self.assertFalse(recovery['has_more'])
-        recovered_pi.assert_called_once()
+        recovered_pi.assert_not_called()
         self.assertEqual(self.api('/api/clues')['total'],1)
         self.assertEqual(self.api('/api/clues/'+saved['id'])['entries_total'],1)
         self.assertEqual(self.api('/api/clues/wechat/status')['processed_versions'],1)

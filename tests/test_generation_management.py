@@ -1,3 +1,4 @@
+from isolation_patches import module_thread
 import tempfile,unittest
 from unittest.mock import patch
 from server import Store
@@ -6,7 +7,7 @@ class ManagementTests(unittest.TestCase):
  def test_reversible_persistent_image_video_and_atomic_active_guard(self):
   with tempfile.TemporaryDirectory() as d:
    g=Generation(Store(d))
-   with patch('generation.service.threading.Thread'):
+   with module_thread('generation.service'):
     a=g.start({'model':'qi21','prompt':'lake'});g.update(a['id'],status='done')
     b=g.start({'model':'h3','prompt':'lake'})
    with self.assertRaises(ValueError):g.manage([a['id'],b['id']],'delete')

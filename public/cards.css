@@ -1,0 +1,64 @@
+/* 创意回收工厂 · 第二期：候选提示词卡库 */
+.cards-workspace .main{background:linear-gradient(135deg,#eef0fa 0%,#f3f5fb 45%,#eaf1f2 100%)}
+.cd-canvas{flex:1;min-height:0;overflow:auto;padding:28px 34px 70px}
+.cd-heading{margin-bottom:18px}
+.cd-heading h1{font-size:27px;letter-spacing:-.6px;margin:10px 0 8px;color:#24304a}
+.cd-heading p{font-size:13px;line-height:1.9;color:#7f8ca6;margin:0;max-width:780px}
+.cd-side-note{font-size:12px;line-height:1.8;color:#8b95a9;margin:14px 12px 0}
+.cd-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.cd-stats span{font-size:12px;color:#5c6c8c;background:#fff;border:1px solid #e1e7f4;border-radius:999px;padding:6px 12px}
+.cd-toolbar{display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.cd-layout,.cd-kinds{display:flex;gap:6px;flex-wrap:wrap}
+.cd-layout button,.cd-kinds button{border:1px solid #dfe5f1;background:#fff;border-radius:999px;padding:6px 10px;font:inherit;font-size:12px;color:#5c6c8c;cursor:pointer}
+.cd-layout .selected,.cd-kinds .selected{color:#4263eb;border-color:#c9d4f8;background:#edf1ff;font-weight:600}
+.cd-group{display:flex;flex-direction:column;gap:10px;border:1px solid #e1e7f4;border-radius:16px;padding:12px;background:#f7f9fd}
+.cd-group-head{display:flex;flex-direction:column;gap:6px;padding:4px 6px 2px}
+.cd-group-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.cd-group-top h2{font-size:16px;line-height:1.5;margin:0;color:#24304a;min-width:0;flex:1 1 auto;overflow-wrap:anywhere}
+.cd-group-time,.cd-group-link{font-size:12px;color:#8795ae;text-decoration:none}
+/* 原始出处不删：小字等宽，长文件名截断，悬停看全称 */
+.cd-group-origin,.cd-source-name{display:flex;align-items:baseline;gap:7px;margin:0;font-size:11px;min-width:0}
+.cd-group-origin>span,.cd-source-name>span{flex-shrink:0;color:#a3adc0}
+.cd-group-origin>b,.cd-source-name>b{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:400;font-size:11px;line-height:1.7;color:#8b95a9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:all}
+.cd-group-summary{margin:0;font-size:12px;line-height:1.7;color:#5c6c8c}
+.cd-group-summary:not(.cd-group-open) .cd-group-line{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cd-group-more{align-self:flex-start;border:0;background:none;padding:1px 0;font:inherit;font-size:12px;color:#5269c6;cursor:pointer}
+.cd-group-more:hover{text-decoration:underline}
+#cd-search{flex:1;max-width:420px;font:inherit;font-size:13px;background:#fff;color:#33435f;border:1px solid #dfe5f1;border-radius:10px;padding:10px 12px}
+.cd-count{font-size:12px;color:#8795ae}
+.cd-list{display:flex;flex-direction:column;gap:14px}
+.cd-card{background:#fff;border:1px solid #e1e7f4;border-radius:15px;padding:18px 20px;box-shadow:0 10px 30px #243e6908}
+.cd-card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.cd-model{font-size:12px;font-weight:600;color:#3d5bb8;background:#eef3ff;border-radius:8px;padding:5px 10px}
+.cd-status{font-size:11px;border-radius:8px;padding:5px 9px;background:#f2f5fb;color:#5c6c8c}
+.cd-status.cd-confirmed{background:#e9f6ee;color:#2f7a4d}
+.cd-status.cd-rejected{background:#fbeeee;color:#a24c4c}
+.cd-source-state{font-size:11px;color:#8795ae}
+.cd-source-state.cd-source-verified{color:#3f8a5f}
+.cd-source-state.cd-source-stale,.cd-source-state.cd-source-missing{color:#b06a2c}
+.cd-from{font-size:12px;color:#8795ae;overflow-wrap:anywhere}
+/* 回收项已删但卡片保留：说清来源不在了，不弄成悬空链接 */
+.cd-source-deleted{font-size:11px;color:#a85c4c;background:#fdf3f1;border:1px solid #f0d9d3;border-radius:6px;padding:2px 7px}
+.cd-prompt{font-size:15px;line-height:1.85;color:#26324c;margin:0 0 12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.cd-scene,.cd-reason{font-size:12px;line-height:1.8;color:#6b7995;margin:0 0 10px}
+.cd-reason{color:#a24c4c}
+.cd-refs{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
+.cd-ref{border-left:3px solid #d8e2f5;padding:2px 0 2px 10px}
+.cd-ref b{font-size:11px;color:#3d5bb8;margin-right:8px}
+.cd-ref span{font-size:11px;color:#93a0b8}
+.cd-ref em{display:block;font-style:normal;font-size:12px;line-height:1.8;color:#6b7995;margin-top:4px;overflow-wrap:anywhere}
+.cd-knowledge{font-size:12px;color:#3d5bb8;text-decoration:none;align-self:flex-start}
+/* 来源区与备注区分成两块，不再紧贴成一个混合标签 */
+.cd-source-block{display:flex;flex-direction:column;gap:8px;margin:0 0 16px;padding:11px 13px;background:#fafbfe;border:1px solid #eef1f8;border-radius:10px}
+.cd-note-label{display:block;font-size:12px;color:#5f6d88;margin:0 0 12px}
+.cd-note-label>span{display:block;margin-bottom:6px;color:#415273}
+.cd-note-label textarea{font:inherit;font-size:13px;background:#fbfcff;color:#33435f;border:1px solid #dfe5f1;border-radius:10px;padding:10px;width:100%;box-sizing:border-box;resize:vertical}
+.cd-card-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cd-meta{font-size:11px;color:#93a0b8;margin-right:auto}
+.cd-card-foot .button{text-decoration:none}
+.cd-empty{font-size:13px;line-height:1.9;color:#8795ae;background:#fff;border:1px dashed #d8e0ef;border-radius:15px;padding:22px}
+#cd-status{font-size:12px;color:#5c6c8c;margin:14px 0 0;min-height:18px;line-height:1.7;overflow-wrap:anywhere}
+#cd-views{display:grid;gap:5px}
+#cd-views button{border:0;background:none;padding:12px;text-align:left;display:flex;justify-content:space-between;gap:10px;border-radius:8px;font-size:13px;color:#677790;cursor:pointer}
+#cd-views button:hover{background:#f2f5ff}
+#cd-views .selected{color:#4263eb;background:#edf1ff;font-weight:600}

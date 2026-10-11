@@ -10,6 +10,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from isolation_patches import module_time
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from assistant_memory import MemoryTools
 from assistant_memos import MemosTools
@@ -180,7 +182,7 @@ class ScheduledPiToolsTests(unittest.TestCase):
                     if mode == 'cancelled': cancel.set()
                     else: clock[0] = 200.0
                     raise ValueError('合成初始化失败')
-                with patch.object(self.scheduler, 'pi', fail), patch('scheduled_tasks.time.monotonic', side_effect=lambda: clock[0]):
+                with patch.object(self.scheduler, 'pi', fail), module_time('scheduled_tasks', monotonic=lambda: clock[0]):
                     self.scheduler.execute(run, self.task, cancel, self.config)
                 self.assertEqual(self.scheduler.get_run(run)['status'], mode)
         self.cancel.set()

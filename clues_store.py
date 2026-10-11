@@ -17,7 +17,7 @@ from events_store import EventConflict, identity, text, flag, due_time
 
 CATEGORIES={'business':'商单','technology':'新技术','topics':'热点话题','projects':'项目进展','other':'其他'}
 ZONE=ZoneInfo('Asia/Shanghai')
-FIELDS={'title','summary','relevance','categories','priority','kind','tracking','status','tags'}
+FIELDS={'title','summary','relevance','categories','priority','kind','tracking','status','tags','heat','heat_source'}
 TECH_TAGS={'agents':'Agent 与自动化','memory':'记忆与检索','inference':'推理与显存','models':'模型与训练','tools':'开发工具','multimodal':'图像音视频','hardware':'硬件与设备','security':'安全与隐私','other-tech':'未归类技术'}
 TECH_PATTERNS={
  'agents':r'agent|智能体|自动化|工作流|harness|mcp|openclaw|workbuddy',
@@ -45,6 +45,12 @@ def source_clock(snapshot):
         value=p.get('timestamp')
         if type(value) in (float,int) and math.isfinite(value) and 0<value<=253402300799:
             return datetime.fromtimestamp(value,timezone.utc).isoformat(),'微信消息时间'
+    if snapshot.get('kind')=='xradar':
+        from clues_heat import bucket_time, capture_bucket
+        try:
+            bucket=p.get('bucket') or capture_bucket(snapshot.get('captured_at',''))
+            return bucket_time(bucket).isoformat(),'X 雷达观测槽时间（非首发时间）'
+        except (ValueError,TypeError,AttributeError):pass
     if snapshot.get('kind')=='github' and p.get('updated_at'):
         try:
             date=datetime.fromisoformat(p['updated_at'].replace('Z','+00:00'))
@@ -70,6 +76,8 @@ class Clues:
         with self.db() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,data TEXT NOT NULL,revision INTEGER NOT NULL,seen_revision INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS entries(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id),data TEXT NOT NULL,created_at TEXT NOT NULL,clock TEXT NOT NULL,year TEXT NOT NULL,month TEXT NOT NULL,entry_type TEXT NOT NULL,producer_key TEXT UNIQUE);
+            CREATE TABLE IF NOT EXISTS observations(thread_id TEXT NOT NULL REFERENCES threads(id),source TEXT NOT NULL,bucket TEXT NOT NULL,mentions INTEGER NOT NULL DEFAULT 0,talkers INTEGER NOT NULL DEFAULT 0,views INTEGER,site_state TEXT NOT NULL DEFAULT '',captured_at TEXT NOT NULL,bars_recent6 REAL,bars_prev6 REAL,ratio6_site REAL,PRIMARY KEY(thread_id,source,bucket));
+            CREATE INDEX IF NOT EXISTS observations_day ON observations(bucket);
             CREATE INDEX IF NOT EXISTS entries_thread ON entries(thread_id,created_at);
             CREATE INDEX IF NOT EXISTS entries_year ON entries(year,clock);''')
         self.path.chmod(0o600)
@@ -86,7 +94,7 @@ class Clues:
     def _row(self,db,thread_id):
         row=db.execute('SELECT * FROM threads WHERE id=?',(identity(thread_id,'线索编号'),)).fetchone()
         if not row:raise ValueError('线索不存在')
-        data=json.loads(row['data']);data['tags_source']='manual' if isinstance(data.get('tags'),list) else 'suggested';data['tags']=tech_tags(data)
+        data=json.loads(row['data']);data.setdefault('heat','');data.setdefault('heat_source','');data['tags_source']='manual' if isinstance(data.get('tags'),list) else 'suggested';data['tags']=tech_tags(data)
         return {**data,**{k:row[k] for k in ('id','revision','seen_revision','created_at','updated_at')},'unread':row['revision']>row['seen_revision']}
 
     def detail(self,thread_id,offset=0,limit=50):
@@ -112,10 +120,11 @@ class Clues:
         if not isinstance(categories,list) or not categories or len(categories)>5 or any(not isinstance(c,str) or c not in CATEGORIES for c in categories):raise ValueError('请选择有效的线索分类')
         result['categories']=list(dict.fromkeys(categories))
         if len(result['categories'])>1:result['categories']=[c for c in result['categories'] if c!='other']
-        for name,allowed,default in [('priority',{'normal','important'},'normal'),('kind',{'information','discussion'},'information'),('status',{'candidate','verified','archived'},'candidate')]:
+        for name,allowed,default in [('priority',{'normal','important'},'normal'),('kind',{'information','discussion'},'information'),('status',{'candidate','verified','archived'},'candidate'),('heat',{'','rising','peak','fading'},''),('heat_source',{'','site','computed','manual'},'')]:
             value=payload.get(name,before.get(name,default))
             if not isinstance(value,str) or value not in allowed:raise ValueError('线索状态或类型无效')
             result[name]=value
+        if bool(result['heat']) != bool(result['heat_source']):raise ValueError('heat 与 heat_source 必须同时为空或非空')
         result['tracking']=flag(payload.get('tracking',before.get('tracking',False)),'持续跟踪')
         tags=payload.get('tags',before.get('tags') if before.get('tags_source')!='suggested' else None)
         if tags is not None and (not isinstance(tags,list) or len(tags)>len(TECH_TAGS) or any(not isinstance(t,str) or t not in TECH_TAGS for t in tags)):raise ValueError('技术标签无效')
@@ -128,10 +137,14 @@ class Clues:
         picks=payload.get('picks',[])
         snapshots=self.store.events._capture(picks) if picks else []
         for s in snapshots:s['origin_url']=f"/knowledge.html?document={s['document_id']}&start={s['start']}&end={s['end']}&hash={s['hash']}"
-        return self._save(payload,snapshots)
+        if 'heat' in payload and 'heat_source' not in payload:
+            payload={**payload,'heat_source':'manual' if payload['heat'] else ''}
+        return self._save(payload,snapshots,manual_heat=('heat' in payload))
 
     @serialized
-    def _save(self,payload,snapshots,producer_key=None,linked_event=None):
+    def _save(self,payload,snapshots,producer_key=None,linked_event=None,observations=None,manual_heat=False):
+        # WeChat plugin may pass per-message daily observations here at its existing
+        # persist_candidate call; plugin wiring is a separate delivery. No key changes.
         thread_id=identity(payload['id'],'线索编号') if payload.get('id') else uuid.uuid4().hex
         occurred=due_time(payload.get('occurred_at',''))
         with self.db() as db:
@@ -142,6 +155,15 @@ class Clues:
             row=db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone();before=self._row(db,thread_id) if row else None
             if payload.get('id') and not before:raise ValueError('线索不存在')
             if before and (type(payload.get('revision')) is not int or payload['revision']!=before['revision']):raise EventConflict('线索已有新内容，请刷新后再保存')
+            # 人工冻结的 heat 只有两条路能改：显式 manual_heat（公开 save），
+            # 或 payload 自带 heat_source=='manual'。**「没给 heat_source」不等于「人工」** ——
+            # 早先这里用 payload.get('heat_source','manual')!='manual' 判断，
+            # 于是只带 heat 的内部写入会被当成人工改动而放行，把 manual 线索的 heat 改掉、
+            # heat_source 却还挂着 manual（22h-2 L1）。
+            wants_manual=manual_heat or payload.get('heat_source')=='manual'
+            if before and (before.get('heat_source')=='manual' and not wants_manual
+                           or snapshots and before.get('heat_source')=='site' and payload.get('heat_source')=='computed'):
+                payload={**payload,'heat':before.get('heat',''),'heat_source':before['heat_source']}
             fields=self._fields(payload,before)
             if linked_event: fields['event_id']=identity(linked_event,'事项编号')
             reason=text(payload.get('reason',''),'更新原因',2000)
@@ -156,13 +178,52 @@ class Clues:
             db.execute('INSERT INTO threads VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,revision=excluded.revision,updated_at=excluded.updated_at',
                        (thread_id,json.dumps(fields,ensure_ascii=False),revision,0,before['created_at'] if before else stamp,stamp))
             clocks=[source_clock(s) for s in snapshots];known=[c for c in clocks if c[0]]
+            # 时间已知按来源时钟语义归类；未知来源也参与，不能伪称单一来源。
+            clock_sources={c[1] if c[0] else ('unknown',s.get('kind'),s.get('source'))
+                           for s,c in zip(snapshots,clocks)}
             clock=occurred or (max(known,key=lambda c:datetime.fromisoformat(c[0]).timestamp())[0] if known else '')
-            clock_label='人工核对的发生时间' if occurred else '本次依据时间（最近）' if known else '发生时间未知'
+            # 单一来源时说清「这个时间到底是什么」：xradar 是观测槽时间，
+            # 不是话题首发时间（22h-2 M3：source_clock 早就返回了专属 label，
+            # 但这里只取 c[0]、label 一直没落到用户可见处）。
+            # 多来源沿用通用文案：混了不同来源的时钟，说哪一种都不准确。
+            if occurred:
+                clock_label='人工核对的发生时间'
+            elif known and len(clock_sources)==1:
+                clock_label=max(known,key=lambda c:datetime.fromisoformat(c[0]).timestamp())[1]
+            elif known:
+                clock_label='本次依据时间（最近）'
+            else:
+                clock_label='发生时间未知'
             local=datetime.fromisoformat(clock).astimezone(ZONE) if clock else None
             entry_type='evidence' if snapshots else 'edit'
             entry={'revision':revision,'before':old,'after':fields,'note':note,'reason':reason,'evidence':snapshots,'clock_label':clock_label,'occurred_at':occurred}
             db.execute('INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,thread_id,json.dumps(entry,ensure_ascii=False),stamp,clock,str(local.year) if local else 'unknown',f'{local.month:02}' if local else '',entry_type,producer_key))
+            if snapshots:
+                for item in observations or []:self._observe(db,thread_id,item)
         return {'id':thread_id,'revision':revision,'duplicate':False}
+
+    @staticmethod
+    def _observe(db,thread_id,item):
+        from clues_heat import bucket_time, SITE_HEAT
+        bucket_time(item.get('bucket'))
+        source=item.get('source')
+        if source not in ('xradar','github','wechat','run','manual'):raise ValueError('观测来源无效')
+        if source=='xradar' and len(item['bucket'])!=13:raise ValueError('xradar 必须是6h槽')
+        for key in ('mentions','talkers'):
+            if type(item.get(key)) is not int or item[key]<0:raise ValueError('观测计数无效')
+        if item.get('views') is not None and (type(item['views']) is not int or item['views']<0):raise ValueError('观测曝光无效')
+        if item.get('site_state','') not in {'',*SITE_HEAT}:raise ValueError('站方状态无效')
+        date=datetime.fromisoformat(item.get('captured_at','').replace('Z','+00:00'))
+        if date.utcoffset() is None:raise ValueError('观测抓取时间无效')
+        for name in ('bars_recent6','bars_prev6','ratio6_site'):
+            value=item.get(name)
+            if value is not None and (type(value) not in (int,float) or not math.isfinite(value) or value<0):raise ValueError('站内特征无效')
+        names=('source','bucket','mentions','talkers','views','site_state','captured_at','bars_recent6','bars_prev6','ratio6_site')
+        values=[item.get(k,'' if k=='site_state' else None) for k in names]
+        db.execute('INSERT INTO observations VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,source,bucket) DO UPDATE SET mentions=excluded.mentions,talkers=excluded.talkers,views=excluded.views,site_state=excluded.site_state,captured_at=excluded.captured_at,bars_recent6=excluded.bars_recent6,bars_prev6=excluded.bars_prev6,ratio6_site=excluded.ratio6_site',[thread_id,*values])
+
+    def observations(self,thread_id):
+        with self.db() as db:return [dict(r) for r in db.execute('SELECT * FROM observations WHERE thread_id=? ORDER BY bucket,source',(thread_id,))]
 
     def seen(self,thread_id,revision):
         if type(revision) is not int or revision<1:raise ValueError('已读版本无效')
@@ -172,11 +233,12 @@ class Clues:
             db.execute('UPDATE threads SET seen_revision=MAX(seen_revision,?) WHERE id=?',(revision,thread_id))
         return {'ok':True}
 
-    def listing(self,query='',category='',view='all',source='',year='',offset=0,limit=30,tag='',sort='updated',period='',priority=''):
+    def listing(self,query='',category='',view='all',source='',year='',offset=0,limit=30,tag='',sort='updated',period='',priority='',heat=''):
         query=text(query,'检索词',200).casefold();source=text(source,'来源',200)
         if tag and tag not in TECH_TAGS:raise ValueError('技术标签无效')
         if sort not in ('updated','source_desc','source_asc','priority'):raise ValueError('排序无效')
-        if period not in ('','today','7d','30d'):raise ValueError('时间范围无效')
+        if period not in ('','today','yesterday','3d','7d','30d'):raise ValueError('时间范围无效')
+        if heat not in ('','rising','peak','fading'):raise ValueError('heat 无效')
         if priority not in ('','important','normal'):raise ValueError('重要程度无效')
         if category and category not in CATEGORIES:raise ValueError('分类无效')
         if view not in ('all','latest','tracking','discussion','year','unread'):raise ValueError('视图无效')
@@ -197,12 +259,19 @@ class Clues:
             source_time="(SELECT x.clock FROM entries x WHERE x.thread_id=t.id AND x.entry_type='evidence' ORDER BY x.rowid DESC LIMIT 1)"
             if priority:where.append("json_extract(t.data,'$.priority')=?");args.append(priority)
             if period:
+                from datetime import timedelta
                 stamp=datetime.now(ZONE)
-                if period=='today':cutoff=stamp.replace(hour=0,minute=0,second=0,microsecond=0).isoformat()
+                midnight=stamp.replace(hour=0,minute=0,second=0,microsecond=0)
+                if period=='yesterday':
+                    # 昨天是一个完整的日子，必须给出上界：只写下界的话，
+                    # 今天已经发生的原文也会被算进昨天。含下界、不含上界。
+                    where.append(f'julianday({source_time})>=julianday(?) AND julianday({source_time})<julianday(?)')
+                    args.extend([(midnight-timedelta(days=1)).isoformat(),midnight.isoformat()])
+                elif period=='today':
+                    where.append(f'julianday({source_time})>=julianday(?)');args.append(midnight.isoformat())
                 else:
-                    from datetime import timedelta
-                    cutoff=(stamp-timedelta(days=int(period[:-1]))).isoformat()
-                where.append(f'julianday({source_time})>=julianday(?)');args.append(cutoff)
+                    # 3d / 7d / 30d 沿用原有的滚动切点（此刻往前推 N 天），不改口径
+                    where.append(f'julianday({source_time})>=julianday(?)');args.append((stamp-timedelta(days=int(period[:-1]))).isoformat())
             common=' AND '.join(where)
             counts={c:db.execute("SELECT COUNT(*) FROM threads t WHERE "+common+" AND EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)",[*args,c]).fetchone()[0] for c in CATEGORIES}
             if category:where.append("EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)");args.append(category)
@@ -212,6 +281,8 @@ class Clues:
             if view!='all':where.append("json_extract(t.data,'$.status')!='archived'")
             facets=' AND '.join(where)
             tag_counts={r['tag']:r['n'] for r in db.execute('SELECT j.value tag,COUNT(*) n FROM threads t,json_each(tech_tags(t.data)) j WHERE '+facets+' GROUP BY j.value',args)}
+            heat_counts={h:db.execute("SELECT COUNT(*) FROM threads t WHERE "+facets+" AND json_extract(t.data,'$.heat')=?",[*args,h]).fetchone()[0] for h in ('rising','peak','fading')}
+            if heat:where.append("json_extract(t.data,'$.heat')=?");args.append(heat)
             if tag:where.append('EXISTS(SELECT 1 FROM json_each(tech_tags(t.data)) WHERE value=?)');args.append(tag)
             clause=' AND '.join(where)
             total=db.execute('SELECT COUNT(*) FROM threads t WHERE '+clause,args).fetchone()[0]
@@ -236,7 +307,7 @@ class Clues:
                 timeline=[{**dict(r),'data':json.loads(r['data']),'thread':json.loads(r['thread'])} for r in records];total=timeline_total
             years=[r[0] for r in db.execute("SELECT DISTINCT year FROM entries WHERE entry_type='evidence' ORDER BY year DESC")]
             sources=[r[0] for r in db.execute("SELECT DISTINCT json_extract(e.value,'$.source') FROM entries x,json_each(x.data,'$.evidence') e ORDER BY 1")]
-        return {'items':items,'timeline':timeline,'total':total,'next_offset':offset+limit if offset+limit<total else None,'categories':CATEGORIES,'counts':counts,'years':years,'sources':sources,'view':view,'tag_names':TECH_TAGS,'tag_counts':tag_counts,'sort':'source_desc' if view=='year' else sort}
+        return {'items':items,'timeline':timeline,'total':total,'next_offset':offset+limit if offset+limit<total else None,'categories':CATEGORIES,'counts':counts,'years':years,'sources':sources,'view':view,'heat_counts':heat_counts,'heat_names':{'rising':'上升中','peak':'见顶','fading':'退烧'},'tag_names':TECH_TAGS,'tag_counts':tag_counts,'sort':'source_desc' if view=='year' else sort}
 
     @serialized
     def import_event(self,event_id):

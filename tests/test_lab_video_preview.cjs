@@ -7,7 +7,8 @@ const {JSDOM}=require('jsdom');
 
 const root=path.join(__dirname,'..');
 const html=fs.readFileSync(path.join(root,'public/lab.html'),'utf8');
-const scripts=['lab-core.js','lab-management.js','lab.js'].map(name=>({
+// the real lab page loads media-size.js and lab-image.js before lab.js; the harness must mirror it
+const scripts=['lab-core.js','media-size.js','lab-management.js','lab-image.js','lab.js'].map(name=>({
   name,source:fs.readFileSync(path.join(root,'public',name),'utf8').replace(/\nrefreshLab\(true\);\s*$/,'\n')
 }));
 const model={id:'h3',name:'H3',kind:'video',sizes:['768x448'],steps:8,cfg:1};
@@ -60,6 +61,10 @@ function setup(t,jobs=[job()],{rejectPlay=false}={}){
     w.document.querySelector('#media-size').innerHTML=`<option value="${size||value.sizes[0]}">${size||value.sizes[0]}</option>`;
   };
   w.renderLoraFields=()=>{};
+  // media-size.js supplies the size and duration widgets on the real page; this harness
+  // pins the size list, so the duration widget is stubbed to the same fixed value.
+  w.renderMediaFrames=()=>{};
+  w.selectedMediaFrames=()=>56;
   w.selectedMediaSize=()=>w.document.querySelector('#media-size').value;
   w.selectedLoraParameters=()=>({});
   w.videoParameters=()=>({workflow:'t2v',references:{},video_loras:[]});

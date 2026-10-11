@@ -1,4 +1,6 @@
+import importlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -6,7 +8,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from isolation_patches import clock_sequence, module_time
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import assistant_remio
 from assistant_remio import DEFAULT_REMIO, OUTPUT_LIMIT, RAW_OUTPUT_LIMIT, RemioError, RemioTools
 
 
@@ -135,7 +140,7 @@ class RemioToolsTests(unittest.TestCase):
 
             with self.subTest(cancelled=cancelled), patch.object(self.tools, 'available', return_value=True), \
                     patch('assistant_remio.subprocess.Popen', side_effect=launch), \
-                    patch('assistant_remio.time.monotonic', side_effect=[100, 200]):
+                    module_time('assistant_remio', monotonic=clock_sequence([100, 200])):
                 with self.assertRaises(RemioError) as error:
                     self.tools._call(['search_notes'], job)
             self.assertEqual(error.exception.code, 'cancelled' if cancelled else 'timeout')
@@ -312,6 +317,49 @@ class RemioToolsTests(unittest.TestCase):
             with self.assertRaisesRegex(RemioError, '已停止写入'):
                 self.tools.create({'title': 't', 'content': 'body', 'request_id': 'r'}, self.job)
             call.assert_not_called()
+
+
+class RemioDefaultPathTests(unittest.TestCase):
+    """默认 CLI 路径必须可移植：PATH 上的 remio 优先，否则回退到家目录。"""
+
+    def default_with_env(self, env):
+        snapshot = dict(assistant_remio.__dict__)
+        try:
+            with patch.dict('assistant_remio.os.environ', env, clear=True):
+                if 'HOME' in env:
+                    # check_offline 会全局 patch.object(Path, 'home', ...)；重算时按 env 的 HOME 覆盖，
+                    # 保证本类不依赖外部对 Path.home 的固定替身。HOME 缺省时不 patch。
+                    with patch.object(Path, 'home', return_value=Path(env['HOME'])):
+                        importlib.reload(assistant_remio)
+                        return assistant_remio.DEFAULT_REMIO
+                importlib.reload(assistant_remio)
+                return assistant_remio.DEFAULT_REMIO
+        finally:
+            assistant_remio.__dict__.update(snapshot)
+
+    def test_executable_on_path_is_preferred_over_home_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            installed = home / 'bin' / 'remio'
+            installed.parent.mkdir(parents=True)
+            installed.write_text('#!/bin/sh\nexit 0\n')
+            installed.chmod(0o755)
+            self.assertEqual(self.default_with_env({'PATH': str(installed.parent), 'HOME': str(home)}),
+                             str(installed))
+
+    def test_path_without_executable_falls_back_to_home_local_bin(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self.assertEqual(self.default_with_env({'PATH': str(home / 'empty'), 'HOME': str(home)}),
+                             str(home / '.local' / 'bin' / 'remio'))
+
+    def test_constructor_priority_is_argument_then_environment_then_default(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict('assistant_remio.os.environ', {'ARTICLE_STUDIO_REMIO': '/opt/remio/remio'}, clear=True):
+                self.assertEqual(RemioTools(temporary).command, '/opt/remio/remio')
+                self.assertEqual(RemioTools(temporary, command='/bin/echo').command, '/bin/echo')
+            with patch.dict('assistant_remio.os.environ', {}, clear=True):
+                self.assertEqual(RemioTools(temporary).command, DEFAULT_REMIO)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+from isolation_patches import module_thread
 import base64,io,json,tempfile,unittest
 from unittest.mock import patch
 from PIL import Image
@@ -35,7 +36,7 @@ class VideoLabTests(unittest.TestCase):
    g=Generation(Store(tmp));buf=io.BytesIO();Image.new('RGB',(1600,900),'blue').save(buf,format='PNG')
    ref=g.upload_reference({'name':'lake.png','data':base64.b64encode(buf.getvalue()).decode()})
    self.assertEqual(ref['width'],1280)
-   with patch('generation.service.threading.Thread'):
+   with module_thread('generation.service'):
     job=g.start({'model':'h3','size':'768x448','prompt':'lake','workflow':'i2v','references':{'first':ref['id']}})
    graph=json.loads((g.folder/job['id']/'workflow.json').read_text())
    self.assertIn('imageB64',json.loads(graph['5']['inputs']['timeline_data'])['global']['genImage'])

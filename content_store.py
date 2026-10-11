@@ -186,3 +186,4 @@ class ContentMixin(PublishingMixin):
         for asset in assets(value):
             asset['url'] = self.asset_url(slug, revision, asset['file'])
         return value
+

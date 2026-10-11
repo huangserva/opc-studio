@@ -96,6 +96,7 @@ class PublicationMetrics:
         self.store=store
         self.lock=threading.RLock()
         self._observations = None
+        self._reviews = None
         self.root=Path(store.workspace)/'publication-feedback'
         self.root.mkdir(parents=True,exist_ok=True,mode=0o700)
         os.chmod(self.root,0o700)
@@ -125,6 +126,16 @@ class PublicationMetrics:
                 self._observations = PublicationObservations(self)
             return self._observations
 
+    @property
+    def reviews(self):
+        # The review view is opened on purpose: loading the feedback page must not
+        # read every work or reach any remote service.
+        with self.lock:
+            if self._reviews is None:
+                from publication_reviews import PublicationReviews
+                self._reviews = PublicationReviews(self)
+            return self._reviews
+
     @contextmanager
     def db(self,write=False):
         c=sqlite3.connect(self.path,timeout=30,isolation_level=None)
@@ -141,8 +152,10 @@ class PublicationMetrics:
 
     @staticmethod
     def capabilities():
+        from publication_reviews import METRIC_FIELDS
         return {'platforms':PLATFORMS,'max_metrics':40,'max_csv_chars':MAX_CSV,'max_csv_rows':1000,
-                'range_kinds':['interval','cumulative'],'platform_verified':False,'notice':NOTICE}
+                'range_kinds':['interval','cumulative'],'platform_verified':False,'notice':NOTICE,
+                'metric_fields':METRIC_FIELDS}
 
     def _binding(self,slug,delivery_id,platform=None,version=None):
         slug_value(slug);identity(delivery_id)

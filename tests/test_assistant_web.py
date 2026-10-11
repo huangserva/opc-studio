@@ -76,7 +76,13 @@ class WebToolsTests(unittest.TestCase):
 
     def test_timeout_and_per_turn_limit_are_enforced(self):
         self.job['web_calls']=8
-        with patch.object(self.web, 'available', return_value=True):
+        # hygiene-4：次数上限检查在 available() 之后，干净克隆里 self.web.command 为 None，
+        # 会先报「联网服务未就绪」而够不到「上限」那条分支。这是前置条件没给好，不是外部依赖，
+        # 所以按同文件既有写法先摆一个假命令（临时目录脚本 + chmod 0o700），断言内容不变。
+        with tempfile.TemporaryDirectory() as d:
+            script=Path(d)/'remio-fixture'
+            script.write_text('#!/usr/bin/env python3\nimport json\nprint(json.dumps({"ok":True,"result":"x"}))\n')
+            script.chmod(0o700);self.web.command=str(script)
             with self.assertRaisesRegex(ValueError,'上限'):self.web.call(['web_search'],self.job)
         self.job['web_calls']=0
         with tempfile.TemporaryDirectory() as d:

@@ -7,8 +7,21 @@ import unittest
 from datetime import datetime,timezone
 from server import Store
 from knowledge_store import Knowledge
+from isolation_patches import WECHAT_SOURCE_REASON, wechat_source_available
+# hygiene-4：下面的 import 会加载微信来源插件（clue_pipeline 等在模块级调
+# wechat_source_loader.source_module）。插件由 ARTICLE_STUDIO_WECHAT_MODULE 或
+# workspace/sources/wechat.json 指定，两者都是本机资源，不进公开仓库；
+# 干净克隆里没有它，这里直接跳过整个模块（unittest 会把 SkipTest 记成 skip
+# 而不是 error）。本机配置齐全时行为与从前逐字一致。
+if not wechat_source_available():
+    raise unittest.SkipTest(WECHAT_SOURCE_REASON)
+
 from clue_pipeline import CluePipeline
 from scheduled_tasks import ScheduledTasks
+from isolation_patches import module_time
+from wechat_source_loader import source_module
+
+_clue_source = source_module('clue_pipeline')
 
 class PipelineTests(unittest.TestCase):
     def setUp(self):
@@ -41,13 +54,49 @@ class PipelineTests(unittest.TestCase):
         result=self.run_analysis('{"clues":[]}');self.assertEqual(json.loads(result[2])['clues'],[])
         self.assertEqual(self.pipeline.status()['processed_versions'],1);self.assertEqual(self.store.clues.listing()['total'],0)
     def test_invalid_json_or_invented_quote_cannot_advance(self):
-        for answer in ['not json',self.answer(quotes=[{'id':self.doc['id'],'text':'模型杜撰的原文'}]),self.answer(quotes=[{'id':'f'*32,'text':'外部资料'}])]:
-            result=self.run_analysis(answer);self.assertEqual(result[0],'failed');self.assertTrue(json.loads(result[2])['errors'])
-            self.assertEqual(self.pipeline.status()['processed_versions'],0);self.assertEqual(self.store.clues.listing()['total'],0)
-    def test_invalid_category_and_injected_action_rejected(self):
-        for answer in [self.answer(categories=['invalid']),self.answer(actions=['自动发送邮件'])]:
-            result=self.run_analysis(answer);self.assertEqual(result[0],'failed');self.assertTrue(json.loads(result[2])['errors'])
+        # Unparseable output is the only format case that still defers the batch.
+        result=self.run_analysis('not json');self.assertEqual(result[0],'failed');self.assertTrue(json.loads(result[2])['errors'])
+        self.assertEqual(self.pipeline.status()['processed_versions'],0);self.assertEqual(self.store.clues.listing()['total'],0)
+        # A hand-copied or invented quote drops only that clue: nothing is saved,
+        # the message stays unprocessed and returns to the retry queue.
+        result=self.run_analysis(self.answer(quotes=[{'id':self.doc['id'],'text':'模型杜撰的原文'}]));data=json.loads(result[2])
+        self.assertEqual(len(data['dropped']),1);self.assertEqual(data['deferred'],1)
+        self.assertEqual(self.pipeline.status()['processed_versions'],0);self.assertEqual(self.store.clues.listing()['total'],0)
+    def test_a_message_is_marked_handled_only_after_three_cumulative_drops(self):
+        # Every pass drops the same unusable clue and returns the message to the
+        # existing retry queue; only the third drop stops retrying it.
+        answer=self.answer(quotes=[{'id':'f'*32,'text':'外部资料'}])
+        for attempts in (1,2):
+            data=json.loads(self.run_analysis(answer)[2])
+            self.assertEqual(data['dropped'][0]['attempts'],attempts)
+            self.assertEqual(data['dropped'][0]['state'],'waiting')
+            self.assertEqual(data['deferred'],1)
+            self.assertEqual(self.pipeline.status()['processed_versions'],0)
+            self.assertEqual(self.store.clues.listing()['total'],0)
+        data=json.loads(self.run_analysis(answer)[2])
+        self.assertEqual(data['dropped'][0]['attempts'],3)
+        self.assertEqual(data['dropped'][0]['state'],'handled')
+        self.assertEqual(self.pipeline.status()['processed_versions'],1)
         self.assertEqual(self.store.clues.listing()['total'],0)
+        with self.pipeline.db() as db:
+            # The drop record stays even though the message stops being retried.
+            self.assertEqual(db.execute('SELECT state FROM failed_batches').fetchone()['state'],'resolved')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM retry_documents').fetchone()[0],0)
+    def test_invalid_category_drops_only_that_clue(self):
+        result=self.run_analysis(self.answer(categories=['invalid']));data=json.loads(result[2])
+        self.assertEqual(self.store.clues.listing()['total'],0)
+        self.assertEqual(len(data['dropped']),1);self.assertEqual(data['deferred'],1)
+        self.assertIn('模型分类无效',data['dropped'][0]['reason'])
+        self.assertEqual(data['format']['dropped_clues'],1)
+        self.assertEqual(self.pipeline.status()['processed_versions'],0)
+    def test_injected_action_field_is_ignored_counted_and_never_stored(self):
+        result=self.run_analysis(self.answer(actions=['自动发送邮件'],confidence=0.9));data=json.loads(result[2])
+        self.assertEqual(data['format']['ignored_fields'],2)
+        self.assertEqual(len(data['clues']),1)
+        clue=self.store.clues.detail(data['clues'][0])
+        self.assertNotIn('actions',clue);self.assertNotIn('confidence',clue)
+        self.assertEqual(clue['status'],'candidate')
+        self.assertEqual(self.store.events.list_events()['events'],[])
     def test_chat_discussion_cannot_merge_different_chats(self):
         other=self.add('m2','另一群的合成消息',chat='different')
         with self.assertRaises(ValueError):self.pipeline.parse(self.answer(kind='discussion',quotes=[{'id':self.doc['id'],'text':self.doc['body']},{'id':other['id'],'text':other['body']}]),[self.doc,other])
@@ -69,6 +118,13 @@ class PipelineTests(unittest.TestCase):
         self.add('mail','合成邮件不是本次范围',source='gmail')
         result=self.run_analysis('{"clues":[]}');self.assertEqual(json.loads(result[2])['processed'],30);self.assertTrue(json.loads(result[2])['has_more'])
         self.assertEqual(self.pipeline.path.stat().st_mode&0o777,0o600)
+    def test_retry_policy_does_not_change_success_checkpoint(self):
+        self.run_analysis()
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM retry_policy').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM seen').fetchone()[0], 1)
+        self.assertEqual(self.store.clues.listing()['total'], 1)
+
     def test_repeat_batch_commit_recovers_without_duplicate_clue(self):
         self.run_analysis()
         with self.pipeline.db() as db:db.execute('DELETE FROM seen')
@@ -100,11 +156,22 @@ class PipelineTests(unittest.TestCase):
         calls=[]
         def model(identity,prompt,*args):
             calls.append((identity,prompt))
-            return self.answer(quotes=[]) if len(calls)==1 else self.answer()
+            return 'not json' if len(calls)==1 else self.answer()
         self.pipeline.call_pi=model
         result=self.pipeline.analyze('a'*32,{'body':'范围'},threading.Event(),self.config,time.monotonic()+30)
         self.assertEqual(result[0],'succeeded');self.assertEqual(len(calls),2)
         self.assertIn('-repair',calls[1][0]);self.assertTrue(calls[1][1].startswith(calls[0][1]))
+    def test_one_bad_clue_is_dropped_without_a_second_model_call(self):
+        calls=[]
+        def model(identity,prompt,*args):
+            calls.append((identity,prompt));return self.answer(quotes=[])
+        self.pipeline.call_pi=model
+        result=self.pipeline.analyze('a'*32,{'body':'范围'},threading.Event(),self.config,time.monotonic()+30)
+        data=json.loads(result[2])
+        self.assertEqual(len(calls),1)
+        self.assertEqual(data['format']['dropped_clues'],1);self.assertEqual(data['deferred'],1)
+        self.assertEqual(self.store.clues.listing()['total'],0)
+        self.assertEqual(self.pipeline.status()['processed_versions'],0)
     def test_incremental_captures_before_pi_and_continues_beyond_thirty(self):
         for i in range(44):self.add('inc'+str(i),'增量文本 '+str(i))
         calls=[]
@@ -135,15 +202,14 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.pipeline.prepare_cache(threading.Event(),time.monotonic()+30)
 
     def test_time_budget_yields_and_next_run_resumes_without_fixed_quota(self):
-        from unittest.mock import patch
         for i in range(44):self.add('time'+str(i),'待续文本 '+str(i))
         self.pipeline.prepare_cache=lambda *args:{'index_status':'ready'}
         clock=[0]
         def model(*args):clock[0]+=20;return '{"clues":[]}'
         self.pipeline.call_pi=model
-        with patch('clue_pipeline.time.monotonic',side_effect=lambda:clock[0]):
+        with module_time(_clue_source,monotonic=lambda:clock[0]):
             result=self.pipeline.analyze('a'*32,{'body':'范围','wechat_mode':'incremental'},threading.Event(),self.config,45)
-        data=json.loads(result[2]);self.assertEqual(result[0],'succeeded');self.assertEqual(data['processed'],20);self.assertTrue(data['has_more'])
+        data=json.loads(result[2]);self.assertEqual(result[0],'partial');self.assertTrue(data['time_budget']);self.assertEqual(data['processed'],20);self.assertTrue(data['has_more'])
         self.pipeline.call_pi=lambda *args:'{"clues":[]}'
         result=self.pipeline.analyze('b'*32,{'body':'范围','wechat_mode':'incremental'},threading.Event(),self.config,time.monotonic()+30)
         self.assertEqual(json.loads(result[2])['processed'],25);self.assertEqual(self.pipeline.status()['processed_versions'],45)

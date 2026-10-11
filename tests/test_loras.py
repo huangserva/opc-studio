@@ -39,11 +39,16 @@ class LoraTests(unittest.TestCase):
             restored.generation=Generation(store)
             self.assertEqual(restored.media_preferences()['image']['lora'],'xhs')
             self.assertEqual(restored.capabilities('image')['models'][1]['loras'][0]['id'],'xhs')
-            # Krea2 is not served by the 4090 media API: submitting it must fail loudly
+            # Krea2 is served by the 4090 media API: submitting it creates a job that keeps
+            # the stored recipe's real LoRA settings (id, strength, trigger).
             with patch.object(Generation,'_spawn',lambda _s,*a:None):
-                with self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):
-                    restored.start({'message':'mountain lake','tool':'image','request_id':'a'*32})
-            self.assertEqual(restored.generation.listing()['jobs'],[])
+                krea=restored.start({'message':'mountain lake','tool':'image','request_id':'a'*32})
+            kjob=restored.generation.public(krea['media_job'])
+            self.assertEqual(kjob['model'],'krea2')
+            self.assertEqual(kjob['settings']['lora'],'xhs')
+            self.assertEqual(kjob['settings']['lora_strength'],0.65)
+            self.assertEqual(kjob['settings']['size'],'768x512')
+            self.assertEqual(len(restored.generation.listing()['jobs']),1)
             # the stored Krea2 recipe is still resolved and validated with its real settings
             _,lora_prompt,lora_settings,_=build({'model':'krea2','prompt':'mountain lake','size':'768x512',
                                                  'lora':'xhs','lora_strength':0.65,'lora_trigger':'old trigger'},'pref')
@@ -71,7 +76,9 @@ class LoraTests(unittest.TestCase):
             restored.generation.update(switched['media_job'],status='error')
             with patch.object(Generation,'_spawn',lambda _s,*a:None):
                 raw={'model':'krea2','prompt':'lake','lora':'xhs','request_id':'d'*32}
-                with self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):restored.generation.start(raw)
-                with self.assertRaises(ValueError):restored.generation.start({**raw,'lora':'social','request_id':'e'*32})
+                krea2_job=restored.generation.start(raw)
+                self.assertEqual(restored.generation.public(krea2_job['id'])['settings']['lora'],'xhs')
+                # an unknown LoRA id is still rejected before anything is queued
+                with self.assertRaises(ValueError):restored.generation.start({**raw,'lora':'no-such-lora','request_id':'e'*32})
 
 if __name__=='__main__':unittest.main()

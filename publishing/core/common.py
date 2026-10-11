@@ -45,3 +45,4 @@ def under(root, relative):
 def normalized(text):
     # Only whitespace is ignored. Punctuation, case and characters are preserved.
     return re.sub(r'\s+', '', text)
+

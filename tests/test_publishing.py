@@ -47,7 +47,7 @@ class PublishingTests(unittest.TestCase):
         self.store.save(slug,{'base_version':'v0002','title':'新串文','blocks':[{'kind':'text','html':'<p>新正文</p>'}]})
         self.assertEqual(self.plan(slug)['posts'][0]['text'],'第一条')
         a=self.store.create({'title':'长文','type':'article'})
-        p=self.plan(a['slug'],version='v0001',options={'account':'demo_account'})
+        p=self.plan(a['slug'],version='v0001',options={'account':'servasyy'})
         self.assertEqual(p['transport'],'browser_article_draft')
         self.assertNotIn('buffer_input',p)
         for platform in ('xiaohongshu','douyin','channels'):

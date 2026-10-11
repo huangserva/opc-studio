@@ -1,4 +1,5 @@
 const PLATFORM_NAMES={x:'X',xiaohongshu:'小红书',douyin:'抖音',channels:'视频号',wechat:'微信公众号'};
+const DELIVERY_LABELS={published_manual:'已发布 · 手动登记',published_browser:'已发布 · 本机浏览器',buffer_in_progress:'Buffer 提交中 · 结果未确认',buffer_unknown:'Buffer 结果待核实',buffer_draft:'Buffer 草稿箱',buffer_submitted:'已提交 Buffer · 立即发布',buffer_published:'已发布 · Buffer',buffer_failed:'Buffer 提交失败',exported:'已导出 · 尚未确认发布'};
 function assetURL(asset){return asset?.url||asset?.preview_url||'';}
 function videoMarkup(video,poster){return video?`<video class="content-video" controls playsinline preload="metadata" src="${escapeHTML(assetURL(video))}" ${poster?`poster="${escapeHTML(assetURL(poster))}"`:''}></video><small class="media-filename">${escapeHTML(video.name||'视频成片')} · ${(video.bytes/1024/1024).toFixed(1)} MB</small>`:'<div class="video-empty"><span>▷</span><strong>把成片放到这里</strong><p>支持 MP4、WebM、MOV，最大 1 GB<br>建议使用 H.264 / AAC 编码的 MP4</p></div>';}
 function renderContentExtras(){
@@ -77,10 +78,11 @@ function renderPublishing(){
   $('#export-package').onclick=()=>exportPackage().catch(e=>toast(e.message));
   $('#record-published').onclick=()=>recordPublished().catch(e=>toast(e.message));
   if(platform==='x' && s.type==='article')mountLocalPublishing();
+  if(platform==='x' && s.type==='post')mountBufferPublishing();
 }
 function deliveryMarkup(platform){
   const records=state.article.deliveries.filter(r=>r.platform===platform).slice().reverse();
-  return records.length?records.map(r=>`<div class="delivery-entry"><strong>${r.kind==='published_manual'?'已发布 · 手动登记':r.kind==='published_browser'?'已发布 · 本机浏览器':'已导出 · 尚未确认发布'}</strong><small>${versionName(r.version)} · ${date(r.created_at)} ${escapeHTML(r.account||'')}</small>${r.url?`<a href="${escapeHTML(r.url)}" target="_blank" rel="noopener noreferrer">查看发布链接 ↗</a>`:''}</div>`).join(''):'<p class="muted">还没有发布记录</p>';
+  return records.length?records.map(r=>`<div class="delivery-entry"><strong>${DELIVERY_LABELS[r.kind]||'已导出 · 尚未确认发布'}</strong><small>${versionName(r.version)} · ${date(r.created_at)} ${escapeHTML(r.account||'')}</small>${r.message?`<p class="delivery-message">${escapeHTML(r.message)}</p>`:''}${r.buffer_status?`<small>Buffer 状态：${escapeHTML(String(r.buffer_status))}</small>`:''}${r.url?`<a href="${escapeHTML(r.url)}" target="_blank" rel="noopener noreferrer">查看发布链接 ↗</a>`:''}</div>`).join(''):'<p class="muted">还没有发布记录</p>';
 }
 async function exportPackage(){
   if(state.dirty){toast('请先保存新版本，再导出对应素材');return;}

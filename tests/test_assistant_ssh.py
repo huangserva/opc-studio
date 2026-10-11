@@ -19,15 +19,15 @@ class SSHValidationTests(unittest.TestCase):
             'nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv,noheader,nounits',
             'nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv',
             'ps aux', 'ps -ef', 'ps -eo pid,comm,args --sort=-rss',
-            'ls -lah /home/studio/models', 'pwd', 'uname -a', 'df -h',
-            'du -sh /home/studio/models', 'free -h', 'uptime -p',
-            "stat --format='%n %s' /home/studio/models/model.safetensors",
+            'ls -lah /home/admin01/models', 'pwd', 'uname -a', 'df -h',
+            'du -sh /home/admin01/models', 'free -h', 'uptime -p',
+            "stat --format='%n %s' /home/admin01/models/model.safetensors",
             "head -n 30 '/var/log/gpu service.log'", 'tail -n200 /var/log/h3.log',
-            'cat /etc/os-release', 'readlink -f /home/studio/models/current',
+            'cat /etc/os-release', 'readlink -f /home/admin01/models/current',
             'which nvidia-smi python3', 'rg -n -i error /var/log/h3.log',
-            "find /home/studio/models -maxdepth 2 -type f -name '*.safetensors' -print",
-            "find /home/studio/models -type f -name '*刀斧手*' -print",
-            "find /home/studio/models -iname '*社交媒体大片*' -print",
+            "find /home/admin01/models -maxdepth 2 -type f -name '*.safetensors' -print",
+            "find /home/admin01/models -type f -name '*刀斧手*' -print",
+            "find /home/admin01/models -iname '*社交媒体大片*' -print",
             'systemctl --no-pager status h3.service', 'systemctl is-active h3.service',
             'systemctl is-enabled h3.service', 'systemctl show h3.service -p MainPID,ActiveState',
             'systemctl list-units --type=service', 'systemctl list-unit-files',
@@ -57,19 +57,19 @@ class SSHValidationTests(unittest.TestCase):
             'find /tmp -fprint /tmp/out', 'find /tmp -fprintf /tmp/out xx',
             'rg --pre touch error /var/log/h3.log', 'rg --passthru error /var/log/h3.log',
             'rg -z error /var/log/h3.log', 'rg --search-zip error /var/log/h3.log',
-            'rg --file=/tmp/patterns /var/log/h3.log', 'rg --hidden error /home/studio',
+            'rg --file=/tmp/patterns /var/log/h3.log', 'rg --hidden error /home/admin01',
         ]
         for command in commands:
             with self.subTest(command=command), self.assertRaises(ValueError):
                 validate_command(command)
 
     def test_explicit_credential_special_and_binary_paths_are_rejected(self):
-        paths = ['/home/studio/.ssh/config', '/home/studio/.aws/config',
+        paths = ['/home/admin01/.ssh/config', '/home/admin01/.aws/config',
                  '/srv/.env', '/srv/.envrc', '/srv/.env.production', '/srv/secrets/models.json',
                  '/srv/token.json', '/srv/api_key.txt', '/srv/id_rsa',
-                 '/srv/private.pem', '/etc/../etc/shadow', '/etc/ssh/ssh_host_ed25519_key', '/home/studio/.bash_history',
-                 '/home/studio/.config/gcloud/configurations/default',
-                 '/home/studio/.docker/config.json', '/dev/zero',
+                 '/srv/private.pem', '/etc/../etc/shadow', '/etc/ssh/ssh_host_ed25519_key', '/home/admin01/.bash_history',
+                 '/home/admin01/.config/gcloud/configurations/default',
+                 '/home/admin01/.docker/config.json', '/dev/zero',
                  '/proc/123/fd/1', '/proc/self/environ', '/proc/123/mem']
         for path in paths:
             for command in ('ls', 'cat', 'head', 'tail', 'rg -n error'):
@@ -159,9 +159,9 @@ class SSHExecutionTests(unittest.TestCase):
         self.assertIn('输出已截断', result['summary'])
 
     def test_unicode_char_limit_counts_decoded_characters(self):
-        script = "import os; data=('用户'*20000).encode(); [os.write(1, data[i:i+103]) for i in range(0,len(data),103)]"
+        script = "import os; data=('黄总'*20000).encode(); [os.write(1, data[i:i+103]) for i in range(0,len(data),103)]"
         result, _ = self.run_child(script, max_output_chars=13)
-        self.assertEqual(result['stdout'], ('用户' * 7)[:13])
+        self.assertEqual(result['stdout'], ('黄总' * 7)[:13])
         self.assertNotIn('\ufffd', result['stdout'])
         self.assertTrue(result['truncated'])
 

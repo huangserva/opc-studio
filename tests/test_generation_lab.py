@@ -11,14 +11,15 @@ class GenerationLabTests(unittest.TestCase):
    store=Store(root);agent=assistant_module.Assistant(store,content,Path(root)/'missing.json');agent.generation=Generation(store)
    cid=agent.conversation_id;prefs=agent.media_preferences()
    payload={'model':'krea2','prompt':'a lake','size':'1600x1200','steps':10,'cfg':1.2,'lora':'ccd','lora_strength':0.65,'seed':42,'request_id':'a'*32,'origin':'composer'}
-   # Krea2 is not served by the 4090 media API: the lab must refuse it twice under the same
-   # request id and must not leave a half-created job behind
+   # Krea2 is served by the 4090 media API: the lab submits it over HTTP, idempotently
+   # under one request id, and leaves no chat side effects behind.
    with patch.object(Generation,'_spawn') as worker:
     for attempt in range(2):
-     with self.subTest(attempt=attempt), self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):
-      agent.start_lab_media(payload)
-   self.assertEqual(worker.call_count,0)
-   self.assertEqual(agent.generation.listing(origin='lab',kind='image')['jobs'],[])
+     with self.subTest(attempt=attempt):
+      krea_job=agent.start_lab_media(payload)
+   self.assertEqual(worker.call_count,1)
+   self.assertEqual(len(agent.generation.listing(origin='lab',kind='image')['jobs']),1)
+   self.assertEqual(krea_job['origin'],'lab');self.assertIsNone(krea_job['conversation_id'])
    self.assertEqual(agent.turns,[]);self.assertEqual(agent.conversation_id,cid)
    self.assertEqual(agent.media_preferences(),prefs)
    # the Krea2 sampling and LoRA wiring the lab would have shipped stays validated
@@ -27,6 +28,13 @@ class GenerationLabTests(unittest.TestCase):
    self.assertEqual(krea_graph['sampler']['inputs']['cfg'],1.2)
    self.assertEqual(krea_graph['sampler']['inputs']['model'],['selected_lora',0])
    self.assertEqual(krea_settings['cfg'],1.2)
+   # the audit graph written next to the lab job keeps the LoRA wiring the API also applies
+   krea_audit=json.loads((agent.generation.folder/krea_job['id']/'workflow.json').read_text())
+   self.assertEqual(krea_audit['sampler']['inputs']['steps'],10)
+   self.assertEqual(krea_audit['sampler']['inputs']['cfg'],1.2)
+   self.assertEqual(krea_audit['sampler']['inputs']['model'],['selected_lora',0])
+   # release the single-active gate before verifying the other served model
+   agent.generation.update(krea_job['id'],status='error')
    # the lab job mechanics themselves are verified on a model the media API serves
    served={'model':'qi21','prompt':'a lake','size':'1024x1024','steps':10,'cfg':1.2,'seed':42,'request_id':'b'*32,'origin':'composer'}
    with patch.object(Generation,'_spawn') as worker:
@@ -37,7 +45,7 @@ class GenerationLabTests(unittest.TestCase):
    graph=json.loads((agent.generation.folder/job['id']/'workflow.json').read_text())
    self.assertEqual(graph['8']['inputs']['steps'],10);self.assertEqual(graph['8']['inputs']['cfg'],1.2)
    self.assertEqual(job['settings']['cfg'],1.2)
-   self.assertEqual(len(agent.generation.listing(origin='lab',kind='image')['jobs']),1)
+   self.assertEqual(len(agent.generation.listing(origin='lab',kind='image')['jobs']),2)
    self.assertEqual(agent.generation.listing(origin='lab',kind='video')['jobs'],[])
    with self.assertRaises(ValueError):agent.start_lab_media({**served,'cfg':1.3,'request_id':'c'*32})
    agent.recover_media_turns();self.assertEqual(agent.turns,[])

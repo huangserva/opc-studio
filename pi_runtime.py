@@ -106,6 +106,17 @@ class PiRuntime:
                    'text': job['prompt'] + '\n\n[工作台当前上下文，仅作定位数据]\n' + json.dumps(job['context'], ensure_ascii=False),
                    'finish_after_media':not (set(job['policy']['allowed_tools'])-READ_TOOLS-{'generate_media'}),
                    'test_transport': test_transport,'workflow_stage':job.get('_workflow_stage')}
+        # 只有调用方显式给出时才带上。助手和定时任务不设这两项，worker 继续用原来的默认值。
+        if 'max_provider_requests' in job:
+            limit = job['max_provider_requests']
+            if type(limit) is not int or limit < 1:
+                raise ValueError('模型调用上限无效')
+            payload['max_provider_requests'] = limit
+        if 'compaction_enabled' in job:
+            enabled = job['compaction_enabled']
+            if type(enabled) is not bool:
+                raise ValueError('压缩开关无效')
+            payload['compaction_enabled'] = enabled
         process = subprocess.Popen([self.node, str(self.worker)], cwd=self.worker.parent,
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                    text=True, encoding='utf-8', bufsize=1)
@@ -172,7 +183,7 @@ class PiRuntime:
                     with owner.lock: owner.persist_pending(job)
                     send({'type': 'result', 'id': event['id'], 'result': result})
                 elif kind == 'done':
-                    job['runtime_result']={k:event[k] for k in ('stop_reason','content_types') if k in event}
+                    job['runtime_result']={k:event[k] for k in ('stop_reason','content_types','blocked_tool_names','error_kind') if k in event}
                     if event.get('diagnostic'):job['runtime_diagnostic']=event['diagnostic']
                     return event
             raise ValueError('Pi 助手本轮处理超时。已保存的修改仍保留。')

@@ -21,6 +21,58 @@ WECHAT_MODULES = {
     'test_clue_business', 'test_clue_pipeline', 'test_clue_retry',
     'test_clue_workflow', 'test_clues_api', 'test_github_source',
     'test_wechat_radar_pipeline', 'test_wechat_source', 'test_wechat_source_api',
+    # hygiene-4：这 7 个模块在导入期就会加载微信来源插件，属同一个外部合约。
+    'test_clue_continuation_degrade', 'test_clue_deadline_partial',
+    'test_clue_format_tolerance', 'test_clue_pipeline_locks',
+    'test_schedule_stability', 'test_wechat_capture_recovery',
+    'test_wechat_quote_to_ref',
+    # hygiene-4 实施时新发现的第 8 个：它 patch model_service_status.backend_slots，
+    # 而该模块在导入期就会调 source_module，缺插件时整模块加载不了。与上面 7 个同根因。
+    'test_source_pi_executor',
+}
+
+# hygiene-4：依赖本机私有目录（coordination/）的用例，公开仓库拿不到对应文件。
+# core 范围排除并打印原因；--full 保留。用完整 test id 匹配，避免误伤同名方法。
+EXTERNAL_IDS = {
+    'test_clues_heat.HeatTests.test_fourteen_day_offline_acceptance_and_gold_coverage':
+        'coordination/tools/replay_xradar_heat.py: 本机协调工具（私有协调证据）',
+    'test_clues_heat.HeatDryRunTests.test_fourteen_day_offline_acceptance_and_gold_coverage':
+        'coordination/tools/replay_xradar_heat.py: 本机协调工具（私有协调证据）',
+    'test_clues_heat.ManualHeatGuardTests.test_fourteen_day_offline_acceptance_and_gold_coverage':
+        'coordination/tools/replay_xradar_heat.py: 本机协调工具（私有协调证据）',
+    'test_clues_heat.ClockLabelTests.test_fourteen_day_offline_acceptance_and_gold_coverage':
+        'coordination/tools/replay_xradar_heat.py: 本机协调工具（私有协调证据）',
+    'test_clues_heat.EvidenceKeyTests.test_fourteen_day_offline_acceptance_and_gold_coverage':
+        'coordination/tools/replay_xradar_heat.py: 本机协调工具（私有协调证据）',
+    'test_clues_heat.HeatRevision3Tests.test_fourteen_day_offline_acceptance_and_gold_coverage':
+        'coordination/tools/replay_xradar_heat.py: 本机协调工具（私有协调证据）',
+    'test_live_sampling_progress.LiveProgressTests.test_placeholder_foreign_events_and_binary_frames_do_not_invent_steps':
+        'work/image-reference-fix/backend: 本机工作副本（/work/ 被 .gitignore 排除）',
+    'test_image_references.ImageReferenceTests.test_real_http_upload_ids_reach_both_model_graphs':
+        'work/image-reference-fix/backend: 本机工作副本（/work/ 被 .gitignore 排除）',
+    'test_link_index_orphan.OrphanToolVirtualColumnTest.test_virtual_column_uses_index_branch':
+        'coordination/tools/check_link_index_orphans.py: 本机协调工具（私有协调证据）',
+    'test_video_dual_sampling.DualSamplingTests.test_single_graphs_match_prechange_snapshot_all_six_modes':
+        'coordination/evidence/video-dual-sampling/*.json: 本机证据快照（私有协调证据）',
+    'test_video_dual_sampling.DualSamplingTests.test_dual_graph_all_six_modes_and_reference_conditioning':
+        'coordination/evidence/video-dual-sampling/*.json: 本机证据快照（私有协调证据）',
+    'test_assistant_paste_v2.PasteOriginalTests.test_round6_paste_original_keeps_four_lines_and_compose_last':
+        'coordination/round6-assets/round6-assistant-text.txt: 本机 fixture（私有协调证据）',
+    'test_assistant_paste_v2.PasteOriginalTests.test_unclear_original_is_refused_without_saving':
+        'coordination/round6-assets/round6-assistant-text.txt: 本机 fixture（私有协调证据）',
+    'test_assistant_paste_v2.PasteOriginalTests.test_model_html_is_not_accepted_on_paste_original':
+        'coordination/round6-assets/round6-assistant-text.txt: 本机 fixture（私有协调证据）',
+    'test_assistant_paste_v2.PasteOriginalTests.test_old_paste_mismatch_names_the_gap_and_suggests_paste_original':
+        'coordination/round6-assets/round6-assistant-text.txt: 本机 fixture（私有协调证据）',
+    # hygiene-4：迁移脚本在 coordination/ 下，core 排除；--full 保留。
+    'test_perf_knowledge_paths.MigrationScriptTests.test_migrate_adds_column_and_index':
+        'coordination/migrate-knowledge-link-host.py: 本机迁移脚本（私有协调证据）',
+    'test_perf_knowledge_paths.MigrationScriptTests.test_two_migrations_keep_two_backups_and_the_first_stays_old_schema':
+        'coordination/migrate-knowledge-link-host.py: 本机迁移脚本（私有协调证据）',
+    'test_perf_knowledge_paths.MigrationScriptTests.test_count_mismatch_rolls_back_and_leaves_schema_unchanged':
+        'coordination/migrate-knowledge-link-host.py: 本机迁移脚本（私有协调证据）',
+    'test_perf_knowledge_paths.MigrationScriptTests.test_existing_link_host_with_wrong_definition_is_rejected':
+        'coordination/migrate-knowledge-link-host.py: 本机迁移脚本（私有协调证据）',
 }
 EXTERNAL_METHODS = {
     'test_graph_input_names_and_link_types_match_the_deployed_schema': 'ARTICLE_STUDIO_H3_SCHEMA: deployed H3 schema',
@@ -147,7 +199,18 @@ def main():
                     if not args.full and method in EXTERNAL_METHODS:
                         print('Excluded method: ' + identity + ' (' + EXTERNAL_METHODS[method] + ')', flush=True)
                         continue
-                    suite.addTest(test)
+                    # hygiene-4：ApiParityTest 类整体依赖 MEDIA_API_SOURCE，core 排除、--full 保留。
+                    if not args.full and path.stem == 'test_h3_video_controls' and '.ApiParityTest.' in identity:
+                        print('Excluded class: test_h3_video_controls.ApiParityTest (MEDIA_API_SOURCE: 外部媒体 API 契约)', flush=True)
+                        continue
+                    # hygiene-4：依赖本机私有目录的用例，用完整 test id 匹配避免误伤同名方法。
+                    short = identity.rsplit('.', 2)[-2] + '.' + method if identity.count('.') >= 2 else identity
+                    for key in (identity, short):
+                        if not args.full and key in EXTERNAL_IDS:
+                            print('Excluded: ' + identity + ' (' + EXTERNAL_IDS[key] + ')', flush=True)
+                            break
+                    else:
+                        suite.addTest(test)
             result = unittest.TextTestRunner(verbosity=1).run(suite)
             if result.skipped:
                 print('Unexpected skips make this scope incomplete:', file=sys.stderr)

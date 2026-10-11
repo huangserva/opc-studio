@@ -101,9 +101,9 @@ test('AI waiting-payment preview uses the commercial stage and can be confirmed 
 });
 
 test('daily follow-up separates unknown history and keeps original unpaid quotes visible on review',async t=>{
- const{w,d,state,deal}=await fixture(t);state.deals.push({...deal,id:'e'.repeat(32),title:'豆包',stage:'unknown',quote:null,original_group:'未付',original_text:'豆包 6000',price_note:'豆包 6000'});d.querySelector('#dl-refresh').click();await settle();
+ const{w,d,state,deal}=await fixture(t);state.deals.push({...deal,id:'e'.repeat(32),title:'合成项目甲',stage:'unknown',quote:null,original_group:'未付',original_text:'合成项目甲 1234',price_note:'合成项目甲 1234'});d.querySelector('#dl-refresh').click();await settle();
  assert.equal(d.querySelector('.dl-stage-details').open,false);assert.equal(d.querySelector('#dl-focus [data-scope="work"]').getAttribute('aria-pressed'),'true');assert.equal(d.querySelectorAll('.dl-deal-card').length,1);
- d.querySelector('[data-scope="review"]').click();await settle();assert.equal(d.querySelectorAll('.dl-deal-card').length,1);assert.match(d.querySelector('.dl-deal-card').textContent,/豆包 6000/);assert.match(d.querySelector('.dl-cash-value').textContent,/原记未付/);assert.match(d.querySelector('#dl-scope-note').textContent,/缺少明确进度/);assert.equal(d.querySelector('#dl-timeline-list>.dl-date-group').open,true);
+ d.querySelector('[data-scope="review"]').click();await settle();assert.equal(d.querySelectorAll('.dl-deal-card').length,1);assert.match(d.querySelector('.dl-deal-card').textContent,/合成项目甲 1234/);assert.match(d.querySelector('.dl-cash-value').textContent,/原记未付/);assert.match(d.querySelector('#dl-scope-note').textContent,/缺少明确进度/);assert.equal(d.querySelector('#dl-timeline-list>.dl-date-group').open,true);
  d.querySelector('[data-scope="all"]').click();await settle();assert.equal(d.querySelectorAll('.dl-deal-card').length,2);
 });
 test('next-step progress is previewed then saved as a revision-pinned stage change only',async t=>{

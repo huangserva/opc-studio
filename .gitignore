@@ -1,29 +1,43 @@
-# Local application data and generated artifacts
+# 本仓库公开可见：真实资料、工作空间、会话历史、凭据、商单及收款数据不进入版本库。
+/deals_seed.py
+/deals_aliases.json
+
+# 私有工作区与协调数据
 /workspace/
+/coordination/
+/workbench-backup/
 /library/
 /inbox/
 /knowledge/
 /github/
 /work/
 /outputs/
+/private/
+
+# 运行时数据与缓存
+/runtime/logs/
+/logs/
+/pi-runtime/logs/
+/pi-runtime/.venv/
+dump.rdb
 *.sqlite
 *.sqlite3
 *.db
 *.db-wal
 *.db-shm
+*.log
 
-# Private configuration and credentials
+# 凭据与私有配置
 .env
 .env.*
 !.env.example
-/private/
 *.key
 *.pem
 *.p12
 models.json
 auth.json
 
-# Installed dependencies and caches
+# 依赖与构建缓存
 .venv/
 venv/
 node_modules/
@@ -33,4 +47,24 @@ __pycache__/
 .coverage
 htmlcov/
 .DS_Store
-*.log
+
+# 根目录的验收/实测临时产物（图片、录屏、验收快照）
+/*验收.json
+/*.png
+/*.jpeg
+/*.jpg
+/*.mp4
+
+# 浏览器自动化配置文件（含 cookie/存储，绝不入库）
+/shot/
+
+# 交接与验收等工作底稿
+/给Claude的交接要求.md
+/验收记录.json
+/startup/
+
+# 只留本机的说明文档与重复启动脚本
+/使用说明.md
+/定时任务说明.md
+/导航重构说明.md
+/启动内容工作台.command

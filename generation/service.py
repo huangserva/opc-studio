@@ -8,6 +8,7 @@ import base64
 import copy
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from content_store import write, check_asset
 from .models import MODELS, build
 from .references import References
+from .image_references import normalize_image_references
 from .video_options import normalize_references
 from .inventory import model_selection, enrich_inventory
 from .media_http import MediaApi, MediaApiError, MediaApiUnknown, MODEL_IDS
@@ -172,6 +174,43 @@ class Generation:
     def upload_reference(self,payload):
         return self.references.image(payload)
 
+    def reference_from_job(self, job_id):
+        """Reuse a finished image result as a reference asset, entirely server side.
+
+        The page only names the generation record. The file never travels back
+        through the browser, and the resolved path must stay inside that record's
+        own folder, so a forged id or a moved file is an explicit error.
+        """
+        if not isinstance(job_id, str) or not re.fullmatch(r'[a-f0-9]{32}', job_id):
+            raise ValueError('生成记录编号无效，请重新选择图片')
+        with self.lock:
+            job = copy.deepcopy(self.jobs.get(job_id))
+        if not job:
+            raise ValueError('生成记录不存在，请重新选择图片')
+        if job.get('deleted_at'):
+            raise ValueError('这张图片已在回收站，请先恢复后再使用')
+        if job.get('kind') != 'image' or job.get('status') != 'done':
+            raise ValueError('只能选用已完成的图片生成结果')
+        source = self.asset(job_id)
+        folder = (self.folder / job_id).resolve()
+        resolved = Path(source).resolve()
+        if resolved.parent != folder or not resolved.is_file():
+            raise ValueError('图片文件不在该生成记录的目录内，请重新选择')
+        skill = job.get('image_skill') or {}
+        label = str(skill.get('user_prompt') or job.get('input_prompt') or job.get('prompt') or '生成图片').strip()[:120]
+        # Picking the same record again reuses the copy already on disk, so a repeated
+        # choice cannot grow the reference folder or hand the page a new id each time.
+        expected = job.get('sha256')
+        if isinstance(expected, str):
+            for manifest in self.references.folder.glob('*.json'):
+                try:
+                    record = json.loads(manifest.read_text())
+                    if record.get('source_job') == job_id and record.get('source_sha256') == expected:
+                        return self.references.info(record['id'])
+                except (ValueError, OSError, KeyError):
+                    continue
+        return self.references.from_local_file(resolved, name=label or '生成图片', source_job=job_id, source_sha256=expected)
+
     def resolve_references(self, refs, frames=None):
         normalized = normalize_references(refs)
         for key in ('videos', 'audios'):
@@ -257,11 +296,13 @@ class Generation:
         request_id=payload.get('request_id')
         if request_id is not None and (not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9-]{20,40}',request_id)):
             raise ValueError('无效生成请求编号')
-        fingerprint=hashlib.sha256(json.dumps({k:payload.get(k) for k in ('model','prompt','size','seed','frames','steps','cfg','slug','version','image_style','lora','lora_strength','lora_trigger','workflow','video_checkpoint','video_accelerator','video_loras','references')},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        fingerprint=hashlib.sha256(json.dumps({k:payload.get(k) for k in ('model','prompt','size','seed','frames','steps','cfg','slug','version','image_style','lora','lora_strength','lora_trigger','workflow','video_checkpoint','video_accelerator','video_loras','references','denoise','video_sampling','video_refine_steps','video_refine_denoise','video_upscale')},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         job_id = uuid.uuid4().hex
         payload=dict(payload)
         if MODELS.get(payload.get('model'), {}).get('kind') == 'video':
             payload['references'] = normalize_references(payload.get('references', {}), payload.get('workflow', 't2v'))
+        else:
+            payload['references'] = normalize_image_references(payload.get('references', {}), payload.get('model'))
         resolved = self.resolve_references(payload.get('references', {}), int(payload.get('frames', 56)))
         allowed_fields = {'remote_file', 'width', 'height', 'duration', 'source_duration', 'frames', 'has_audio', 'name', 'id', 'kind', 'imageB64'}
         slim = lambda item: {k: v for k, v in item.items() if k in allowed_fields}
@@ -288,6 +329,16 @@ class Generation:
         api_params = {'model': api_model, 'prompt': prompt, 'size': settings['size'], 'seed': settings['seed']}
         if model['kind'] == 'image':
             api_params.update(steps=settings['steps'], cfg=settings['cfg'])
+            if reference_ids:
+                api_params['references'] = reference_ids
+            if 'denoise' in settings:
+                api_params['denoise'] = settings['denoise']
+            # Krea2-only LoRA: send the allowlisted id plus numeric strength; the media API
+            # resolves the LoRA file name server-side. build() already prepended the trigger
+            # to the prompt, so the API's own trigger check cannot duplicate it.
+            if model['id'] == 'krea2' and settings.get('lora'):
+                api_params.update(lora=settings['lora'], lora_strength=settings['lora_strength'],
+                                  lora_trigger=settings.get('lora_trigger') or '')
         else:
             # the media API validates these options strictly: send the ids the workbench
             # actually resolved (never None), and omit what the caller left unspecified so
@@ -302,6 +353,8 @@ class Generation:
                 # keeps name/file/modes locally and must not leak them over the wire
                 api_params['video_loras'] = [{'id': row['id'], 'strength': row.get('strength', 1.0)}
                                              for row in settings['video_loras']]
+            if settings.get('video_sampling') == 'dual':
+                api_params.update({key: settings[key] for key in ('video_sampling', 'video_refine_steps', 'video_refine_denoise', 'video_upscale')})
             api_params['references'] = reference_ids
         upload_plan = []
         for item in descriptors:
@@ -414,6 +467,21 @@ class Generation:
                 # the cursor is persisted as each event is consumed, so a dropped SSE
                 # stream or a restart resumes after the last event actually received
                 self.update(job_id, event_cursor=cursor)
+        if event.get('type') == 'execution_progress':
+            data = event.get('data') or {}
+            if data.get('phase') not in ('loading','encoding','sampling','decoding','saving','preparing','video'):
+                return
+            progress = {k: data[k] for k in ('phase','label','node') if k in data}
+            previous = self.jobs[job_id].get('progress') or {}
+            progress.update(observed_at=now(), source='ComfyUI via media-api',
+                            started_at=previous.get('started_at', now()) if previous.get('phase') == data['phase'] else now())
+            current, total = data.get('current'), data.get('total')
+            if data['phase'] == 'sampling' and all(isinstance(x, (int,float)) and not isinstance(x,bool) and math.isfinite(x) for x in (current,total)) and total > 0 and 0 <= current <= total:
+                progress.update(current=current,total=total,percent=round(100*current/total))
+            self.update(job_id, progress=progress, progress_connected=True)
+            return
+        if event.get('type') == 'progress' and (self.jobs[job_id].get('progress') or {}).get('source') == 'ComfyUI via media-api':
+            return  # queue heartbeat must not erase real sampling values
         phase, label = EVENT_PROGRESS.get(event.get('type'), (None, None))
         if not phase:
             if event.get('type') == 'poll_error':

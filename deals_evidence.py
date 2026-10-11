@@ -10,6 +10,9 @@ from urllib.parse import urlencode
 
 def aliases():
     path=os.environ.get('ARTICLE_STUDIO_DEAL_ALIASES','').strip()
+    if not path:
+        private=Path(__file__).resolve().parent/'deals_aliases.json'
+        path=str(private) if private.is_file() else ''
     if not path:return {}
     try:
         with Path(path).open('rb') as source:raw=source.read(256*1024+1)
@@ -83,7 +86,7 @@ def timeline(deal):
     events=[]
     def item(kind,title,at,detail='',**kw):
         events.append(dict(kind=kind,title=title,at=at or '',detail=detail,**kw))
-    if deal.get('original_text'):item('original','用户原始清单 · '+deal.get('original_group',''),'',deal['original_text'],basis='原记录未提供发生时间；导入时间不替代业务时间')
+    if deal.get('original_text'):item('original','黄总原始清单 · '+deal.get('original_group',''),'',deal['original_text'],basis='原记录未提供发生时间；导入时间不替代业务时间')
     for e in deal.get('evidence',[]):
         if e['state']=='rejected':continue
         item('wechat',e['title'],e['at'],e['text'],evidence=e,basis='微信原消息时间')

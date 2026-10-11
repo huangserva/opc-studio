@@ -41,6 +41,10 @@ class Knowledge:
         self.path = self.root / 'knowledge.db'
         self.sync_lock = threading.Lock()
         self.stop_event = threading.Event()
+        # 删掉正文后回调（可为空）。情报侧用它按文档精确清推荐来源行 ——
+        # 来源粒度是文档，而链接粒度是 URL，同一 URL 有多份文档时两者对不上。
+        # 默认 None：不接线就什么也不做，模块之间不互相依赖。
+        self.document_removed_hook = None
         home = Path.home()
         projects = home / 'Documents/Codex/2026-10-03/b-q/work/wechat-source'
         defaults = [
@@ -55,7 +59,7 @@ class Knowledge:
             c.execute('PRAGMA journal_mode=WAL')
             c.executescript('''
                 CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, config TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', detail TEXT NOT NULL DEFAULT '', synced_at TEXT);
-                CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, source TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, url TEXT NOT NULL, modified TEXT NOT NULL, tags TEXT NOT NULL, hash TEXT NOT NULL, provenance TEXT NOT NULL DEFAULT '{}');
+                CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, source TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, url TEXT NOT NULL, modified TEXT NOT NULL, tags TEXT NOT NULL, hash TEXT NOT NULL, provenance TEXT NOT NULL DEFAULT '{}', link_host TEXT GENERATED ALWAYS AS (CASE WHEN url LIKE '%mp.weixin.qq.com%' THEN 'mp.weixin.qq.com' ELSE NULL END) VIRTUAL);
                 CREATE INDEX IF NOT EXISTS documents_source ON documents(source);
                 CREATE INDEX IF NOT EXISTS documents_source_date ON documents(source,modified);
                 CREATE INDEX IF NOT EXISTS documents_kind ON documents(kind);
@@ -69,6 +73,11 @@ class Knowledge:
                 c.execute("ALTER TABLE dossiers ADD COLUMN purpose TEXT NOT NULL DEFAULT ''")
             if 'provenance' not in {r['name'] for r in c.execute('PRAGMA table_info(documents)')}:
                 c.execute("ALTER TABLE documents ADD COLUMN provenance TEXT NOT NULL DEFAULT '{}'")
+            # link_host 是新增的生成列：新表由上面的 CREATE TABLE 带上，旧表没有。
+            # 旧库不能在这里补列（那是一次迁移，交给 coordination/migrate-knowledge-link-host.py 人工做）；
+            # 只有列确实存在时才建它的索引，缺列就不建，检索侧会退回 LIKE。
+            if 'link_host' in {r[1] for r in c.execute('PRAGMA table_xinfo(documents)')}:
+                c.execute('CREATE INDEX IF NOT EXISTS documents_link_host ON documents(link_host)')
             for source in defaults if sources is None else sources:
                 c.execute('INSERT OR IGNORE INTO sources(id,config) VALUES(?,?)', (source['id'], json.dumps(source, ensure_ascii=False)))
             if sources is None:
@@ -380,7 +389,7 @@ class Knowledge:
             raise ValueError(data.get('error') or 'remio 读取失败')
         return data['data']
 
-    def search(self, query='', kind='', tag='', offset=0, source=''):
+    def search(self, query='', kind='', tag='', offset=0, source='', mode=''):
         query = str(query).strip()[:200]
         offset = max(0, min(int(offset), 100000))
         terms = re.findall(r'[^\s]+', query)[:12]
@@ -392,10 +401,15 @@ class Knowledge:
             conditions.append('document_fts MATCH ?')
             args.append(' AND '.join('"' + t.replace('"', '""') + '"' for t in long))
             order = 'bm25(document_fts),d.modified DESC,d.id'
-        for t in terms:
-            conditions.append("(d.title LIKE ? ESCAPE '\\' OR d.body LIKE ? ESCAPE '\\')")
-            pattern = '%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
-            args += [pattern, pattern]
+        if mode == 'fts':
+            # 只走 document_fts：不叠加 LIKE 全表扫描。没有 ≥3 字词就没有 FTS 可走，如实返回空。
+            if not long:
+                return {'results': [], 'total': 0, 'offset': offset, 'next_offset': None}
+        else:
+            for t in terms:
+                conditions.append("(d.title LIKE ? ESCAPE '\\' OR d.body LIKE ? ESCAPE '\\')")
+                pattern = '%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+                args += [pattern, pattern]
         if kind:
             conditions.append('d.kind=?')
             args.append(kind)
@@ -434,6 +448,103 @@ class Knowledge:
         item['provenance'] = json.loads(item['provenance'])
         return item
 
+    def delete_document(self, doc_id, keep_if_referenced_by=None, require_intake_channel=''):
+        """Remove one indexed document, its search index entry and its fingerprint.
+
+        只删这一条：documents 上的触发器会把 document_fts 里的对应条目一起删掉，
+        所以检索不会再命中已删正文。资料夹（dossiers）里存的是独立快照，不动。
+        不存在时如实返回 removed=False，不谎报成删掉了。
+
+        keep_if_referenced_by=(库路径, 表名) + require_intake_channel：先 ATTACH 引用库，
+        再显式 BEGIN IMMEDIATE，然后把「还有引用吗」与「归属仍是回收站吗」写进同一条
+        条件 DML 的 WHERE 里：不是先 COUNT 再 DELETE，独立连接没法在两者之间交进新引用
+        或改回归属。条件不满足就一行也不删，并如实返回保留原因。
+        守卫跑不成（接不上库等）也照样不删：宁可留正文，不误删别人的收藏。
+        """
+        if not isinstance(doc_id, str) or not re.fullmatch(r'[a-f0-9]{32}', doc_id):
+            raise ValueError('资料编号格式无效')
+        with self.db() as c:
+            row = c.execute('SELECT id,rowid,source,kind,title,url,hash FROM documents WHERE id=?', (doc_id,)).fetchone()
+            if not row:
+                return {'id': doc_id, 'removed': False, 'title': '', 'source': '', 'kind': '', 'indexed': 0}
+            if keep_if_referenced_by:
+                path, table = keep_if_referenced_by
+                if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', str(table)):
+                    raise ValueError('引用表名无效')
+                try:
+                    c.execute('ATTACH DATABASE ? AS ref', (str(path),))
+                    c.execute('BEGIN IMMEDIATE')
+                    owner_guard = ''
+                    args = [doc_id]
+                    if require_intake_channel:
+                        owner_guard = " AND json_extract(provenance,'$.intake_channel')=?"
+                        args.append(require_intake_channel)
+                    gone = c.execute('DELETE FROM documents WHERE id=?' + owner_guard
+                                     + ' AND NOT EXISTS (SELECT 1 FROM ref."%s" WHERE document_id=?)' % table,
+                                     [*args, doc_id])
+                except sqlite3.Error as exc:
+                    return {'id': doc_id, 'removed': False, 'title': row['title'], 'source': row['source'],
+                            'kind': row['kind'], 'indexed': 0, 'referenced': None,
+                            'reason': '守卫没跑成，正文保留：%s' % str(exc)[:120]}
+                if not gone.rowcount:
+                    return self._delete_kept(c, doc_id, row, table, require_intake_channel)
+            else:
+                c.execute('DELETE FROM documents WHERE id=?', (doc_id,))
+            # 触发器负责同步删 document_fts；这里只核实一遍，确保检索里不留悬空条目。
+            indexed = c.execute('SELECT COUNT(*) FROM document_fts WHERE rowid=?', (row['rowid'],)).fetchone()[0]
+        removed_result = {'id': doc_id, 'removed': True, 'title': row['title'], 'source': row['source'],
+                          'kind': row['kind'], 'indexed': indexed, 'referenced': 0}
+        # 正文真删掉了才通知：情报侧按这个文档 id 精确清它的推荐来源行。
+        # 钩子失败不推翻删除结果 —— 正文已经删了，如实带回错误让上层记着。
+        hook = self.document_removed_hook
+        if hook is not None:
+            try:
+                hook(doc_id)
+            except Exception as exc:  # noqa: BLE001 - 附带的清理不该改写删除本身的结果
+                removed_result['hook_error'] = f'{type(exc).__name__}: {exc}'[:200]
+        return removed_result
+
+    def _delete_kept(self, c, doc_id, row, table, require_intake_channel):
+        """条件删除一行没删成：在同一事务里查清原因，不拿旧判断猜。"""
+        current = c.execute("SELECT json_extract(provenance,'$.intake_channel') AS channel FROM documents WHERE id=?",
+                            (doc_id,)).fetchone()
+        base = {'id': doc_id, 'removed': False, 'title': row['title'], 'source': row['source'], 'kind': row['kind'],
+                'indexed': 0}
+        if not current:
+            return {**base, 'referenced': 0, 'reason': '这篇正文已不在知识库（可能刚被其他入口删掉）'}
+        referenced = c.execute('SELECT COUNT(*) FROM ref."%s" WHERE document_id=?' % table, (doc_id,)).fetchone()[0]
+        if require_intake_channel and str(current['channel'] or '') != require_intake_channel:
+            return {**base, 'referenced': referenced, 'channel': current['channel'] or '',
+                    'reason': '知识库已收回归属或改由其他入口登记（出处已不是回收站渠道），未删'}
+        return {**base, 'referenced': referenced, 'reason': '还有 %d 行引用这篇正文，未删' % referenced}
+
+    def document_provenance_facts(self, document_ids):
+        """按编号取删除判断要用的出处字段（一次查完，不给每行单独进库）。
+
+        只读 provenance 里的 intake_channel / drop_id：删不删知识库正文要看这篇是谁建的，
+        不能只看回收项自己身上的 duplicate 标记。
+        """
+        wanted = [doc for doc in dict.fromkeys(document_ids) if isinstance(doc, str) and doc]
+        if not wanted:
+            return {}
+        marks = ','.join('?' * len(wanted))
+        with self.db() as c:
+            rows = c.execute('SELECT id,json_extract(provenance,\'$.intake_channel\') AS channel,'
+                             'json_extract(provenance,\'$.drop_id\') AS drop_id'
+                             ' FROM documents WHERE id IN (' + marks + ')', wanted).fetchall()
+        return {row['id']: {'intake_channel': row['channel'] or '', 'drop_id': row['drop_id'] or ''}
+                for row in rows}
+
+    def document_hashes(self, document_ids):
+        """一次批量取正文指纹：只读 id,hash，不取正文（列表/提炼去重一次查完，避免逐条进库）。"""
+        wanted = [doc for doc in dict.fromkeys(document_ids) if isinstance(doc, str) and doc]
+        if not wanted:
+            return {}
+        marks = ','.join('?' * len(wanted))
+        with self.db() as c:
+            rows = c.execute('SELECT id,hash FROM documents WHERE id IN (' + marks + ')', wanted).fetchall()
+        return {row['id']: row['hash'] for row in rows}
+
     def add_project(self, payload):
         path = Path(str(payload.get('path', ''))).expanduser()
         if not path.is_absolute() or not path.is_dir() or not path.resolve().is_relative_to(Path.home()) or path.resolve() == Path.home():
@@ -444,23 +555,35 @@ class Knowledge:
         self.start_sync(config['id'])
         return config
 
-    def add_note(self, payload):
-        title, body = str(payload.get('title', '')).strip(), str(payload.get('body', '')).strip()
+    def add_note(self, payload, provenance=None, verbatim=False):
+        # provenance is optional and only adds facts; omitting it keeps the old record byte-for-byte.
+        # verbatim is for entries that must keep the text exactly as typed (leading/trailing blanks
+        # and newlines included); the default path still trims, exactly as before.
+        provenance = self._extra_provenance(provenance)
+        title, raw_body = str(payload.get('title', '')).strip(), str(payload.get('body', ''))
+        body = raw_body.strip()
         if not title or not body or len(body) > 100000:
             raise ValueError('请填写标题和正文，正文最多 10 万字')
+        if verbatim:
+            body = raw_body
+            if len(body) > 100000:
+                raise ValueError('请填写标题和正文，正文最多 10 万字')
         key = uuid.uuid4().hex
         tags = [x.strip()[:80] for x in str(payload.get('tags', '')).split(',') if x.strip()][:12]
         with self.db() as c:
             c.execute('INSERT OR IGNORE INTO sources(id,config,status) VALUES(?,?,?)', ('manual', json.dumps({'id': 'manual', 'name': '手动收集', 'kind': 'manual'}, ensure_ascii=False), 'ready'))
             c.execute('CREATE TEMP TABLE seen(id TEXT PRIMARY KEY)')
-            self._write(c, 'manual', key, 'notes', title, body, payload.get('url', ''), now(), tags)
+            self._write(c, 'manual', key, 'notes', title, body, payload.get('url', ''), now(), tags, provenance)
             c.execute("UPDATE sources SET detail='手动收集的笔记与资料',synced_at=? WHERE id='manual'", (now(),))
         return self.document(identifier('manual', key))
 
-    def add_reference(self, payload):
+    def add_reference(self, payload, provenance=None):
         from external_reference import metadata
         collected_at = now()
-        values, provenance = metadata(payload, collected_at)
+        values, record = metadata(payload, collected_at)
+        # Optional facts added by the collecting entry (e.g. 创意回收工厂). Validation,
+        # the canonical url and the author fields stay exactly as metadata() decided them.
+        provenance = {**record, **self._extra_provenance(provenance)}
         sid, key = 'external-references', provenance['canonical_url']
         ident = identifier(sid, key)
         with self.db() as c:
@@ -476,6 +599,17 @@ class Knowledge:
                         [t.strip()[:80] for t in values['tags'].split(',') if t.strip()][:12], provenance)
             c.execute("UPDATE sources SET detail='他人作品与出处；收藏理由和原文分开保存，链接收藏不表示已导入全文',synced_at=? WHERE id=?", (collected_at, sid))
         return self.document(ident)
+
+    @staticmethod
+    def _extra_provenance(value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict) or any(not isinstance(key, str) or not key for key in value):
+            raise ValueError('资料出处补充信息格式无效')
+        if set(value) & {'sourceUrl', 'canonical_url', 'platform', 'ownership', 'author', 'author_handle',
+                         'author_basis', 'captured_at'}:
+            raise ValueError('资料出处补充信息不能覆盖出处与作者字段')
+        return {key: val for key, val in value.items()}
 
     def dossier(self, dossier_id):
         with self.db() as c:

@@ -161,3 +161,4 @@ def inspect_job(args):
         job['last_audit'] = {'observation': evidence_hash, 'status': report['status'], 'at': report['checked_at']}
         write_json(job_path / 'job.json', job)
     return report
+

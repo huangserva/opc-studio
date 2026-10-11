@@ -1,4 +1,5 @@
 """Synthetic start -> Assistant.run -> workflow.stage routing; no model transport."""
+from isolation_patches import module_thread
 import copy
 import json
 from pathlib import Path
@@ -67,7 +68,7 @@ class KnowledgeStartTests(unittest.TestCase):
 
     def start(self, **fields):
         payload = {'message': '基于合成会议资料调研写稿', 'workflow': 'research-write', **fields}
-        with patch('assistant_agent.threading.Thread', InlineThread):
+        with module_thread('assistant_agent', InlineThread):
             result = self.owner.start(payload)
         return result, self.owner.jobs[result['id']]
 

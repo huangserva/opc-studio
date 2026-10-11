@@ -4,7 +4,12 @@ import secrets
 import re
 import math
 from pathlib import Path
-from .video_options import H3_CHECKPOINTS,H3_WORKFLOWS,H3_ACCELERATORS,H3_LORAS,apply_video
+from .video_options import (H3_CHECKPOINTS,H3_WORKFLOWS,H3_ACCELERATORS,H3_LORAS,apply_video,
+                            H3_SIZES,H3_SIZE_LABELS,H3_SIZE_GROUPS,H3_CUSTOM_SIZE,H3_SIZE_HINT,
+                            H3_SIZES_MEASURED,H3_FRAMES,H3_FRAMES_MIN,H3_FRAMES_MAX,H3_FRAMES_STEP,
+                            H3_FRAMES_MEASURED,H3_FPS,H3_CONSTRAINT_NOTE,H3_ENGINES,H3_MEASURED_COMBOS,
+                            exact_ratio,h3_capability_matrix,validate_frames)
+from .image_references import apply_image_references
 from .loras import KREA_LORAS, apply_lora, lora_parameters
 
 QWEN_2K_PRESETS = {
@@ -32,16 +37,32 @@ MODELS = {
              'checkpoint': 'qwen_image_2.1_bf16.safetensors',
              'sizes': ['1024x1024', '1344x768', '768x1344', '768x512', *QWEN_2K_PRESETS],
              'size_labels': {size: f'{ratio} · {size}（2K）' for size, ratio in QWEN_2K_PRESETS.items()},
+             'reference_images':True,'reference_limit':4,'reference_mode':'native_edit',
              'steps': 20, 'cfg':2.5},
     'krea2': {'id': 'krea2', 'name': 'Krea2 Turbo · 4090', 'kind': 'image',
               'checkpoint': 'krea2_turbo_fp8.safetensors',
               'sizes': [size for group in KREA_PRESETS.values() for size in group],
               'size_labels': {size:f'{ratio} · {size}' for group in KREA_PRESETS.values() for size,ratio in group.items()},
               'size_groups': [{'name':name,'sizes':list(group)} for name,group in KREA_PRESETS.items()],
-              'custom_size': {'min':512,'max':2048,'step':16}, 'steps': 8, 'cfg':1.0,
+              'custom_size': {'min':512,'max':2048,'step':16},
+              'size_hint': 'Krea2 自定义宽高须为 512–2048 像素，且为 16 的倍数',
+              'reference_images':True,'reference_limit':1,'reference_mode':'img2img',
+              'steps': 8, 'cfg':1.0,
               'loras': KREA_LORAS},
     'h3': {'id': 'h3', 'name': 'MiniMax H3 · 4090', 'kind': 'video',
-           'checkpoint': 'Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors', 'sizes': ['768x432', '432x768','768x448','448x768'], 'steps': 8, 'workflows':H3_WORKFLOWS,'checkpoints':H3_CHECKPOINTS,'accelerators':H3_ACCELERATORS,'video_loras':H3_LORAS},
+           'checkpoint': 'Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors',
+           'sizes': H3_SIZES,
+           'size_labels': H3_SIZE_LABELS,
+           'size_groups': [{'name':name,'sizes':list(group)} for name,group in H3_SIZE_GROUPS.items()],
+           'custom_size': H3_CUSTOM_SIZE, 'size_hint': H3_SIZE_HINT,
+           'sizes_measured': H3_SIZES_MEASURED,
+           'capability_matrix': h3_capability_matrix(),
+           'frames': H3_FRAMES, 'frames_min': H3_FRAMES_MIN, 'frames_max': H3_FRAMES_MAX,
+           'frames_step': H3_FRAMES_STEP, 'frames_measured': H3_FRAMES_MEASURED, 'fps': H3_FPS,
+           'constraint_note': H3_CONSTRAINT_NOTE,
+           'video_sampling_modes': [{'id': 'single', 'name': '单采'}, {'id': 'dual', 'name': '双采'}],
+           'video_sampling_defaults': {'video_refine_steps': 4, 'video_refine_denoise': 0.35, 'video_upscale': 2.0},
+           'steps': 8, 'workflows':H3_WORKFLOWS,'checkpoints':H3_CHECKPOINTS,'accelerators':H3_ACCELERATORS,'video_loras':H3_LORAS},
 }
 
 def validate_size(model, size):
@@ -50,9 +71,14 @@ def validate_size(model, size):
     limits=model.get('custom_size')
     if limits and isinstance(size,str) and re.fullmatch(r'[0-9]{3,4}x[0-9]{3,4}',size):
         width,height=map(int,size.split('x'))
-        if all(limits['min']<=n<=limits['max'] and n%limits['step']==0 for n in (width,height)):
+        step=limits['step']
+        axes_ok=all(limits['min']<=n<=limits['max'] and n%step==0 for n in (width,height))
+        area_ok=not limits.get('max_area') or width*height<=limits['max_area']
+        if axes_ok and area_ok:
             return f'{width}x{height}'
-    if limits:raise ValueError('Krea2 自定义宽高须为 512–2048 像素，且为 16 的倍数')
+    if limits:
+        raise ValueError(model.get('size_hint') or
+                         f"自定义宽高须为 {limits['min']}–{limits['max']} 像素，且为 {limits['step']} 的倍数")
     raise ValueError('不支持该尺寸')
 
 def build(payload, job_id):
@@ -73,7 +99,6 @@ def build(payload, job_id):
     graph = json.loads((Path(__file__).parent / 'workflows' / (('krea2' if model['id'] == 'krea2' else kind) + '.json')).read_text())
     settings = {'size': size, 'seed': seed, 'steps': model['steps']}
     if kind=='image':
-        if payload.get('references'):raise ValueError('当前图片模型尚未接入参考图编辑工作流')
         steps=payload.get('steps',model['steps']);cfg=payload.get('cfg',model['cfg'])
         if isinstance(steps,bool) or not isinstance(steps,int) or not 1<=steps<=60:
             raise ValueError('图片采样步数须为 1–60 的整数')
@@ -95,12 +120,12 @@ def build(payload, job_id):
         graph['8']['inputs'].update(steps=settings['steps'],cfg=settings['cfg'])
         graph['10']['inputs']['filename_prefix'] = prefix
     else:
-        frames = int(payload.get('frames', 56))
-        if frames not in (56, 124):
-            raise ValueError('请选择 2.3 秒或 5.2 秒视频')
+        frames = validate_frames(model, payload.get('frames', 56))
         graph['5']['inputs'].update(task_type='t2v — 文生视频(Text to Video)', global_prompt=prompt,
                                   width=width, height=height, total_frames=frames, seed=seed, timeline_data='{}')
         graph['7']['inputs']['filename_prefix'] = prefix
-        settings.update(frames=frames, fps=24, seconds=round(frames / 24, 2))
+        settings.update(frames=frames, fps=H3_FPS, seconds=round(frames / H3_FPS, 2))
         apply_video(graph,payload,settings,prompt,frames)
+    if kind == 'image':
+        apply_image_references(graph, model['id'], payload, settings)
     return model, prompt, settings, graph

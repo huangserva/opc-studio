@@ -11,6 +11,15 @@ from urllib.parse import urlsplit, parse_qs
 from server import Store
 from knowledge_store import Knowledge
 from github_source import GitHub, repository, sid, OfficialRedirects
+from isolation_patches import WECHAT_SOURCE_REASON, wechat_source_available
+# hygiene-4：下面的 import 会加载微信来源插件（clue_pipeline 等在模块级调
+# wechat_source_loader.source_module）。插件由 ARTICLE_STUDIO_WECHAT_MODULE 或
+# workspace/sources/wechat.json 指定，两者都是本机资源，不进公开仓库；
+# 干净克隆里没有它，这里直接跳过整个模块（unittest 会把 SkipTest 记成 skip
+# 而不是 error）。本机配置齐全时行为与从前逐字一致。
+if not wechat_source_available():
+    raise unittest.SkipTest(WECHAT_SOURCE_REASON)
+
 from clue_pipeline import CluePipeline
 from clues_store import source_clock
 

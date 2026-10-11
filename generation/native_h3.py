@@ -4,6 +4,7 @@ ComfyUI Autogrow API inputs use dotted names. The reference node presents
 images, videos and their paired soundtracks, then standalone audio.
 """
 import math
+import copy
 
 
 def _node(class_type, **inputs):
@@ -96,6 +97,12 @@ def build_native_h3(graph, raw, references, settings, prompt, frames, model_link
     width, height = map(int, settings['size'].split('x'))
     prefix = graph['7']['inputs']['filename_prefix']
     native = {key: value for key, value in graph.items() if key in ('1', '2', '3', '4', '10') or key.startswith('video_lora_')}
+    dual = settings.get('video_sampling') == 'dual'
+    output_width, output_height = width, height
+    if dual:
+        scale = settings['video_upscale']
+        width, height = [max(32, round(n / scale / 32) * 32) for n in (width, height)]
+        settings['video_first_size'] = f'{width}x{height}'
     inputs = {'clip': ['2', 0], 'vae': ['3', 0], 'audio_vae': ['4', 0], 'prompt': prompt,
               'width': width, 'height': height, 'length': frames, 'ref_image_size': 'match'}
     labels, video_usage, anchor_links = [], [], {}
@@ -131,11 +138,18 @@ def build_native_h3(graph, raw, references, settings, prompt, frames, model_link
         inputs[f'ref_audios.ref_audio_{index}'] = [key, 0]
         audio_index += 1
         labels.append({'id': value['id'], 'kind': 'audio', 'role': 'audio', 'name': value.get('name', ''), 'labels': [f'<Audio {audio_index}>'], 'duration': value['duration']})
-    native['native_reference'] = _node('MiniMaxH3ReferenceToVideo', **inputs)
+    reference_mode = settings['workflow'] in ('r2v', 'ir2v', 'flr2v')
+    if reference_mode:
+        native['native_reference'] = _node('MiniMaxH3ReferenceToVideo', **inputs)
+    else:
+        image_inputs = {key: inputs[key] for key in ('clip', 'vae', 'prompt', 'width', 'height', 'length')}
+        for role, link in anchor_links.items():
+            image_inputs[role + '_frame'] = link
+        native['native_reference'] = _node('MiniMaxH3ImageToVideo', **image_inputs)
     positive = ['native_reference', 0]
     latent = ['native_reference', 1]
     for role, frame_index in (('first', 0), ('last', -1)):
-        if role in anchor_links:
+        if role in anchor_links and reference_mode:
             key = 'guide_' + role
             native[key] = _node('MiniMaxH3AddGuide', positive=positive, latent=latent, frame_idx=frame_index, vae=['3', 0], image=anchor_links[role])
             positive = [key, 0]
@@ -146,7 +160,30 @@ def build_native_h3(graph, raw, references, settings, prompt, frames, model_link
     native['noise'] = _node('RandomNoise', noise_seed=settings['seed'])
     native['sampler_select'] = _node('KSamplerSelect', sampler_name='res_multistep')
     native['native_sampler'] = _node('SamplerCustomAdvanced', noise=['noise', 0], guider=['guider', 0], sampler=['sampler_select', 0], sigmas=['scheduler', 0], latent_image=latent)
-    native['separate_av'] = _node('LTXVSeparateAVLatent', av_latent=['native_sampler', 0])
+    output_sampler = 'native_sampler'
+    if dual:
+        native['first_separate_av'] = _node('LTXVSeparateAVLatent', av_latent=['native_sampler', 0])
+        native['video_upscale'] = _node('MinimaxH3LatentUpscaler3D', latent=['first_separate_av', 0],
+            model_name='minimax_h3_latent_upscaler_3d_fp16.safetensors',
+            mode='target dimensions', **{'mode.width': output_width, 'mode.height': output_height},
+            align=32, enable_temporal_chunking=True, force_unload=True, device='cuda', precision='fp16')
+        native['refine_av'] = _node('LTXVConcatAVLatent', video_latent=['video_upscale', 0], audio_latent=['first_separate_av', 1])
+        native['refine_reference'] = copy.deepcopy(native['native_reference'])
+        native['refine_reference']['inputs'].update(width=output_width, height=output_height)
+        refine_positive = ['refine_reference', 0]
+        for role, frame_index in (('first', 0), ('last', -1)):
+            if role in anchor_links and reference_mode:
+                key = 'refine_guide_' + role
+                native[key] = _node('MiniMaxH3AddGuide', positive=refine_positive, latent=['refine_av', 0],
+                    frame_idx=frame_index, vae=['3', 0], image=anchor_links[role])
+                refine_positive = [key, 0]
+        native['refine_guider'] = _node('BasicGuider', model=shifted, conditioning=refine_positive)
+        native['refine_scheduler'] = _node('BasicScheduler', model=shifted, scheduler='simple',
+            steps=settings['video_refine_steps'], denoise=settings['video_refine_denoise'])
+        native['refine_sampler'] = _node('SamplerCustomAdvanced', noise=['noise', 0], guider=['refine_guider', 0],
+            sampler=['sampler_select', 0], sigmas=['refine_scheduler', 0], latent_image=['refine_av', 0])
+        output_sampler = 'refine_sampler'
+    native['separate_av'] = _node('LTXVSeparateAVLatent', av_latent=[output_sampler, 0])
     native['video_decode'] = _node('VAEDecode', samples=['separate_av', 0], vae=['3', 0])
     native['audio_decode'] = _node('VAEDecodeAudio', samples=['separate_av', 1], vae=['4', 0])
     native['6'] = _node('CreateVideo', images=['video_decode', 0], audio=['audio_decode', 0], fps=24.0, bit_depth=8)

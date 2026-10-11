@@ -8,9 +8,22 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from isolation_patches import RECOVERY_SCRIPT_REASON, WECHAT_SOURCE_REASON, wechat_source_available
+# hygiene-4：下面的 import 会加载微信来源插件（clue_pipeline 等在模块级调
+# wechat_source_loader.source_module）。插件由 ARTICLE_STUDIO_WECHAT_MODULE 或
+# workspace/sources/wechat.json 指定，两者都是本机资源，不进公开仓库；
+# 干净克隆里没有它，这里直接跳过整个模块（unittest 会把 SkipTest 记成 skip
+# 而不是 error）。本机配置齐全时行为与从前逐字一致。
+if not wechat_source_available():
+    raise unittest.SkipTest(WECHAT_SOURCE_REASON)
+
 from clue_pipeline import CluePipeline
 from knowledge_store import Knowledge, identifier
 from server import Store
+from isolation_patches import module_time
+from wechat_source_loader import source_module
+
+_clue_source = source_module('clue_pipeline')
 
 
 class ClueRetryTests(unittest.TestCase):
@@ -71,45 +84,269 @@ class ClueRetryTests(unittest.TestCase):
             return answer(prompt) if callable(answer) else answer
         self.pipeline.call_pi = fake
 
-    def test_new_reference_contract_rejects_legacy_quotes_but_parse_compatibility_remains(self):
+    def test_not_sent_does_not_defer_batch(self):
+        doc = self.add('not-sent', '合成待分析资料')
+        class ClassifiedError(ValueError):
+            def __init__(self, kind):
+                super().__init__('合成分类错误（不靠文案判断）'); self.failure_kind = kind
+        for kind, phase in (('not_sent', None), ('cancelled', 'cancelled'), ('deadline', 'timeout')):
+            with self.subTest(kind=kind):
+                self.pipeline.call_pi = lambda *args: (_ for _ in ()).throw(ClassifiedError(kind))
+                with module_time(_clue_source, monotonic=lambda: 0):
+                    status, data = self.run_analysis(deadline=300)
+                self.assertFalse(self.seen(doc))
+                if phase: self.assertEqual(status, phase)
+                else: self.assertTrue(data['time_budget'])
+                with self.pipeline.db() as db:
+                    for table in ('failed_batches', 'retry_documents', 'batches'):
+                        self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0], 0)
+        self.pipeline.call_pi = lambda *args: (_ for _ in ()).throw(ClassifiedError('model_transient'))
+        with module_time(_clue_source, monotonic=lambda: 0):
+            self.run_analysis(deadline=300)
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT attempts FROM failed_batches').fetchone()[0], 1)
+        self.assertFalse(self.seen(doc))
+
+    def retry_row(self, batch):
+        with self.pipeline.db() as db:
+            return dict(db.execute('SELECT * FROM failed_batches WHERE id=?', (batch,)).fetchone())
+
+    def test_first_failure_waits_30_minutes(self):
+        doc = self.add('r-first', '合成重试')
+        with module_time(_clue_source, time=lambda: 1000):
+            key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '合成失败', [])
+            self.assertEqual(self.retry_row(key)['next_retry_at'], 2800)
+            self.assertFalse(self.pipeline.pending(ready_only=True, model='synthetic', run_id='b'*32))
+
+    def test_second_failure_waits_60_minutes(self):
+        doc = self.add('r-second', '合成重试')
+        with module_time(_clue_source, time=lambda: 1000):
+            key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '失败', [])
+        with module_time(_clue_source, time=lambda: 2801):
+            self.assertEqual(self.pipeline.defer_batch([doc], 'synthetic', 'b'*32, '失败', []), key)
+        self.assertEqual(self.retry_row(key)['next_retry_at'], 6401)
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT first_failed_at FROM retry_policy WHERE batch_id=?', (key,)).fetchone()[0], 1000)
+
+    def test_third_failure_parks_without_due(self):
+        doc = self.add('r-third', '合成重试')
+        for run, now in (('a', 1000), ('b', 2801), ('c', 6402)):
+            with module_time(_clue_source, time=lambda: now):
+                key = self.pipeline.defer_batch([doc], 'synthetic', run*32, '失败', [])
+        row = self.retry_row(key)
+        self.assertEqual((row['attempts'], row['state'], row['next_retry_at']), (3, 'needs_review', None))
+
+    def test_window_expires_at_pending_not_on_next_failure(self):
+        doc = self.add('r-window', '合成重试')
+        for entry in ('pending', 'conversation', 'scoped'):
+            with self.subTest(entry=entry):
+                with self.pipeline.db() as db:
+                    for table in ('failed_batches', 'retry_documents', 'retry_policy', 'scopes'):
+                        db.execute('DELETE FROM '+table)
+                with module_time(_clue_source, time=lambda: 1000):
+                    key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '失败', [])
+                with module_time(_clue_source, time=lambda: 87400):
+                    if entry == 'pending': docs = self.pipeline.pending(ready_only=True, model='synthetic', run_id='b'*32)
+                    elif entry == 'conversation': docs = self.pipeline.conversation_pending('synthetic', 'b'*32, False)
+                    else: _, docs = self.pipeline.scoped_pending('b'*32, 'synthetic')
+                self.assertEqual(docs, [])
+                self.assertEqual((self.retry_row(key)['state'], self.retry_row(key)['next_retry_at']), ('needs_review', None))
+                self.assertFalse(self.seen(doc))
+
+    def test_new_run_does_not_reset_first_failed_at(self):
+        self.test_second_failure_waits_60_minutes()
+
+    def test_same_run_does_not_consume_batch_twice(self):
+        doc = self.add('r-same', '合成重试')
+        with module_time(_clue_source, time=lambda: 1000):
+            key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '失败', [])
+        with module_time(_clue_source, time=lambda: 9000):
+            self.assertEqual(self.pipeline.pending(ready_only=True, model='synthetic', run_id='a'*32), [])
+            self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '重复失败', [])
+        self.assertEqual(self.retry_row(key)['attempts'], 1)
+        self.assertEqual(self.retry_row(key)['next_retry_at'], 2800)
+
+    def test_policy_and_queue_roll_back_together(self):
+        doc = self.add('r-rollback', '合成重试')
+        with self.pipeline.db() as db:
+            db.execute("CREATE TRIGGER fail_retry BEFORE INSERT ON retry_documents BEGIN SELECT RAISE(ABORT,'synthetic'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '失败', [])
+        with self.pipeline.db() as db:
+            for table in ('retry_policy', 'failed_batches', 'retry_documents'):
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0], 0)
+
+    def test_changed_hash_is_a_new_window(self):
+        old = self.add('r-hash', '合成旧版本')
+        with module_time(_clue_source, time=lambda: 1000):
+            old_key = self.pipeline.defer_batch([old], 'synthetic', 'a'*32, '失败', [])
+        new = self.add('r-hash', '合成新版本')
+        with module_time(_clue_source, time=lambda: 2000):
+            new_key = self.pipeline.defer_batch([new], 'synthetic', 'b'*32, '失败', [])
+        self.assertNotEqual(old_key, new_key)
+        self.assertEqual(self.retry_row(new_key)['attempts'], 1)
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT first_failed_at FROM retry_policy WHERE batch_id=?', (new_key,)).fetchone()[0], 2000)
+
+    def test_not_sent_does_not_spend_attempt_or_window(self):
+        doc = self.add('r-not-sent', '合成资料')
+        class NotSent(ValueError): failure_kind = 'not_sent'
+        self.pipeline.call_pi = lambda *args: (_ for _ in ()).throw(NotSent('本批未发送'))
+        with module_time(_clue_source, time=lambda: 1000, monotonic=lambda: 0):
+            self.run_analysis(deadline=300)
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM retry_policy').fetchone()[0], 0)
+        self.assertFalse(self.seen(doc))
+
+    def recovery_script(self):
+        import importlib.util
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[1]/'coordination/restore_clues_retry_20s.py'
+        # hygiene-4：这个恢复脚本在 coordination/ 下，是私有协调证据，不进公开仓库。
+        # 公开克隆里没有它就跳过依赖它的用例，其余照跑；本机有它时行为与从前一致。
+        if not path.is_file():
+            raise unittest.SkipTest(RECOVERY_SCRIPT_REASON)
+        spec = importlib.util.spec_from_file_location('synthetic_recovery', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return module
+
+    def prepare_grant(self, docs, now=1000):
+        for n in range(3):
+            with module_time(_clue_source, time=lambda: now):
+                key = self.pipeline.defer_batch(docs, 'synthetic', str(n)*32, '失败', [])
+        with self.pipeline.db() as db:
+            result = self.recovery_script().prepare_recovery(db, [(key, len(docs), 0)], now=now,
+                                                           epoch='synthetic-recovery', model='synthetic')
+        self.assertEqual(result, 1)
+        return key
+
+    def test_recovery_migration_is_idempotent(self):
+        doc = self.add('r-grant', '合成恢复')
+        key = self.prepare_grant([doc])
+        with self.pipeline.db() as db:
+            self.assertEqual(self.recovery_script().prepare_recovery(db, [(key, 1, 0)], now=2000,
+                              epoch='synthetic-recovery', model='synthetic'), 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recovery_grants').fetchone()[0], 1)
+        self.assertEqual(self.retry_row(key)['attempts'], 3)
+
+    def test_recovery_token_is_claimed_once(self):
+        docs = [self.add('r-grant-'+str(n), '合成恢复资料', chat=str(n)) for n in range(2)]
+        keys = [self.prepare_grant([doc]) for doc in docs]
+        class Transient(ValueError): failure_kind = 'model_transient'
+        def failure(identity, prompt, *args):
+            self.calls.append(identity); raise Transient('合成暂时模型故障')
+        self.pipeline.call_pi = failure
+        with module_time(_clue_source, time=lambda: 1001, monotonic=lambda: 0):
+            self.run_analysis('x', incremental=True, deadline=300)
+            self.assertEqual(len(self.calls), 2)
+            self.run_analysis('y', incremental=True, deadline=300)
+            self.assertEqual(len(self.calls), 2)
+        for key in keys:
+            self.assertEqual((self.retry_row(key)['attempts'], self.retry_row(key)['state']), (3, 'needs_review'))
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recovery_grants WHERE claimed_at IS NOT NULL').fetchone()[0], 2)
+
+    def test_recovery_claim_is_atomic_and_zero_send_can_release(self):
+        doc=self.add('r-atomic','合成恢复资料')
+        key=self.prepare_grant([doc])
+        with module_time(_clue_source,time=lambda:1001):
+            self.assertTrue(self.pipeline.claim_recovery([doc],'synthetic','x'*32))
+            self.assertIsNone(self.pipeline.claim_recovery([doc],'synthetic','y'*32))
+            folder=self.pipeline.root/'analysis-pi'/'synthetic-unsent'
+            folder.mkdir(parents=True)
+            (folder/'execution-receipt.json').write_text('{"sent":false}')
+            self.pipeline.unsent_recovery([doc],'synthetic','x'*32,'synthetic-unsent')
+            self.assertFalse(self.pipeline.pending(ready_only=True,model='synthetic',run_id='x'*32))
+            self.assertTrue(self.pipeline.claim_recovery([doc],'synthetic','y'*32))
+        self.assertEqual(self.retry_row(key)['attempts'],3)
+
+    def test_recovery_incomplete_receipt_cannot_release_token(self):
+        doc=self.add('r-receipt','合成缺字段回执')
+        with module_time(_clue_source,time=lambda:1000):
+            self.prepare_grant([doc])
+            self.assertTrue(self.pipeline.claim_recovery([doc],'synthetic','x'*32))
+            folder=self.pipeline.root/'analysis-pi'/'synthetic-incomplete'
+            folder.mkdir(parents=True)
+            (folder/'execution-receipt.json').write_text('{}')
+            self.pipeline.unsent_recovery([doc],'synthetic','x'*32,'synthetic-incomplete')
+            self.assertIsNone(self.pipeline.claim_recovery([doc],'synthetic','y'*32))
+        self.assertEqual(self.retry_row(self.pipeline.batch_identity([doc],'synthetic'))['state'],'needs_review')
+
+    def test_recovery_rejects_seen_and_rolls_back_all_targets(self):
+        first=self.add('r-eligible','合成恢复一')
+        second=self.add('r-ineligible','合成恢复二')
+        keys=[]
+        for doc in (first,second):
+            for n in range(3):keys.append(self.pipeline.defer_batch([doc],'synthetic',str(n)*32,'失败',[]))
+        with self.pipeline.db() as db:
+            db.execute('INSERT INTO seen VALUES(?,?,?,?)',(second['id'],second['hash'],'synthetic','z'*32))
+        with self.assertRaises(ValueError), self.pipeline.db() as db:
+            self.recovery_script().prepare_recovery(db,[(keys[0],1,0),(keys[-1],1,0)],now=1000,model='synthetic')
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recovery_grants').fetchone()[0],0)
+        self.assertEqual(self.retry_row(keys[0])['state'],'needs_review')
+
+    def test_partial_save_keeps_one_clue_id(self):
+        doc = self.add('r-partial', '合成部分保存的技术资料')
+        self.model(self.response)
+        original = self.pipeline.report
+        thrown=[]
+        def report(run, phase, count, *args, **kwargs):
+            if kwargs.get('clue_ids') and not thrown:
+                thrown.append(True); raise sqlite3.OperationalError('synthetic report failure')
+            return original(run, phase, count, *args, **kwargs)
+        self.pipeline.report = report
+        _, first = self.run_analysis()
+        self.assertEqual(len(first['clues']), 1)
+        self.pipeline.report = original
+        with module_time(_clue_source, time=lambda: 1000):
+            key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '合成保存后失败', first['clues'])
+        with module_time(_clue_source, time=lambda: 2801):
+            _, second = self.run_analysis('b', manual=True)
+        self.assertEqual(self.store.clues.listing()['total'], 1)
+        self.assertEqual(second['clues'], first['clues'])
+        self.assertEqual(json.loads(self.retry_row(key)['clue_ids']), first['clues'])
+        self.assertEqual(self.retry_row(key)['state'], 'resolved')
+
+    def test_new_reference_contract_maps_unique_legacy_quotes_and_keeps_compatibility(self):
         doc = self.add('quote', '@Allen\u2005合成技术工具新增功能。')
         refs = self.pipeline.evidence_refs([doc])
         candidate = self.candidate(next(iter(refs)))
         candidate['quotes'] = [{'id': doc['id'], 'text': doc['body']}]
         answer = json.dumps({'clues': [candidate]}, ensure_ascii=False)
         self.assertEqual(len(self.pipeline.parse(answer, [doc])), 1)
-        with self.assertRaises(ValueError):
-            self.pipeline.parse(answer, [doc], refs)
+        stats = {}
+        self.assertEqual(len(self.pipeline.parse(answer, [doc], refs, stats=stats)), 1)
+        self.assertEqual(stats['quote_mapped'], 1)
         self.model(answer)
         status, data = self.run_analysis()
-        self.assertEqual(status, 'failed')
-        self.assertEqual(len(self.calls), 2)
-        self.assertFalse(self.seen(doc))
-        self.assertEqual(data['clues'], [])
-        self.assertEqual(self.store.clues.listing()['total'], 0)
+        self.assertEqual(status, 'succeeded')
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.seen(doc))
+        self.assertEqual(len(data['clues']), 1)
+        self.assertEqual(data['format']['quote_mapped'], 1)
+        self.assertEqual(self.store.clues.listing()['total'], 1)
 
-    def test_mixed_candidates_preserve_valid_clue_without_checkpoint_or_duplicate(self):
+    def test_mixed_candidates_save_the_valid_clue_and_advance_the_batch(self):
         doc = self.add('mixed', '合成技术消息，包括值得调查的引用能力。')
         self.model(lambda prompt: self.response(prompt, mixed=True))
         status, data = self.run_analysis()
-        self.assertEqual(status, 'partial')
-        self.assertEqual(data['processed'], 0)
-        self.assertFalse(self.seen(doc))
+        # The unusable sibling is dropped on its own; the valid clue is saved and
+        # the message is covered by it, so the batch advances in one pass.
+        self.assertEqual(status, 'succeeded')
+        self.assertEqual(data['processed'], 1)
+        self.assertTrue(self.seen(doc))
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(len(data['clues']), 1)
-        self.assertEqual(data['deferred'], 1)
-        error = data['errors'][0]
-        self.assertTrue({'batch_id', 'message', 'attempts', 'state', 'documents', 'next_retry_at'} <= set(error))
-        self.assertEqual(error['attempts'], 1)
-        self.assertEqual(error['documents'], 1)
-        self.assertEqual(error['state'], 'waiting')
+        self.assertEqual(data['deferred'], 0)
+        self.assertEqual(data['format']['dropped_clues'], 1)
+        self.assertEqual(data['dropped'][0]['state'], 'covered')
         self.assertEqual(self.store.clues.listing()['total'], 1)
         original = data['clues'][0]
         status, retried = self.run_analysis('b', manual=True)
-        self.assertEqual(status, 'partial')
-        self.assertEqual(retried['clues'], [original])
+        self.assertEqual(retried['processed'], 0)
+        self.assertEqual(retried['clues'], [])
         self.assertEqual(self.store.clues.listing()['total'], 1)
-        self.assertFalse(self.seen(doc))
-        self.assertEqual(len(self.calls), 4)
 
     def test_failed_empty_progress_is_failed_with_bounded_repair_and_receipt(self):
         doc = self.add('invalid', '合成坏响应的原始技术消息。')
@@ -126,24 +363,24 @@ class ClueRetryTests(unittest.TestCase):
 
     def test_retry_budget_cooldown_and_manual_override_survive_restart(self):
         doc = self.add('retry', '合成需要多次重试的技术消息。')
-        with patch('clue_pipeline.time.time', return_value=1000):
+        with module_time(_clue_source, time=lambda: 1000):
             batch_id = self.pipeline.defer_batch([doc], 'synthetic', 'a' * 32, '合成校验失败', [])
             first = self.pipeline.retry_queue('synthetic')[0]
             self.assertEqual(first['attempts'], 1)
-            self.assertEqual(first['next_retry_at'], datetime.fromtimestamp(1060, timezone.utc).isoformat())
+            self.assertEqual(first['next_retry_at'], datetime.fromtimestamp(2800, timezone.utc).isoformat())
             self.assertEqual(self.pipeline.pending(ready_only=True, model='synthetic', run_id='b' * 32), [])
             self.assertEqual(len(self.pipeline.pending(ready_only=True, model='synthetic', run_id='b' * 32, manual=True)), 1)
             self.assertEqual(self.pipeline.pending(ready_only=True, model='synthetic', run_id='a' * 32, manual=True), [])
         restarted = CluePipeline(self.store)
-        with patch('clue_pipeline.time.time', return_value=1061):
+        with module_time(_clue_source, time=lambda: 2801):
             self.assertEqual(len(restarted.pending(ready_only=True, model='synthetic', run_id='b' * 32)), 1)
             self.assertEqual(restarted.defer_batch([doc], 'synthetic', 'b' * 32, '仍未通过', []), batch_id)
             second = restarted.retry_queue('synthetic')[0]
             self.assertEqual(second['attempts'], 2)
-            self.assertEqual(second['next_retry_at'], datetime.fromtimestamp(1361, timezone.utc).isoformat())
-        with patch('clue_pipeline.time.time', return_value=1362):
+            self.assertEqual(second['next_retry_at'], datetime.fromtimestamp(6401, timezone.utc).isoformat())
+        with module_time(_clue_source, time=lambda: 6402):
             restarted.defer_batch([doc], 'synthetic', 'c' * 32, '仍未通过', [])
-        with patch('clue_pipeline.time.time', return_value=99999):
+        with module_time(_clue_source, time=lambda: 99999):
             third = restarted.retry_queue('synthetic')[0]
             self.assertEqual(third['attempts'], 3)
             self.assertEqual(third['state'], 'needs_review')
@@ -172,14 +409,15 @@ class ClueRetryTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertTrue(all(not self.seen(doc) for doc in docs))
 
-    def test_primary_valid_candidate_survives_malformed_repair_without_false_checkpoint(self):
+    def test_primary_valid_candidate_survives_a_dropped_sibling_and_advances(self):
         doc = self.add('repair-invalid', '合成主调用已经发现有出处的技术线索')
         self.model(lambda prompt: self.response(prompt, mixed=True) if len(self.calls) == 1 else 'not-json')
         status, data = self.run_analysis()
-        self.assertEqual(status, 'partial')
-        self.assertEqual(data['processed'], 0)
+        self.assertEqual(status, 'succeeded')
+        self.assertEqual(data['processed'], 1)
         self.assertEqual(len(data['clues']), 1)
-        self.assertFalse(self.seen(doc))
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.seen(doc))
         self.assertEqual(self.store.clues.listing()['total'], 1)
 
     def test_fresh_incremental_progress_reports_deferred_message_count_not_batch_count(self):
@@ -337,26 +575,59 @@ class ClueRetryTests(unittest.TestCase):
         self.assertEqual(state['progress']['phase'], 'analysis')
         self.assertTrue(state['progress']['has_more'])
 
-    def test_unknown_fields_remain_rejected_and_repair_names_exact_allowed_schema(self):
+    def test_unknown_fields_are_ignored_counted_and_never_stored(self):
         doc = self.add('extra-fields', '合成有明确出处的技术更新消息')
         refs = self.pipeline.evidence_refs([doc])
         injected = self.candidate(next(iter(refs)))
         injected['actions'] = [{'tool': 'run_command', 'command': 'must-never-execute'}]
         injected['confidence'] = 0.9
-        with self.assertRaises(ValueError) as caught:
-            self.pipeline.parse(json.dumps({'clues': [injected]}), [doc], refs)
-        self.assertIn('actions', str(caught.exception))
-        self.assertIn('confidence', str(caught.exception))
-        self.assertFalse(self.seen(doc))
-        self.assertEqual(self.store.clues.listing()['total'], 0)
+        stats = {}
+        saved = CluePipeline.parse(json.dumps({'clues': [injected]}), [doc], refs, stats=stats)
+        # Key damage outside the contract is ignored and counted; it can neither
+        # reach the clue store nor void the candidate's real evidence.
+        self.assertEqual(stats['ignored_fields'], 2)
+        self.assertNotIn('actions', saved[0]); self.assertNotIn('confidence', saved[0])
+        self.model(json.dumps({'clues': [injected]}, ensure_ascii=False))
+        status, data = self.run_analysis()
+        self.assertEqual(status, 'succeeded')
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(data['processed'], 1)
+        self.assertEqual(data['format']['ignored_fields'], 2)
+        self.assertTrue(self.seen(doc))
+        self.assertEqual(self.store.clues.listing()['total'], 1)
+        self.assertEqual(self.store.events.list_events()['events'], [])
+        clue = self.store.clues.detail(data['clues'][0])
+        self.assertNotIn('actions', clue)
+        self.assertNotIn('confidence', clue)
+
+    def test_field_names_lose_surrounding_whitespace_and_are_counted(self):
+        doc = self.add('padded-keys', '合成字段名带空格的技术更新消息')
+        refs = self.pipeline.evidence_refs([doc])
+        clean = self.candidate(next(iter(refs)))
+        damaged = {' title': clean['title'], 'summary ': clean['summary'], 'categories': clean['categories'],
+                   'relevance': clean['relevance'], 'kind': clean['kind'], 'priority': clean['priority'],
+                   'quotes': clean['quotes'], 'id': 'ignored-by-contract'}
+        stats = {}
+        saved = CluePipeline.parse(json.dumps({'clues': [damaged]}), [doc], refs, stats=stats)
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0]['title'], clean['title'])
+        self.assertEqual(stats['field_names'], 2)
+        self.assertEqual(stats['ignored_fields'], 1)
+        # The same answer that used to park the batch now advances it in one pass.
+        self.model(json.dumps({'clues': [damaged]}, ensure_ascii=False))
+        status, data = self.run_analysis()
+        self.assertEqual(status, 'succeeded')
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(data['processed'], 1)
+        self.assertEqual(data['deferred'], 0)
+        self.assertTrue(self.seen(doc))
+        self.assertEqual(self.store.clues.listing()['total'], 1)
+
+    def test_repair_prompt_names_the_exact_allowed_schema(self):
+        doc = self.add('repair-schema', '合成需要一次格式修复的技术更新消息')
         def response(prompt):
-            if len(self.calls) == 1:
-                clean = json.loads(self.response(prompt))
-                clean['clues'][0].update(actions=injected['actions'], confidence=0.9)
-                return json.dumps(clean, ensure_ascii=False)
+            if len(self.calls) == 1: return 'not-json'
             repair = prompt.split('\n上次返回未通过格式校验：', 1)[1]
-            self.assertIn('actions', repair)
-            self.assertIn('confidence', repair)
             for field in ('title', 'summary', 'relevance', 'categories', 'kind', 'priority', 'quotes'):
                 self.assertIn(field, repair)
             self.assertTrue(any(word in repair for word in ('允许', '只能', '仅允许')))
@@ -372,10 +643,6 @@ class ClueRetryTests(unittest.TestCase):
         self.assertEqual(len(data['clues']), 1)
         self.assertTrue(self.seen(doc))
         self.assertEqual(self.store.clues.listing()['total'], 1)
-        self.assertEqual(self.store.events.list_events()['events'], [])
-        clue = self.store.clues.detail(data['clues'][0])
-        self.assertNotIn('actions', clue)
-        self.assertNotIn('confidence', clue)
 
     def test_incremental_failure_does_not_block_other_groups_or_later_messages(self):
         bad = self.add('bad-group', '合成坏群消息', chat='bad')
@@ -417,13 +684,13 @@ class ClueRetryTests(unittest.TestCase):
 
     def test_successful_manual_retry_clears_reservations_and_keeps_saved_clue_id(self):
         doc = self.add('recover', '合成最终能够恢复的技术消息')
-        self.model(lambda prompt: self.response(prompt, mixed=True))
-        _, first = self.run_analysis()
+        self.model('not-json')
+        self.run_analysis()
         self.model(self.response)
         status, second = self.run_analysis('b', manual=True)
         self.assertEqual(status, 'succeeded')
         self.assertEqual(second['processed'], 1)
-        self.assertEqual(second['clues'], first['clues'])
+        self.assertEqual(len(second['clues']), 1)
         self.assertEqual(self.store.clues.listing()['total'], 1)
         self.assertTrue(self.seen(doc))
         self.assertEqual(second['deferred'], 0)
@@ -459,7 +726,7 @@ class ClueRetryTests(unittest.TestCase):
                 raise ValueError('合成调用耗尽预算')
             return self.response(prompt)
         self.model(response)
-        with patch('clue_pipeline.time.monotonic', side_effect=lambda: clock[0]):
+        with module_time(_clue_source, monotonic=lambda: clock[0]):
             status, data = self.run_analysis(incremental=True, deadline=90)
         self.assertEqual(status, 'timeout')
         self.assertEqual(data['processed'], 1)

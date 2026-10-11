@@ -1,3 +1,4 @@
+from tests.test_assistant_backend import wait_for_background
 """Memory registration, grants and receipts without modifying personal notes."""
 import copy
 import json
@@ -152,9 +153,7 @@ class MemoryPiProtocolTests(unittest.TestCase):
         agent.client = model
         result = agent.start({'message': prompt, 'request_id': 'd' * 32,
                               'context': {'unsaved': True}})
-        deadline = time.monotonic() + 10
-        while agent.active and time.monotonic() < deadline:
-            time.sleep(.02)
+        wait_for_background(self, agent, result['id'])
         if agent.active:
             agent.stop(result['id'])
         job = agent.public_job(result['id'])

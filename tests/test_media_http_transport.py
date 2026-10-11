@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from isolation_patches import module_time, skip_sleep
+
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -333,7 +335,7 @@ class TransportTests(unittest.TestCase):
 
     def run_sync(self, job_id, generation=None):
         generation = generation or self.generation
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             generation.run(job_id, None)
         return generation.public(job_id)
 
@@ -385,6 +387,42 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn('image_skill', sent)
         self.assertNotIn('_references', sent)
 
+    # ---------- Krea2 rides the same HTTP path (no SSH anywhere) ----------
+    def test_krea2_submits_over_http_with_allowlisted_lora(self):
+        job = self.start_job(model='krea2', size='1024x1024', lora='daofushou',
+                             lora_strength=0.8, lora_trigger='刀斧手')
+        result = self.run_sync(job['id'])
+        self.assertEqual(result['status'], 'done')
+        self.assertEqual(result['transport'], 'https')
+        self.assertEqual(len(self.posts()), 1)
+        sent = self.api.jobs[result['api_job_id']]['params']
+        self.assertEqual(sent['model'], 'krea2')
+        self.assertEqual(sent['lora'], 'daofushou')     # allowlisted id, never a file path
+        self.assertEqual(sent['lora_strength'], 0.8)
+        self.assertNotIn('lora_file', sent)             # the API resolves the file server-side
+        self.assertNotIn('lora_name', sent)
+        # build() prepends the trigger once; the wire must not carry a doubled prompt
+        self.assertEqual(sent['prompt'].count('刀斧手'), 1)
+        self.assertEqual(result['settings']['lora'], 'daofushou')
+        self.assertEqual(result['settings']['lora_file'], 'krea2_lora 通行证刀斧手版.safetensors')
+        self.assertEqual(result['sha256'], hashlib.sha256(self.api.output).hexdigest())
+
+    def test_krea2_without_lora_sends_no_lora_fields(self):
+        job = self.start_job(model='krea2', size='1024x1024')
+        result = self.run_sync(job['id'])
+        sent = self.api.jobs[result['api_job_id']]['params']
+        self.assertEqual(sent['model'], 'krea2')
+        for key in ('lora', 'lora_strength', 'lora_trigger'):
+            self.assertNotIn(key, sent)
+        self.assertEqual(sent['steps'], 8)
+        self.assertEqual(sent['cfg'], 1.0)
+
+    def test_qi21_never_carries_lora_fields(self):
+        # the workbench rejects LoRA on non-Krea2 models before anything is submitted
+        with self.assertRaisesRegex(ValueError, '仅适用于 Krea2'):
+            self.start_job(model='qi21', lora='daofushou', lora_strength=0.8)
+        self.assertEqual(self.posts(), [])
+
     def test_reference_uploads_declare_meta_and_use_file_ids(self):
         # the product only wires references for the video model, so the reference
         # contract is exercised on that path (image + references is rejected upstream)
@@ -435,7 +473,7 @@ class TransportTests(unittest.TestCase):
     def test_lost_submit_response_is_adopted_without_second_submit(self):
         self.api.drop_submit_response = True
         job = self.start_job()
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             self.generation.run(job['id'], None)
         result = self.generation.public(job['id'])
         self.assertEqual(result['status'], 'uncertain')
@@ -452,7 +490,7 @@ class TransportTests(unittest.TestCase):
     def test_lost_submit_and_no_server_job_stays_uncertain_without_resubmit(self):
         self.api.drop_submit_response = True
         job = self.start_job()
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             self.generation.run(job['id'], None)
         self.api.by_key.clear()          # the server cannot be shown to have the job
         self.api.jobs.clear()
@@ -465,7 +503,7 @@ class TransportTests(unittest.TestCase):
     def test_transport_failure_while_polling_ends_uncertain_not_failed(self):
         job = self.start_job()
         self.api.transport_failures = 99
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             self.generation.run(job['id'], None)
         result = self.generation.public(job['id'])
         self.assertEqual(result['status'], 'uncertain')
@@ -476,17 +514,11 @@ class TransportTests(unittest.TestCase):
         job = self.start_job()
         clock = {'t': 0.0}
 
-        class Clock:
-            @staticmethod
-            def monotonic():
-                clock['t'] += 3601
-                return clock['t']
+        def advance():
+            clock['t'] += 3601
+            return clock['t']
 
-            @staticmethod
-            def sleep(_):
-                pass
-
-        with patch('generation.service.time', Clock()), self.quiet_observer():
+        with module_time('generation.service', monotonic=advance, sleep=skip_sleep), self.quiet_observer():
             self.generation.run(job['id'], None)
         result = self.generation.public(job['id'])
         self.assertEqual(result['status'], 'uncertain')
@@ -555,7 +587,7 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(final['status'], 'cancelled')
         self.assertEqual(self.posts(), [])
         # the staged upload is not turned into a generation job by a later pass
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             self.generation.run(job['id'], None)
         self.assertEqual(self.generation.public(job['id'])['status'], 'cancelled')
         self.assertEqual(self.posts(), [])
@@ -571,13 +603,13 @@ class TransportTests(unittest.TestCase):
     def test_cancel_then_restart_replays_intent_on_the_adopted_job(self):
         self.api.drop_submit_response = True
         job = self.start_job()
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             self.generation.run(job['id'], None)
         self.generation.cancel(job['id'])
         self.api.drop_submit_response = False
         # restart: a fresh instance adopts the same API job and must re-apply the stop
         fresh = Generation(self.store)
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             fresh.run(job['id'], None)
         final = fresh.public(job['id'])
         self.assertEqual(final['status'], 'cancelled')
@@ -612,7 +644,7 @@ class TransportTests(unittest.TestCase):
             self.generation.submit_http(job['id'], MediaApi())
         self.generation.update(job['id'], status='running')
         fresh = Generation(self.store)
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             fresh.run(job['id'], None)
         self.assertEqual(fresh.public(job['id'])['status'], 'done')
         self.assertEqual(len(self.posts()), 1)
@@ -650,7 +682,7 @@ class TransportTests(unittest.TestCase):
             self.generation.submit_http(job['id'], MediaApi())
         self.generation.update(job['id'], status='uncertain', submit_state='unknown')
         fresh = Generation(self.store)
-        with self.quiet_observer(), patch('generation.service.time.sleep'):
+        with self.quiet_observer(), module_time('generation.service', sleep=skip_sleep):
             fresh.run(job['id'], None)
         self.assertEqual(fresh.public(job['id'])['status'], 'done')
         self.assertEqual(len(self.posts()), 1)
@@ -814,8 +846,11 @@ class TransportTests(unittest.TestCase):
             time.sleep(0.05)
         self.api.drop_events_after = None     # the stream is healthy again
         deadline = time.time() + 20
-        while time.time() < deadline and len(self.api.event_requests) < 2:
-            time.sleep(0.1)
+        # wait for the events to be *consumed*, not for the request to be recorded: the
+        # handler appends `since` to event_requests before it writes a single event, so
+        # counting requests here races the observer and stops the stream mid-consume
+        while time.time() < deadline and (self.generation.public(job['id']).get('event_cursor') or 0) < 3:
+            time.sleep(0.05)
         stop.set()
         worker.join(20)
         self.assertFalse(worker.is_alive())
@@ -837,6 +872,20 @@ class TransportTests(unittest.TestCase):
         result = self.run_sync(job['id'])
         self.assertEqual(result['status'], 'done')
         self.assertIn('在此之前已完成生成', result['connection_warning'])
+
+    def test_sampling_values_survive_queue_heartbeats_and_reject_invalid_percent(self):
+        job=self.start_job()
+        self.generation.update(job['id'],status='running')
+        self.generation.apply_event(job['id'],{'seq':1,'type':'execution_progress','data':{'phase':'sampling','label':'正在生成画面','node':'8','current':7,'total':20}})
+        p=self.generation.public(job['id'])['progress']
+        self.assertEqual((p['current'],p['total'],p['percent']),(7,20,35))
+        self.generation.apply_event(job['id'],{'seq':2,'type':'progress','data':{'running':True}})
+        self.assertEqual(self.generation.public(job['id'])['progress'],p)
+        self.generation.apply_event(job['id'],{'seq':3,'type':'execution_progress','data':{'phase':'sampling','current':float('nan'),'total':20}})
+        self.assertNotIn('percent',self.generation.public(job['id'])['progress'])
+        self.generation.apply_event(job['id'],{'seq':4,'type':'execution_progress','data':{'phase':'decoding','label':'正在解码图片','node':'9'}})
+        self.assertEqual(self.generation.public(job['id'])['progress']['phase'],'decoding')
+        self.assertNotIn('percent',self.generation.public(job['id'])['progress'])
 
     def test_progress_events_map_to_phases_without_invented_percent(self):
         job = self.start_job()

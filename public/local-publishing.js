@@ -12,9 +12,12 @@ function localTargetAccount(value){return String(value||'').trim().replace(/^@/,
 function localTargetPreference(slug){
   try{return localStorage.getItem('article-studio:x-target:'+slug)||'';}catch{return '';}
 }
+function localTargetLastUsed(){
+  try{return localStorage.getItem('article-studio:x-target:last')||'';}catch{return '';}
+}
 function rememberLocalTarget(slug,account){
   if(!/^[a-z0-9_]{1,15}$/.test(account))return;
-  try{localStorage.setItem('article-studio:x-target:'+slug,account);}catch{}
+  try{localStorage.setItem('article-studio:x-target:'+slug,account);localStorage.setItem('article-studio:x-target:last',account);}catch{}
 }
 function localMediaLimitMessage(preflight){
   return `图片数量超限：正文 ${preflight.source_images} 张，@${preflight.account} 已实测单篇上限 ${preflight.limit.body_images} 张，超出 ${preflight.source_images-preflight.limit.body_images} 张。已停止上传；分批上传不能增加单篇文章容量。`;
@@ -34,9 +37,9 @@ function localUploadDiagnostics(j){
 }
 async function mountLocalPublishing(){
   const slug=state.slug,version=state.article.version.id;
-  const target=localTargetPreference(slug)||getPlatformDraft('x').account||'';
+  const target=localTargetPreference(slug)||getPlatformDraft('x').account||localTargetLastUsed()||'';
   const container=document.createElement('section');container.className='local-publishing';
-  container.innerHTML=`<h2>本机 X 发布</h2><p class="muted">使用这台 Mac 已登录的 Chrome，自动新建草稿、填入正文、上传封面和配图；保存检查后再确认公开发布。</p><label>目标账号<input id="local-x-account" placeholder="目标 X 账号" value="${escapeHTML(target)}"></label><p class="muted">修改目标后使用该账号的独立任务；X 登录账号需与目标一致。旧任务保留在其他账号历史中。</p><details><summary>接入已有草稿（可选）</summary><label>草稿链接<input id="local-x-draft" type="url" placeholder="https://x.com/compose/articles/edit/…"></label></details><p id="local-x-connection" role="status">正在检查本机扩展…</p><div id="local-x-preflight" aria-live="polite"></div><button class="button primary" id="local-x-start">上传到 X 草稿 / 继续任务</button><div id="local-x-jobs" aria-live="polite"></div><details><summary>首次连接本机 Chrome</summary><p>在 Chrome 打开 chrome://extensions，开启「开发者模式」，点击「加载已解压的扩展程序」，选择下方目录。然后刷新工作台和 X 标签页。</p><code style="overflow-wrap:anywhere">项目目录下的 publishing/local-extension</code><p class="muted">扩展仅用于本机工作台和 x.com，不读取密码或 Cookie。普通推文发布入口尚未接通。</p></details>`;
+  container.innerHTML=`<h2>本机 X 发布</h2><p class="muted">使用这台 Mac 已登录的 Chrome，自动新建草稿、填入正文、上传封面和配图；保存检查后再确认公开发布。</p><label>目标账号<input id="local-x-account" placeholder="目标 X 账号" value="${escapeHTML(target)}"></label><p class="muted">修改目标后使用该账号的独立任务；X 登录账号需与目标一致。旧任务保留在其他账号历史中。</p><details><summary>接入已有草稿（可选）</summary><label>草稿链接<input id="local-x-draft" type="url" placeholder="https://x.com/compose/articles/edit/…"></label></details><p id="local-x-connection" role="status">正在检查本机扩展…</p><div id="local-x-preflight" aria-live="polite"></div><button class="button primary" id="local-x-start">上传到 X 草稿 / 继续任务</button><div id="local-x-jobs" aria-live="polite"></div><details><summary>首次连接本机 Chrome</summary><p>在 Chrome 打开 chrome://extensions，开启「开发者模式」，点击「加载已解压的扩展程序」，选择下方目录。然后刷新工作台和 X 标签页。</p><code style="overflow-wrap:anywhere">publishing/local-extension</code>（位于本工作台仓库目录下）<p class="muted">扩展仅用于本机工作台和 x.com，不读取密码或 Cookie。普通推文发布入口尚未接通。</p></details>`;
   $('#export-package').before(container);
   let connected=false,executing=false,preparing=false,paintSerial=0;
   const accountInput=container.querySelector('#local-x-account');

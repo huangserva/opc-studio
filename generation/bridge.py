@@ -6,8 +6,6 @@ import errno
 import fcntl
 import http.client
 import json
-import os
-from pathlib import Path
 import re
 import sqlite3
 import sys
@@ -235,7 +233,7 @@ def optional_service_request(port, route, payload=None):
         raise
 
 def ensure_idle():
-    db = os.environ.get('ARTICLE_STUDIO_GPU_LEASE_DB') or str(Path.home()/'.h3storyboard/h3storyboard.db')
+    db = '/home/admin01/.h3storyboard/h3storyboard.db'
     with sqlite3.connect('file:' + db + '?mode=ro', uri=True) as connection:
         leases = connection.execute('SELECT lease_expires_at FROM gpu_leases').fetchall()
     now = datetime.datetime.now(datetime.timezone.utc)

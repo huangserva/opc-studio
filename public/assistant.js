@@ -82,7 +82,7 @@ async function pollAssistant(id){
   }catch(e){assistantBusy(false);$('#assistant-status').textContent=e.message;}
 }
 async function sendAssistant(event){
-  event.preventDefault();const input=$('#assistant-input'),message=input.value.trim();if((!message&&!chatAttachments.items.length)||assistantState.busy||composerMedia.loading)return;
+  event.preventDefault();const input=$('#assistant-input'),message=input.value.trim()?input.value:'';if((!message&&!chatAttachments.items.length)||assistantState.busy||composerMedia.loading)return;
   assistantBusy(true);
   try{
     const attachments=await readyChatAttachments();

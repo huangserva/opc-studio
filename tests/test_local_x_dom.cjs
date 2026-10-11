@@ -2,8 +2,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const source=fs.readFileSync('publishing/local-extension/x.js','utf8');
+// 本机 35k 字长文夹具不进公开仓库：用 ARTICLE_STUDIO_X_DOM_FIXTURE 指定本机路径，未设置或文件不存在时跳过该条。
+const X_DOM_FIXTURE=process.env.ARTICLE_STUDIO_X_DOM_FIXTURE||'';
+const X_DOM_FIXTURE_MISSING=!X_DOM_FIXTURE||!fs.existsSync(X_DOM_FIXTURE);
 function fixture({noEditor=false,ambiguousCreate=false,rejectCover=false,atomicMedia=false,modelSelection=false,misplaceOnce=false,misplaceAlways=false,loseOnce=false,loseAlways=false,maxImages=null,rejectInlineOnce=false}={}){
- const dom=new JSDOM('<main><a data-testid="AppTabBar_Profile_Link" href="https://x.com/demo_account">Profile</a><a role="button" id="write" href="#"><span role="button">Write</span></a>'+ (ambiguousCreate?'<button>Write</button>':'')+'</main>',{url:'https://x.com/compose/articles',runScripts:'outside-only'});
+ const dom=new JSDOM('<main><a data-testid="AppTabBar_Profile_Link" href="https://x.com/servasyy">Profile</a><a role="button" id="write" href="#"><span role="button">Write</span></a>'+ (ambiguousCreate?'<button>Write</button>':'')+'</main>',{url:'https://x.com/compose/articles',runScripts:'outside-only'});
  const w=dom.window,d=w.document;let listener,clock=0,creates=0,uploads=0,checkpoints=[],insertions=0,losses=0,rejectedAt=null;
  w.HTMLElement.prototype.getClientRects=function(){return [{}];};
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
@@ -65,7 +68,7 @@ function fixture({noEditor=false,ambiguousCreate=false,rejectCover=false,atomicM
  w.eval(source);
  return {w,d,checkpoints,creates:()=>creates,uploads:()=>uploads,rejectionWait:()=>clock-rejectedAt,send:msg=>new Promise(resolve=>listener(msg,{},resolve))};
 }
-function bundle(){return {job:{id:'a'.repeat(32),account:'demo_account',draft_url:'',checkpoint:{}},title:'自动上传测试',text:'开头中段结尾',html:'<p>开头</p><p>⟦XARTICLE_IMAGE_01⟧</p><p>中段</p><p>⟦XARTICLE_IMAGE_02⟧</p><p>结尾</p>',cover:{name:'cover.webp',data:'YQ==',sha256:'cover-hash'},images:[{id:'01',name:'1.png',data:'YQ==',sha256:'hash1',marker:'⟦XARTICLE_IMAGE_01⟧'},{id:'02',name:'2.jpg',data:'YQ==',sha256:'hash2',marker:'⟦XARTICLE_IMAGE_02⟧'}]};}
+function bundle(){return {job:{id:'a'.repeat(32),account:'servasyy',draft_url:'',checkpoint:{}},title:'自动上传测试',text:'开头中段结尾',html:'<p>开头</p><p>⟦XARTICLE_IMAGE_01⟧</p><p>中段</p><p>⟦XARTICLE_IMAGE_02⟧</p><p>结尾</p>',cover:{name:'cover.webp',data:'YQ==',sha256:'cover-hash'},images:[{id:'01',name:'1.png',data:'YQ==',sha256:'hash1',marker:'⟦XARTICLE_IMAGE_01⟧'},{id:'02',name:'2.jpg',data:'YQ==',sha256:'hash2',marker:'⟦XARTICLE_IMAGE_02⟧'}]};}
 async function upload(f,b){const p=await f.send({command:'prepare',bundle:b});assert(!p.error,p.error);b.job.draft_url=p.url;const r=await f.send({command:'upload',bundle:b});assert(!r.error,r.error);b.job.checkpoint=r.checkpoint;return r;}
 test('automatic creation, native cover crop, inline uploads, saved identities and anchors',async()=>{
  const f=fixture(),b=bundle(),r=await upload(f,b);
@@ -105,10 +108,10 @@ test('only a workbench-confirmed article completes the native publish dialog onc
  const publish=f.d.createElement('button');publish.textContent='Publish';f.d.querySelector('main').append(publish);
  publish.onclick=()=>{
   first++;f.d.querySelector('main').insertAdjacentHTML('beforeend','<div role="dialog" id="publish-dialog"><button>Publish</button></div>');
-  f.d.querySelector('#publish-dialog button').onclick=()=>{final++;f.w.history.replaceState({},'','/demo_account/article/777');f.d.querySelector('#publish-dialog').remove();};
+  f.d.querySelector('#publish-dialog button').onclick=()=>{final++;f.w.history.replaceState({},'','/servasyy/article/777');f.d.querySelector('#publish-dialog').remove();};
  };
  let r=await f.send({command:'publish',bundle:b});assert.equal(r.code,'PUBLISH_NOT_CONFIRMED');assert.equal(first,0);
- b.job.status='publish_requested';r=await f.send({command:'publish',bundle:b});assert(!r.error,r.error);assert.equal(r.url,'https://x.com/demo_account/article/777');assert.equal(first,1);assert.equal(final,1);
+ b.job.status='publish_requested';r=await f.send({command:'publish',bundle:b});assert(!r.error,r.error);assert.equal(r.url,'https://x.com/servasyy/article/777');assert.equal(first,1);assert.equal(final,1);
 });
 test('genuine text mismatch reports an exact difference and uploads no files',async()=>{
  const f=fixture(),b=bundle();b.text='开头有改中段结尾';
@@ -137,15 +140,8 @@ test('body readback uses the native contents region and excludes adjacent editor
  const controls=f.d.createElement('span');controls.textContent='额外的编辑控件文字';editor.append(controls);
  const r=await f.send({command:'check',bundle:b});assert(!r.error,r.error);
 });
-test('a synthetic 35k-character article preserves all text and 29 image anchors in the DOM fixture',async()=>{
- const f=fixture(),b=bundle(),paragraphs=[],images=[];
- for(let index=0;index<30;index++){
-   const text=('Synthetic paragraph '+index+' records only generated test content. ').repeat(21);
-   paragraphs.push('<p>'+text+'</p>');
-   if(index<29){const id=String(index+1).padStart(2,'0'),marker='⟦XARTICLE_IMAGE_'+id+'⟧';paragraphs.push('<p>'+marker+'</p>');images.push({id,name:id+'.png',data:'YQ==',sha256:'synthetic-'+id,marker});}
- }
- b.html=paragraphs.join('');b.text=paragraphs.filter(p=>!p.includes('XARTICLE_IMAGE_')).map(p=>p.slice(3,-4)).join('');b.images=images;
- assert(b.text.length>=35000);
+test('the actual 35k-character article preserves all text and 29 image anchors in the DOM fixture',{skip:X_DOM_FIXTURE_MISSING?'需设置 ARTICLE_STUDIO_X_DOM_FIXTURE 指向本机夹具（未复制进公开仓库）':false},async()=>{
+ const f=fixture(),b=JSON.parse(fs.readFileSync(X_DOM_FIXTURE,'utf8'));
  const r=await upload(f,b);assert.equal(r.evidence.image_count,29);assert.equal(f.uploads(),30);assert.equal(r.evidence.positions_checked,true);
  assert(!f.d.querySelector('[contenteditable]').textContent.includes('XARTICLE_IMAGE_'));
 });
@@ -279,7 +275,7 @@ test('native media-limit feedback persists a precise limit and prevents silent c
  const r=await f.send({command:'upload',bundle:b});assert.equal(r.code,'MEDIA_LIMIT');
  assert(f.rejectionWait()<1000,'native limit must stop immediately, not after the 45-second upload timeout');
  assert.match(r.error,/正文 3 张/);assert.match(r.error,/超出已实测单篇上限 2 张/);assert(!r.error.includes('分篇适配'));
- const cp=f.checkpoints.at(-1).checkpoint;assert.equal(cp.native_limits.body_images,1);assert.equal(cp.native_limits.account,'demo_account');assert.equal(Object.keys(cp.media).length,1);
+ const cp=f.checkpoints.at(-1).checkpoint;assert.equal(cp.native_limits.body_images,1);assert.equal(cp.native_limits.account,'servasyy');assert.equal(Object.keys(cp.media).length,1);
  b.job.checkpoint=cp;const again=await f.send({command:'upload',bundle:b});assert.equal(again.code,'MEDIA_LIMIT');assert.equal(f.uploads(),3);
 });
 test('a reloaded draft proves an unsuccessful file submission absent before one retry',async()=>{

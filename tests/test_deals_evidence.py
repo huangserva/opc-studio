@@ -2,6 +2,7 @@ import json,tempfile,unittest,uuid
 import os
 from pathlib import Path
 from unittest.mock import patch
+import deals_evidence
 from server import Store
 from knowledge_store import Knowledge
 from assistant_deals import DealTools
@@ -18,16 +19,24 @@ class EvidenceTests(unittest.TestCase):
    self.s.knowledge._write(c,'wechat-local','message-2','wechat','合成品牌 · 客户 · 2026-10-06','好的',modified='2026-10-06T01:00:00+00:00')
  def tearDown(self):self.tmp.cleanup()
  def test_brand_aliases_are_optional_local_configuration(self):
-  with patch.dict(os.environ,{'ARTICLE_STUDIO_DEAL_ALIASES':''}):self.assertEqual(aliases(),{})
+  isolated=str(Path(self.tmp.name)/'deals_evidence.py')
+  with patch.dict(os.environ,{'ARTICLE_STUDIO_DEAL_ALIASES':''}),patch.object(deals_evidence,'__file__',isolated):self.assertEqual(aliases(),{})
   path=Path(self.tmp.name)/'synthetic-aliases.json'
   path.write_text(json.dumps({'合成项目':['合成品牌','synthetic brand']}))
   with patch.dict(os.environ,{'ARTICLE_STUDIO_DEAL_ALIASES':str(path)}):self.assertEqual(aliases()['合成项目'],['合成品牌','synthetic brand'])
   path.write_text(json.dumps({'合成项目':'invalid type'}))
   with patch.dict(os.environ,{'ARTICLE_STUDIO_DEAL_ALIASES':str(path)}),self.assertRaises(ValueError):aliases()
+ def test_private_deals_aliases_file_is_used_when_present(self):
+  private=Path(self.tmp.name)/'deals_aliases.json'
+  private.write_text(json.dumps({'合成私有项目':['合成别名']}))
+  with patch.dict(os.environ,{'ARTICLE_STUDIO_DEAL_ALIASES':''}),patch.object(deals_evidence,'__file__',str(Path(self.tmp.name)/'deals_evidence.py')):
+   self.assertEqual(aliases(),{'合成私有项目':['合成别名']})
+  private.write_text(json.dumps({'合成私有项目':'invalid type'}))
+  with patch.dict(os.environ,{'ARTICLE_STUDIO_DEAL_ALIASES':''}),patch.object(deals_evidence,'__file__',str(Path(self.tmp.name)/'deals_evidence.py')),self.assertRaises(ValueError):aliases()
  def job(self):return {'prompt':'初稿完成了','context':{'ui':{'page':'deals','deal_id':self.d['id']}}}
  def propose(self,j,changes=None,operation='update'):
   self.tool.execute('read_deal',{'id':self.d['id']},j)
-  return self.tool.execute('propose_deal_update',dict(id=self.d['id'],operation=operation,changes=changes or {'stage':'draft'},reason='用户明确说初稿完成'),j)['deal_proposal']
+  return self.tool.execute('propose_deal_update',dict(id=self.d['id'],operation=operation,changes=changes or {'stage':'draft'},reason='黄总明确说初稿完成'),j)['deal_proposal']
  def test_candidates_link_actual_message_without_changing_prices_income_or_status(self):
   r=self.ds.scan_evidence(self.d['id']);e=r['evidence'][0]
   self.assertEqual(len(r['evidence']),1);self.assertEqual(r['revision'],self.d['revision']);self.assertEqual(e['at'],'2026-10-05T15:59:00+00:00');self.assertEqual(e['price_mentions'],['4000元']);self.assertIn('document=',e['url']);self.assertIsNone(r['quote']);self.assertEqual(r['stage'],'writing');self.assertFalse(r['receipts'])
@@ -69,7 +78,7 @@ class EvidenceTests(unittest.TestCase):
  def test_ai_receipt_validates_date_currency_and_preserves_fulfillment(self):
   for changes in [{'amount':'4000','currency':'CNY','paid_on':''},{'amount':'0','currency':'CNY','paid_on':'2026-10-06'},{'amount':'4000','currency':'EUR','paid_on':'2026-10-06'}]:
    with self.assertRaises(ValueError):self.propose(self.job(),changes,'receipt')
-  p=self.propose(self.job(),dict(amount='4000',currency='CNY',paid_on='2026-10-06',note='用户确认今天到账'),'receipt');self.assertEqual(self.ds.listing(month='2026-10')['summary']['received']['CNY'],'0.00');r=self.ds.apply_proposal({'proposal_id':p['id']});self.assertEqual(r['stage'],'writing');self.assertEqual(self.ds.listing(month='2026-10')['summary']['received']['CNY'],'4000.00');self.assertEqual(len(self.ds.apply_proposal({'proposal_id':p['id']})['receipts']),1)
+  p=self.propose(self.job(),dict(amount='4000',currency='CNY',paid_on='2026-10-06',note='黄总确认今天到账'),'receipt');self.assertEqual(self.ds.listing(month='2026-10')['summary']['received']['CNY'],'0.00');r=self.ds.apply_proposal({'proposal_id':p['id']});self.assertEqual(r['stage'],'writing');self.assertEqual(self.ds.listing(month='2026-10')['summary']['received']['CNY'],'4000.00');self.assertEqual(len(self.ds.apply_proposal({'proposal_id':p['id']})['receipts']),1)
  def test_ai_target_binding_and_unknown_fields(self):
   other=self.ds.save(dict(title='另一笔',customer='另一客户',request_key=uuid.uuid4().hex));j=self.job();self.tool.execute('read_deal',{'id':other['id']},j)
   with self.assertRaises(ValueError):self.tool.execute('propose_deal_update',dict(id=other['id'],operation='update',changes={'stage':'draft'},reason='用户请求'),j)

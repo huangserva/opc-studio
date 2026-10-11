@@ -2,7 +2,7 @@
 
 ## illustration-generator（2026-10-02）
 
-通过 `ARTICLE_STUDIO_IMAGE_SKILL` 指定已安装的 `illustration-generator` 目录；默认使用 `~/.codex/skills/illustration-generator`。风格资料由本机技能提供，不随仓库分发。
+本地统一技能来自 `huangserva/servasyy_skills` 提交 `84ee474`，安装于 `~/.codex/skills/illustration-generator`，旧 Downloads 路径通过兼容链接引用同一份资料。旧版已在同步任务的 work/skill-backups 中备份。本机适配和提交来源记录在技能内 `STUDIO-SOURCE.json`。
 
 工作台使用原始 63 种通用风格、17 个分类、15 个模板，以及随技能附带的 20 种文章风格。两个生图入口均有「风格」选择；「按描述生成」保留原提示词。所选风格只影响提示词，生成执行仍是已有 Qwen/Krea 工作流。任务保存完整提示词、原用户描述和技能版本、风格、分类，重试不会重复拼接风格。
 
@@ -143,3 +143,12 @@ t2v、i2v、fl2v 使用 Director；r2v、ir2v、flr2v 使用 H3 原生多参考�
 除 t2v 外，输出宽高须为 32 的倍数，当前可选 768×448 或 448×768；图片和视频参考素材也会补齐到适用尺寸。上传和生成沿用本机访问及 Origin 校验，大工作流经 SSH stdin 传输。
 
 页面只能选择已接入的真实服务，目前视频生成服务为自有 4090 H3。H3 权重选项不代表 LTX、Kling 等其他视频服务。
+
+
+## 图片参考输入（2026-10-08）
+
+独立图片页可上传、预览和移除参考图片；历史沿用与草稿恢复保留参考编号。Qwen Image 2.1 最多 4 张，使用 TextEncodeQwenImage21 的原生图像 conditioning 与参考尺寸 latent。Krea2 Turbo 最多 1 张，使用 ImageScale → VAEEncode → KSampler 图生图，重绘强度 0.05–1，默认 0.7。所选输出尺寸用于调整第一张参考图。Krea2 当前通路是重绘，不保证精准遵循编辑指令。
+
+聊天选择“生图”标签后，图片附件会转换为生成参考图；普通聊天与 LLM generate_media 的行为保持各自能力边界。请求先上传素材到媒体 API，再将服务器 file_id 写入 references.images；浏览器不能提交路径或任意工作流。媒体 API 的 workflows.py 与 image_references.py 必须同时更新。无图请求保留原文生图工作流。
+
+本次验证与真实产物见 work/image-reference-fix/；8766 后端重启沿用项目权限约定。

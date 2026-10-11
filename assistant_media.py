@@ -1,4 +1,5 @@
 """Persist manual media submissions in the same conversation as typed messages."""
+import base64
 import copy
 import uuid
 import re
@@ -28,7 +29,8 @@ class AssistantMediaMixin:
                   'actions':[{'name':'generate_media','label':'生成图片' if media_job['kind']=='image' else '生成视频',
                               'status':'done','media_job':media_job['id']}],
                   'policy':{'allowed_tools':[],'allow_insert':False},'source':'media-composer',
-                  'conversation_id':self.conversation_id}
+                  'conversation_id':self.conversation_id,
+                  'attachments':self.resolve_attachments((media_job.get('chat_request') or {}).get('attachments',[]))}
             updated=self.turns+[turn]
             self.content.write(self.history_path,updated)
             self.turns=updated
@@ -99,8 +101,8 @@ class AssistantMediaMixin:
         switch=re.fullmatch(r'(?:请)?(?:换成|换用|用)\s*(Krea\s*2|Qwen\s*Image\s*2\.1|H3)(?:\s*(?:再生成(?:一张|一次)?|重新生成))?[！!。\s]*',text,re.I)
         reference=payload.get('reference_job')
         if not (selected or again or switch or reference):return None
-        if payload.get('attachments'):
-            raise ValueError('当前生成工具尚未接入参考图；请取消生图/视频标签，先把图片发给聊天模型查看')
+        if payload.get('attachments') and selected != 'image':
+            raise ValueError('视频参考素材请从独立视频页上传')
         with self.lock:
             # A retried HTTP request must reuse the original resolved reference and seed.
             request_id=payload.get('request_id')
@@ -131,7 +133,7 @@ class AssistantMediaMixin:
             settings=self.media_preferences()[selected].copy()
             if source:
                 fields=('size','frames','lora','lora_strength','lora_trigger')
-                fields+=('workflow','video_checkpoint','video_accelerator','video_loras','references') if selected=='video' else ('steps','cfg')
+                fields+=('workflow','video_checkpoint','video_accelerator','video_loras','references') if selected=='video' else ('steps','cfg','references','denoise')
                 settings.update({k:copy.deepcopy(source['settings'][k]) for k in fields if k in source['settings']})
                 if selected=='video':
                     settings['video_loras']=[{'id':row['id'],'strength':row.get('strength',1.0)} for row in settings.get('video_loras',[])]
@@ -139,6 +141,7 @@ class AssistantMediaMixin:
                 settings['model']=source['model']
                 if selected=='image':settings['image_style']=(source.get('image_skill') or {}).get('style','')
             fields=('model','size','frames','seed','image_style','lora','lora_strength','lora_trigger')
+            if selected=='image':fields+=('references','denoise','steps','cfg')
             if selected=='video':fields+=('workflow','video_checkpoint','video_accelerator','video_loras','references')
             settings.update({k:copy.deepcopy(options[k]) for k in fields if k in options})
             if switch:
@@ -151,6 +154,13 @@ class AssistantMediaMixin:
                 except ValueError:settings['size']=model['sizes'][0]
             if model['id']!='krea2':
                 for key in ('lora','lora_strength','lora_trigger'):settings.pop(key,None)
+            if payload.get('attachments'):
+                attachments=self.resolve_attachments(payload['attachments'])
+                limit=4 if model['id']=='qi21' else 1
+                if len(attachments)>limit:raise ValueError(f'当前模型最多使用 {limit} 张参考图')
+                settings['references']={'images':[self.generation.upload_reference({
+                    'data':'data:image/png;base64,'+base64.b64encode(self.attachment_path(item['id']).read_bytes()).decode(),
+                    'name':item['name']})['id'] for item in attachments]}
             context=payload.get('context') or {}
             if source:context={'slug':source.get('slug'),'version':source.get('base_version')}
             result=self.start_media({**settings,'prompt':text,'slug':context.get('slug'),'version':context.get('version'),

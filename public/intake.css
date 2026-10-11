@@ -1,0 +1,101 @@
+/* 创意回收站 · 第一期：投喂、解析、入库 */
+.intake-workspace .main{background:linear-gradient(135deg,#e8eefa 0%,#f1f4fb 45%,#e9f2ef 100%)}
+.in-canvas{flex:1;min-height:0;overflow:auto;padding:28px 34px 70px}
+.in-heading{margin-bottom:22px}
+.in-heading h1{font-size:27px;letter-spacing:-.6px;margin:10px 0 8px;color:#24304a}
+.in-heading p{font-size:13px;line-height:1.9;color:#7f8ca6;margin:0;max-width:760px}
+.in-side-note{font-size:12px;line-height:1.8;color:#8b95a9;margin:14px 12px 0}
+.in-drop{background:#fff;border:1px solid #e1e7f4;border-radius:15px;padding:20px;box-shadow:0 10px 30px #243e6908}
+.in-main-field{display:block;font-size:13px;color:#5f6d88}
+.in-main-field>span{display:block;margin-bottom:8px;font-weight:600;color:#415273}
+.in-drop textarea,.in-drop input[type=file],.in-reason textarea{font:inherit;background:#fbfcff;color:#33435f;border:1px solid #dfe5f1;border-radius:10px;padding:12px;box-sizing:border-box;width:100%}
+.in-drop textarea{resize:vertical;min-height:78px;line-height:1.8}
+.in-reason{display:block;font-size:13px;color:#5f6d88;margin-top:16px}
+.in-reason>span{display:block;margin-bottom:7px;color:#415273}
+.in-actions{display:flex;align-items:center;gap:14px;margin-top:18px;flex-wrap:wrap}
+.in-file-button{font-size:12px;color:#61708e;display:flex;align-items:center;gap:8px}
+.in-file-button input{font-size:12px;max-width:280px}
+.in-picked{font-size:12px;color:#8795ae;overflow-wrap:anywhere;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.in-picked .in-discard{padding:4px 10px;font-size:12px}
+.in-picked .in-cancel-upload{padding:4px 10px;font-size:12px;color:#f0c674;border-color:#6b5a34}
+.in-file-button input:disabled,.in-actions button:disabled{opacity:.45;cursor:not-allowed}
+.in-note{font-size:11px;line-height:1.8;color:#8795ae;margin:16px 0 0}
+#in-status{font-size:12px;color:#5c6c8c;margin:12px 0 0;min-height:18px;line-height:1.7;overflow-wrap:anywhere}
+.in-list-head{display:flex;align-items:baseline;gap:14px;margin:28px 0 14px}
+.in-list-head strong{font-size:16px;color:#3a4b6b}
+.in-list-head span{font-size:11px;color:#8795ae}
+#in-list{display:grid;gap:12px}
+.in-empty{padding:44px 20px;text-align:center;color:#8b98af;font-size:13px;background:#fff;border:1px dashed #dbe2ef;border-radius:13px}
+.in-item{background:#fff;border:1px solid #e1e7f4;border-left:4px solid #b9c6e6;border-radius:13px;padding:17px 19px}
+.in-item header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.in-time{font-size:11px;color:#8b98af}
+.in-kind{font-size:11px;background:#f0f3ff;color:#5b70c8;border-radius:6px;padding:3px 8px}
+.in-state{font-size:12px;color:#4c5f80;margin-left:auto;line-height:1.7;overflow-wrap:anywhere}
+.in-source{font-size:13px;color:#41527a;margin:12px 0 0;overflow-wrap:anywhere;line-height:1.7}
+.in-source a{color:#4f68d8;overflow-wrap:anywhere}
+.in-why{font-size:12px;color:#6d7b96;margin:9px 0 0;line-height:1.8;overflow-wrap:anywhere}
+.in-why-empty{color:#a3abbd}
+.in-detail{font-size:11px;color:#8795ae;margin:9px 0 0;line-height:1.8;overflow-wrap:anywhere}
+/* 本次重试完成时间：只说这一次什么时候结束、结果是什么口径 */
+.in-retry-note{font-size:11px;color:#6d7b96;margin:10px 0 0;line-height:1.7;overflow-wrap:anywhere}
+.in-item footer{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap}
+.in-item footer .button{font-size:11px}
+/* 重试进行中：被点的那一行显示「解析中…」，其他行禁用时要看得出是「在等」而不是「不能点」 */
+.in-item footer .button:disabled{opacity:.45;cursor:not-allowed}
+.in-item footer .in-resolving{opacity:1;color:#4263eb;border-color:#c9d6f7;background:#f5f8ff;cursor:progress}
+.in-item footer .in-waiting{cursor:progress}
+/* 删除：次要样式，靠右，不跟“重新解析/重新分析”抢眼 */
+.in-item footer .in-delete{margin-left:auto;color:#a85c4c;border-color:#e7d3cc;background:#fffafa}
+.in-item footer .in-delete:hover{background:#fdf2ef}
+.in-item.in-failed{border-left-color:#d39184;background:#fffbfa}
+.in-item.in-failed .in-state{color:#a85c4c}
+.in-item.in-duplicate{border-left-color:#d9bd85}
+.in-item.in-duplicate .in-state{color:#8f7340}
+.in-item.in-link-only{border-left-color:#a9c6d8}
+.in-item.in-pending{border-left-color:#cfd5e2}
+.in-item.in-stored{border-left-color:#8fbfa4}
+.in-item.in-image,.in-item.in-video{border-left-color:#b7a9d8}
+@media(max-width:900px){.in-canvas{padding:18px 14px 50px}.in-state{margin-left:0;width:100%}.in-heading h1{font-size:23px}}
+
+.in-why{white-space:pre-wrap}
+
+.in-recognition{white-space:pre-wrap;margin:12px 0;padding:12px;border:1px solid #dfe5f1;border-radius:10px;background:#fbfcff}.in-recognition small{color:#5f6d88}
+.in-analysis{margin:14px 0 0;padding:13px 14px;border:1px solid #dfe5f1;border-left:3px solid #8fb0e8;border-radius:11px;background:#fbfdff}
+.in-analysis>header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.in-analysis>header strong{font-size:13px;color:#3a4b6b}
+.in-analysis>header small{font-size:11px;color:#8b98af;margin-left:auto}
+.in-analysis-block{margin-top:11px}
+.in-analysis-block h4{font-size:12px;color:#5b70c8;margin:0 0 5px;font-weight:600}
+.in-analysis-block p{font-size:13px;line-height:1.85;color:#3c4c6b;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.in-analysis-block ul{margin:6px 0 0;padding-left:18px;display:grid;gap:5px}
+.in-analysis-block li{font-size:12px;line-height:1.8;color:#4c5c7c;overflow-wrap:anywhere}
+.in-analysis-block li span{display:block;font-size:11px;color:#8795ae;margin-top:2px}
+.in-analysis-block li a{color:#4f68d8;overflow-wrap:anywhere}
+.in-analysis-none,.in-analysis-note{font-size:11px;color:#98a2b6;margin:5px 0 0}
+.in-analysis footer{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}
+.in-analysis-cards{font-size:12px;color:#4f68d8}
+.in-analysis-wait,.in-analysis-failed,.in-analysis-empty{font-size:12px;line-height:1.8;margin:12px 0 0;color:#5c6c8c}
+.in-analysis-wait small{display:block;font-size:11px;color:#98a2b6;margin-top:3px}
+.in-analysis-failed{color:#a85c4c}
+.in-service{font-size:12px;line-height:1.7;color:#a85c4c;background:#fdf3f1;border:1px solid #f0d9d3;border-radius:9px;padding:8px 11px;margin:0 0 10px}
+.in-item.in-duplicate .in-analysis{border-left-color:#d9bd85}
+#in-views,#in-platforms{display:grid;gap:5px}
+#in-views button,#in-platforms button{border:0;background:none;padding:12px;text-align:left;display:flex;justify-content:space-between;gap:10px;border-radius:8px;font-size:13px;color:#677790;cursor:pointer}
+#in-views button:hover,#in-platforms button:hover{background:#f2f5ff}
+#in-views .selected,#in-platforms .selected{color:#4263eb;background:#edf1ff;font-weight:600}
+/* 平台徽标：只给已认出的三家，其他链接不加平台标签 */
+.in-platform{font-size:11px;border-radius:6px;padding:3px 8px;background:#f0f3ff;color:#5b70c8;white-space:nowrap}
+.in-platform-xiaohongshu{background:#fdeef1;color:#b0445c}
+.in-platform-douyin{background:#edf1fa;color:#3d4f7c}
+.in-platform-channels{background:#eef7f0;color:#3f7a5c}
+/* 批量删除与筛选：勾选框、筛选控件、批量操作条 */
+.in-list-head{flex-wrap:wrap}
+.in-filter{display:flex;align-items:center;gap:6px;font-size:11px;color:#677790}
+.in-filter select,.in-filter input{font:inherit;font-size:11px;padding:4px 6px;border:1px solid #d8e0f0;border-radius:7px;background:#fff;color:#3a4b6b}
+.in-batch{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding:10px 14px;background:#f4f7ff;border:1px solid #dbe3f6;border-radius:11px}
+.in-batch-all{display:flex;align-items:center;gap:7px;font-size:12px;color:#3a4b6b}
+.in-batch-count{font-size:12px;color:#3a4b6b;font-weight:600}
+.in-batch-note{font-size:11px;color:#8795ae}
+.in-batch .in-batch-delete{margin-left:auto;color:#a85c4c;border-color:#e7d3cc;background:#fffafa}
+.in-batch .in-batch-delete:disabled{opacity:.45;cursor:not-allowed}
+.in-item .in-check{width:16px;height:16px;accent-color:#4263eb;cursor:pointer}

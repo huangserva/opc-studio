@@ -1,6 +1,6 @@
 (() => {
   const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const state={bindings:[],snapshots:[],observations:[],selected:null,listRequest:0,detailRequest:0,saving:false,file:null,fileRequest:0};
+  const state={bindings:[],snapshots:[],observations:[],selected:null,listRequest:0,detailRequest:0,saving:false,file:null,fileRequest:0,capabilities:{}};
   const chars=s=>Array.from(s||'').length,key=b=>b.slug+':'+b.delivery_id;
   const stamp=s=>s?new Date(s).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'未提供';
   const names={x:'X',wechat:'微信公众号',douyin:'抖音',xiaohongshu:'小红书',channels:'视频号'};
@@ -18,7 +18,7 @@
     return `<div class="fb-source-actions"><label>同一原帖的发布版本 <select data-observation-binding="${esc(o.id)}">${candidates.map(b=>`<option value="${esc(key(b))}">${esc(label(b))}</option>`).join('')}</select></label><button class="button" data-observation-bind="${esc(o.id)}">关联所选固定版本</button></div>`;
   }
   async function refresh(){
-    const data=await api('/api/feedback');state.bindings=data.bindings||[];
+    const data=await api('/api/feedback');state.bindings=data.bindings||[];state.capabilities=data.capabilities||{};
     const selected=$('#fb-filter').value;
     $('#fb-filter').innerHTML='<option value="">全部发布项</option>'+state.bindings.map(b=>`<option value="${esc(key(b))}">${esc(label(b))}</option>`).join('');
     if(state.bindings.some(b=>key(b)===selected))$('#fb-filter').value=selected;
@@ -75,7 +75,17 @@
     const row=document.createElement('div');row.className='fb-metric-row';row.innerHTML='<input class="fb-metric-name" maxlength="80" aria-label="原始指标名称" placeholder="后台的指标名称"><input class="fb-metric-value" maxlength="200" aria-label="原始指标数值或文字" placeholder="后台的原始数值或文字"><button type="button" aria-label="移除这项指标">移除</button>';
     row.querySelector('.fb-metric-name').value=name;row.querySelector('.fb-metric-value').value=value;row.querySelector('button').onclick=()=>row.remove();$('#fb-metric-rows').append(row);
   }
-  function bindingInfo(){const b=state.bindings.find(b=>key(b)===$('#fb-binding').value);$('#fb-binding-info').textContent=b?`${names[b.platform]} · 固定版本 ${b.version} · ${b.url}`:'';}
+  function bindingInfo(){
+    const b=state.bindings.find(b=>key(b)===$('#fb-binding').value);
+    $('#fb-binding-info').textContent=b?`${names[b.platform]} · 固定版本 ${b.version} · ${b.url}`:'';
+    const hints=(state.capabilities.metric_fields||{})[b?b.platform:'']||[];
+    $('#fb-metric-hints').innerHTML=hints.length?`<span>该平台常见字段（仅提示，名称和数值仍沿用后台原文）：</span>${hints.map(item=>`<button type="button" class="fb-hint" data-metric-hint="${esc(item)}">${esc(item)}</button>`).join('')}`:'';
+    $('#fb-metric-hints').querySelectorAll('[data-metric-hint]').forEach(button=>button.onclick=()=>{
+      const rows=[...$('#fb-metric-rows').children],blank=rows.find(row=>!row.querySelector('.fb-metric-name').value&&!row.querySelector('.fb-metric-value').value);
+      if(blank){blank.querySelector('.fb-metric-name').value=button.dataset.metricHint;blank.querySelector('.fb-metric-value').focus();return;}
+      addMetric(button.dataset.metricHint,'');
+    });
+  }
   function sourceKind(){const csv=$('#fb-source-kind').value==='csv';$('#fb-csv').hidden=!csv;$('#fb-manual').hidden=csv;$('#fb-manual-url').required=!csv;}
   function rangeKind(){$('#fb-range-start').required=$('#fb-range-kind').value==='interval';}
   function openEditor(){if(state.saving||!state.bindings.length)return;$('#fb-form').reset();state.file=null;++state.fileRequest;$('#fb-csv-preview').textContent='选择文件后可核对原始表头。';$('#fb-binding').innerHTML=state.bindings.map(b=>`<option value="${esc(key(b))}">${esc(label(b))}</option>`).join('');if($('#fb-filter').value)$('#fb-binding').value=$('#fb-filter').value;$('#fb-collected').value=new Date().toISOString();$('#fb-metric-rows').innerHTML='';addMetric();sourceKind();rangeKind();bindingInfo();message('',false,'#fb-form-status');$('#fb-dialog').showModal();}
@@ -91,8 +101,69 @@
       try{const saved=await api('/api/feedback/import',payload);$('#fb-dialog').close();await refreshList();await openSnapshot(saved.id);message('原始统计快照已导入；可核对来源后回库。');}finally{state.saving=false;nodes.forEach(n=>{n.disabled=n.dataset.wasDisabled==='true';delete n.dataset.wasDisabled;});}
     }catch(e){message(e.message,true,$('#fb-dialog').open?'#fb-form-status':'#fb-status');}
   };
+  // --- 作品复盘：只在点击后读取，不自动取数、不自动回库 ---
+  const OVERVIEW_NOTICE='Buffer 只提供组织级汇总（该 CLI 没有按帖指标），不能归因到单个作品，只作同期背景。';
+  const review={works:[],slug:'',data:null,request:0,saving:false};
+  const fmt=value=>typeof value==='number'?(Number.isInteger(value)?String(value):(Math.round(value*10000)/10000).toString()):String(value??'');
+  const reviewLabel=w=>`${w.title} · ${w.platforms.map(p=>names[p]||p).join('/')} · ${w.snapshots} 份快照${w.note_updated_at?' · 已有复盘笔记':''}`;
+  function seriesTable(entry){
+    return `<table class="fb-metrics"><thead><tr><th>采集时间</th><th>口径</th><th>${esc(entry.label)}</th><th>与上次</th></tr></thead><tbody>${entry.points.map(p=>`<tr><td>${esc(stamp(p.collected_at))}</td><td>${esc(p.range_kind==='cumulative'?'累计':'区间')}${p.provenance==='csv'?' · CSV':''}</td><td>${esc(p.value)}</td><td>${Object.hasOwn(p,'delta')?(p.delta===null?'原值不可解析':(p.delta>0?'+':'')+fmt(p.delta)):'—'}</td></tr>`).join('')}</tbody></table>`;
+  }
+  function peerBlock(group){
+    return `<section class="fb-review-card"><h3>同类对比 · ${esc(names[group.platform]||group.platform)} · ${esc(group.type||'类型未标注')}</h3><p class="fb-notice">${esc(group.notice)}</p>${group.metrics.length?`<table class="fb-metrics"><thead><tr><th>指标</th><th>本作品</th><th>同类中位</th><th>同类范围</th><th>样本</th></tr></thead><tbody>${group.metrics.map(m=>`<tr><td>${esc(m.label)}</td><td>${esc(m.value)}</td><td>${esc(fmt(m.median))}</td><td>${esc(fmt(m.minimum))} – ${esc(fmt(m.maximum))}</td><td>${esc(m.count)}</td></tr>`).join('')}</tbody></table>`:'<p class="fb-notice">同类作品还没有导入同一指标，不能比较。</p>'}<p class="fb-notice">同类作品：${group.works.length?group.works.map(w=>esc(w.title)).join('、'):'无'}</p></section>`;
+  }
+  function overviewBlock(items){
+    return `<section class="fb-review-card"><h3>同期 Buffer 组织级汇总</h3><p class="fb-notice">${esc(OVERVIEW_NOTICE)}</p><div class="fb-source-actions"><label>开始日期<input id="fb-overview-start" type="date"></label><label>结束日期<input id="fb-overview-end" type="date"></label><button id="fb-overview-fetch" class="button" type="button">读取 Buffer 组织级汇总（只读）</button></div>${items.length?items.map(item=>`<div class="fb-overview"><p class="fb-notice">${esc(item.window.start)} 至 ${esc(item.window.end)} · ${esc(item.organization_name||'未命名组织')} · 读取于 ${esc(stamp(item.fetched_at))}</p><table class="fb-metrics"><thead><tr><th>指标</th><th>原始值</th></tr></thead><tbody>${item.metrics.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(fmt(m.value))}</td></tr>`).join('')}</tbody></table></div>`).join(''):'<p class="fb-notice">尚未读取。Buffer 只有组织级汇总，不能归因到单个作品。</p>'}</section>`;
+  }
+  function renderReview(){
+    const r=review.data;if(!r)return;
+    const series=r.series.map(seriesTable).join('')||'<p class="fb-notice">还没有导入统计快照，先导入后才能看趋势与对比。</p>';
+    $('#fb-review-body').innerHTML=`<h2>${esc(r.title)}</h2><p class="fb-notice">${esc(r.notice)}</p>
+      <dl class="fb-meta"><dt>作品编号</dt><dd>${esc(r.slug)} · ${esc(r.type||'类型未标注')}</dd><dt>平台</dt><dd>${esc(r.platforms.map(p=>names[p]||p).join('、'))}</dd><dt>快照</dt><dd>${esc(r.snapshots)} 份</dd><dt>笔记更新</dt><dd>${esc(r.note.notes_updated_at?stamp(r.note.notes_updated_at):'尚未写复盘笔记')}</dd></dl>
+      <div class="fb-source-actions">${link(r.work_url,'核对作品 ↗')}${r.deliveries.map(d=>link(d.url,`${names[d.platform]||d.platform} ${d.version} ↗`)).join('')}</div>
+      <h3>指标随时间</h3><p class="fb-notice">${esc(r.series_notice)}</p>${series}
+      ${r.peers.map(peerBlock).join('')}
+      ${r.observations.length?`<section class="fb-review-card"><h3>平台页面采集资料</h3>${r.observations.map(o=>`<p>${esc(o.title)} · ${esc(stamp(o.observed_at))} · ${o.metrics.map(m=>esc(m.label)+' '+esc(m.value)).join('、')} ${link(o.url,'核对采集 ↗')}</p>`).join('')}</section>`:''}
+      ${overviewBlock(r.overviews)}
+      <section class="fb-review-card"><h3>复盘笔记</h3><label>结论与下一步（本机保存，最多 20,000 字）<textarea id="fb-review-notes" rows="6" maxlength="20000">${esc(r.note.notes)}</textarea></label>
+      <div class="fb-source-actions"><button id="fb-review-save" class="button" type="button">保存复盘笔记</button><button id="fb-review-knowledge" class="button primary" type="button">存为知识库笔记</button></div>
+      <p class="fb-notice">存为知识库笔记只新增一份候选资料，不会自动改写写作铁律或风格库。${r.note.documents.length?'已回库 '+r.note.documents.length+' 份：'+r.note.documents.map(d=>link('/knowledge.html?document='+encodeURIComponent(d.document_id),'笔记 ↗')).join(' '):''}</p></section>`;
+    $('#fb-review-save').onclick=saveNote;$('#fb-review-knowledge').onclick=exportNote;$('#fb-overview-fetch').onclick=fetchOverview;
+  }
+  async function saveNote(){
+    if(review.saving)return;review.saving=true;const button=$('#fb-review-save');button.disabled=true;
+    try{const result=await api('/api/feedback/review/'+encodeURIComponent(review.slug)+'/notes',{notes:$('#fb-review-notes').value});
+      if(review.slug!==result.slug)return;message(result.summary);await loadReview(review.slug);
+    }catch(e){message(e.message,true);}finally{review.saving=false;button.disabled=false;}
+  }
+  async function exportNote(){
+    if(review.saving)return;review.saving=true;const button=$('#fb-review-knowledge');button.disabled=true;
+    try{const result=await api('/api/feedback/review/'+encodeURIComponent(review.slug)+'/knowledge',{});message(result.summary);await loadReview(review.slug);
+    }catch(e){message(e.message,true);}finally{review.saving=false;button.disabled=false;}
+  }
+  async function fetchOverview(){
+    const button=$('#fb-overview-fetch');button.disabled=true;
+    try{const result=await api('/api/feedback/overview',{start:$('#fb-overview-start').value,end:$('#fb-overview-end').value});message(result.summary);await loadReview(review.slug);
+    }catch(e){message(e.message,true);}finally{button.disabled=false;}
+  }
+  async function loadReview(slug){
+    const request=++review.request;$('#fb-review-body').innerHTML='<p class="fb-empty">正在读取复盘…</p>';
+    const data=await api('/api/feedback/review/'+encodeURIComponent(slug));if(request!==review.request)return;
+    review.data=data;review.slug=slug;renderReview();
+  }
+  async function openReview(){
+    $('#fb-review').hidden=false;
+    const data=await api('/api/feedback/reviews');review.works=data.works||[];
+    $('#fb-review-work').innerHTML=review.works.length?review.works.map(w=>`<option value="${esc(w.slug)}">${esc(reviewLabel(w))}</option>`).join(''):'<option value="">还没有已登记的发布项</option>';
+    if(!review.works.length){$('#fb-review-body').innerHTML='<div class="fb-empty"><h2>还没有可复盘的已发布作品。</h2><p>先在作品页登记发布链接，再导入该发布项的统计。</p></div>';return;}
+    if(!review.slug||!review.works.some(w=>w.slug===review.slug))review.slug=review.works[0].slug;
+    $('#fb-review-work').value=review.slug;await loadReview(review.slug);
+  }
+  $('#fb-review-open').onclick=()=>openReview().catch(e=>message(e.message,true));
+  $('#fb-review-refresh').onclick=()=>openReview().catch(e=>message(e.message,true));
+  $('#fb-review-work').onchange=event=>loadReview(event.target.value).catch(e=>message(e.message,true));
   $('#fb-new').onclick=openEditor;$('#fb-add-metric').onclick=()=>addMetric();$('#fb-binding').onchange=bindingInfo;$('#fb-source-kind').onchange=sourceKind;$('#fb-range-kind').onchange=rangeKind;
   $('#fb-filter').onchange=()=>refreshList().catch(e=>message(e.message,true));$('#fb-refresh').onclick=()=>refresh().catch(e=>message(e.message,true));
   $('#fb-dialog').addEventListener('cancel',event=>{if(state.saving)event.preventDefault();});document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>{if(!state.saving)$('#fb-dialog').close();});
-  refresh().then(()=>{const params=new URLSearchParams(location.search),id=params.get('snapshot'),observation=params.get('observation'),binding=params.get('binding');if(observation)return openObservation(observation);if(id)return openSnapshot(id);if(binding&&state.bindings.some(b=>key(b)===binding)){$('#fb-filter').value=binding;refreshList().catch(e=>message(e.message,true));if(params.get('new')==='1')openEditor();}}).catch(e=>message(e.message,true));
+  refresh().then(()=>{const params=new URLSearchParams(location.search),id=params.get('snapshot'),observation=params.get('observation'),binding=params.get('binding'),reviewSlug=params.get('review');if(observation)return openObservation(observation);if(id)return openSnapshot(id);if(reviewSlug){review.slug=reviewSlug;return openReview();}if(binding&&state.bindings.some(b=>key(b)===binding)){$('#fb-filter').value=binding;refreshList().catch(e=>message(e.message,true));if(params.get('new')==='1')openEditor();}}).catch(e=>message(e.message,true));
 })();

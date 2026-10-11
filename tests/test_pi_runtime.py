@@ -1,3 +1,4 @@
+from tests.test_assistant_backend import wait_for_background
 """Exercise the installed Pi SDK and its real OpenAI streaming adapter over local HTTP."""
 import base64
 import io
@@ -9,6 +10,8 @@ import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
+from unittest.mock import patch
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -47,13 +50,14 @@ class PiIntegrationTests(unittest.TestCase):
                     chunk({'role': 'assistant'})
                     if result.get('partial'): chunk({'content': result['partial']})
                     if result.get('hold'): test.hold.wait(8)
-                    if result.get('tool'):
-                        chunk({'tool_calls': [{'index': 0, 'id': 'call-'+str(len(test.requests)), 'type': 'function',
-                            'function': {'name': result['tool'], 'arguments': json.dumps(result.get('args', {}))}}]})
+                    if result.get('tool') or result.get('tools'):
+                        calls=result.get('tools') or [dict(name=result['tool'],args=result.get('args',{}))]
+                        chunk({'tool_calls': [{'index': i, 'id': 'call-'+str(len(test.requests))+'-'+str(i), 'type': 'function',
+                            'function': {'name': call['name'], 'arguments': json.dumps(call.get('args', {}))}} for i,call in enumerate(calls)]})
                     elif result.get('thinking'):
                         chunk({'reasoning_content': result['thinking']})
                     else: chunk({'content': result.get('content', '')})
-                    chunk({}, result.get('reason') or ('tool_calls' if result.get('tool') else 'stop'),
+                    chunk({}, result.get('reason') or ('tool_calls' if result.get('tool') or result.get('tools') else 'stop'),
                           {'prompt_tokens': 100, 'completion_tokens': 20, 'total_tokens': 120})
                     self.wfile.write(b'data: [DONE]\n\n'); self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError): pass
@@ -67,6 +71,90 @@ class PiIntegrationTests(unittest.TestCase):
         self.store = Store(self.root/'workspace')
         self.agent = self.make_agent()
 
+    def test_blocked_tool_name_reaches_history_without_arguments(self):
+        self.respond=lambda body: {'tool':'update_text','args':{'html':'PRIVATE_SYNTHETIC_HTML','api_key':'DO_NOT_RECORD'}}
+        result=self.ask('请查询当前作品')
+        self.assertEqual(result['status'],'error')
+        self.assertIn('本轮未执行修改',result['answer'])
+        self.assertIn('加粗',result['answer'])
+        history=json.loads(self.agent.history_path.read_text()) if hasattr(self.agent,'history_path') else self.agent.history
+        receipt=history[-1]['runtime_result']
+        self.assertEqual(receipt['blocked_tool_names'],['update_text'])
+        self.assertEqual(receipt['error_kind'],'tool_policy')
+        self.assertNotIn('PRIVATE_SYNTHETIC_HTML',json.dumps(receipt))
+        self.assertNotIn('DO_NOT_RECORD',json.dumps(receipt))
+
+    def test_blocked_names_are_deduplicated_bounded_and_validated(self):
+        calls=[dict(name='blocked_'+str(i),args={'html':'PRIVATE_SYNTHETIC_HTML'}) for i in range(20)]
+        calls.insert(1,dict(name='blocked_0'))
+        self.respond=lambda body:{'tools':calls}
+        self.ask('查询当前作品')
+        receipt=json.loads(self.agent.history_path.read_text())[-1]['runtime_result']
+        self.assertEqual(receipt['blocked_tool_names'],['blocked_'+str(i) for i in range(16)]+['[truncated]'])
+        self.assertLessEqual(len(receipt['blocked_tool_names']),17)
+        self.agent.new_chat()
+        self.respond=lambda body:{'tool':'x'*80,'args':{'html':'PRIVATE_SYNTHETIC_HTML'}}
+        self.ask('查询当前作品')
+        receipt=json.loads(self.agent.history_path.read_text())[-1]['runtime_result']
+        self.assertEqual(receipt['blocked_tool_names'],['[invalid_tool_name]'])
+
+    # 24d L4：被拦提示按被拦工具类别给可行动示例；示例句必须在现网策略下真能拿到对应授权。
+    def test_blocked_hint_matches_tool_category_and_examples_are_grantable(self):
+        import re as re_module
+        from assistant_policy import policy_for
+        source=(Path(__file__).resolve().parents[1]/'pi-runtime'/'worker.mjs').read_text()
+        hints=[({value.strip("'\" ") for value in tools.split(',')},example) for tools,example in
+               re_module.findall(r"\{tools:\[([^\]]*)\],example:'([^']+)'\}",source)]
+        self.assertTrue(hints)
+        for tools,example in hints:
+            with self.subTest(example=example):
+                self.assertTrue(set(policy_for(example)['allowed_tools'])&tools,
+                                '示例句在现网策略下拿不到对应授权：%s -> %s' % (example,sorted(policy_for(example)['allowed_tools'])))
+        expected={'update_text':'把当前作品正文加粗','edit_work':'把当前作品的截图插到第一段之后',
+                  'generate_media':'生成一张猫咪图片','organize_collection':'把当前作品归档到合成合集',
+                  'create_card':'生成一张文字卡片','remio_create_note':'记住黄总偏好短句标题',
+                  'remio_update_note':'更新笔记里的黄总偏好',
+                  'memos_write':'记住这个偏好并存到 MemOS'}
+        self.assertEqual({example for _,example in hints},set(expected.values()))
+        for name,example in expected.items():
+            with self.subTest(tool=name):
+                self.agent.new_chat()
+                self.respond=lambda body:{'tool':name,'args':{'html':'PRIVATE_SYNTHETIC_HTML','prompt':'PRIVATE_PROMPT'}}
+                result=self.ask('查一下最近的作品')
+                self.assertEqual(result['status'],'error')
+                self.assertIn('本轮未执行修改',result['answer'])
+                self.assertIn(example,result['answer'])
+                self.assertNotIn('PRIVATE_SYNTHETIC_HTML',result['answer'])
+                self.assertNotIn('PRIVATE_PROMPT',result['answer'])
+                self.assertNotIn(name,result['answer'])
+                self.assertEqual(json.loads(self.agent.history_path.read_text())[-1]['runtime_result']
+                                 ['blocked_tool_names'],[name])
+        self.agent.new_chat()
+        self.respond=lambda body:{'tool':'zzz_not_a_tool','args':{'html':'PRIVATE_SYNTHETIC_HTML'}}
+        result=self.ask('查一下最近的作品')
+        self.assertIn('请说明要进行的具体修改',result['answer'])
+        self.assertNotIn('zzz_not_a_tool',result['answer'])
+        self.assertNotIn('PRIVATE_SYNTHETIC_HTML',result['answer'])
+
+    def test_bold_saves_and_later_violation_reports_saved_version(self):
+        article=self.store.create({'title':'合成稿'});slug=article['slug']
+        self.store.save(slug,{'base_version':'v0001','title':'合成稿','blocks':[{'kind':'text','html':'<p>合成文字</p>'}]})
+        def response(body):
+            results=[m for m in body['messages'] if m['role']=='tool']
+            if not results:return {'tool':'read_work','args':{'slug':slug}}
+            if len(results)==1:return {'tool':'update_text','args':{'slug':slug,'base_version':'v0002',
+                'edits':[{'index':0,'html':'<p><strong>合成文字</strong></p>'}],'summary':'加粗'}}
+            return {'tool':'organize_collection','args':{'name':'不得创建'}}
+        self.respond=response
+        result=self.ask('请按照图片给当前作品文字加粗',context={'slug':slug,'version':'v0002'})
+        self.assertEqual(result['status'],'error')
+        self.assertIn('停止前已有修改保存成功',result['answer'])
+        self.assertNotIn('本轮未执行修改',result['answer'])
+        self.assertIn('<strong>',self.store.detail(slug)['blocks'][0]['html'])
+        self.assertEqual(self.store.detail(slug)['version']['id'],'v0003')
+        self.assertEqual(self.store.collections(),[])
+        self.assertEqual([a['name'] for a in result['actions']],['read_work','update_text'])
+
     def make_agent(self):
         agent = assistant_module.Assistant(self.store, content, self.config_path)
         agent.generation = Generation(self.store)
@@ -76,14 +164,12 @@ class PiIntegrationTests(unittest.TestCase):
         self.hold.set()
         if self.agent.active:
             self.agent.stop(self.agent.active)
-            deadline = time.time()+5
-            while self.agent.active and time.time()<deadline: time.sleep(.02)
+            wait_for_background(self, self.agent)
         self.http.shutdown(); self.http.server_close(); self.tmp.cleanup()
 
     def ask(self, text, **extra):
         first = self.agent.start({'message': text, **extra})
-        deadline = time.time()+10
-        while self.agent.active and time.time()<deadline: time.sleep(.02)
+        wait_for_background(self, self.agent, first['id'])
         self.assertIsNone(self.agent.active)
         return self.agent.public_job(first['id'])
 
@@ -105,7 +191,7 @@ class PiIntegrationTests(unittest.TestCase):
             self.assertNotIn('其他页面的文章历史',str(body['messages']))
             results=[m for m in body['messages'] if m['role']=='tool']
             if not results:return {'tool':'read_deal','args':{'id':deal['id']}}
-            if len(results)==1:return {'tool':'propose_deal_update','args':{'id':deal['id'],'operation':'update','changes':{'stage':'draft'},'reason':'用户明确确认初稿完成'}}
+            if len(results)==1:return {'tool':'propose_deal_update','args':{'id':deal['id'],'operation':'update','changes':{'stage':'draft'},'reason':'黄总明确确认初稿完成'}}
             self.assertIn('deal_proposal',results[-1]['content'])
             return {'content':'初稿状态修改已准备，请核对后保存。'}
         self.respond=respond
@@ -215,11 +301,10 @@ class PiIntegrationTests(unittest.TestCase):
     def test_workflow_stop_aborts_active_model_and_skips_later_stages(self):
         self.workflow_fixture('hold')
         first=self.agent.start({'message':'写文章','workflow':'research-write'})
-        deadline=time.time()+5
-        while not self.requests and time.time()<deadline:time.sleep(.02)
+        wait_for_background(self, self.agent, first['id'], ready=lambda: bool(self.requests))
         self.assertTrue(self.requests)
-        started=time.monotonic();self.agent.stop(first['id'])
-        while self.agent.active and time.monotonic()-started<5:time.sleep(.02)
+        self.agent.stop(first['id'])
+        wait_for_background(self, self.agent, first['id'])
         self.assertIsNone(self.agent.active)
         job=self.agent.public_job(first['id'])
         self.assertEqual(job['status'],'cancelled')
@@ -393,10 +478,9 @@ class PiIntegrationTests(unittest.TestCase):
     def test_stop_cancels_stream_without_waiting_for_provider_timeout(self):
         self.respond=lambda b:{'hold':True,'content':'不应继续'}
         first=self.agent.start({'message':'解释上下文。'})
-        deadline=time.time()+4
-        while not self.requests and time.time()<deadline:time.sleep(.02)
-        start=time.monotonic();self.agent.stop(first['id'])
-        while self.agent.active and time.monotonic()-start<4:time.sleep(.02)
+        wait_for_background(self, self.agent, first['id'], ready=lambda: bool(self.requests))
+        self.agent.stop(first['id'])
+        wait_for_background(self, self.agent, first['id'])
         self.assertIsNone(self.agent.active)
         self.assertEqual(self.agent.public_job(first['id'])['status'],'cancelled')
 
@@ -437,5 +521,167 @@ class PiIntegrationTests(unittest.TestCase):
         self.assertNotIn(self.config['api_key'],persisted)
         self.assertNotIn(self.config['api_key'],self.agent.history_path.read_text())
         self.assertNotIn(self.config['api_key'],self.agent.pending_path.read_text())
+
+    def test_profile_vision_spends_one_provider_request_per_fresh_session(self):
+        from intake_media_recognition import ProfileVision
+        folder = self.root / 'vision-home'
+        def respond(body):
+            return {'content': '图' + str(len(self.requests))}
+        self.respond = respond
+        vision = ProfileVision(lambda: dict(self.config), lambda config: False, folder)
+        path = self.root / 'red.png'
+        Image.new('RGB', (32, 32), 'red').save(path)
+        first = vision(path)
+        second = vision(path)
+        self.assertEqual(first['text'], '图1')
+        self.assertEqual(second['text'], '图2')
+        self.assertEqual(len(self.requests), 2)
+        self.assertNotIn('图1', json.dumps(self.requests[1]['body'], ensure_ascii=False))
+        for body in (self.requests[0]['body'], self.requests[1]['body']):
+            images = [part for message in body['messages'] if isinstance(message.get('content'), list)
+                      for part in message['content'] if isinstance(part, dict) and part.get('type') == 'image_url']
+            self.assertEqual(len(images), 1)
+        self.assertFalse(any(folder.joinpath('pi-sessions').glob('intake-vision-*')))
+        self.assertFalse(any(item.name.startswith('vision-') for item in folder.iterdir()))
+
+
+class ProviderBudgetTests(unittest.TestCase):
+    """假 provider 边界：数 worker 真正发出的 model_request，不是 PiRuntime.run 的次数。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.provider_calls = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def owner(self, client):
+        from types import SimpleNamespace
+        def request_model(*args, **kwargs):
+            raise AssertionError('预算测试不走 request_model')
+        return SimpleNamespace(
+            folder=self.root, lock=threading.RLock(), turns=[], tool_labels={'echo_probe': '探测'},
+            request_model=request_model, client=client, persist_pending=lambda job: None,
+            attachment_path=lambda identity: self.root / 'missing.png',
+            image_skill=SimpleNamespace(entry_paths=lambda: []), execute=self.execute)
+
+    def execute(self, name, args, job):
+        return {'summary': 'ok'}
+
+    def job(self, **extra):
+        payload = {
+            'id': 'budget-job', 'conversation_id': 'budget-' + extra.get('conversation_id', 'plain'),
+            'model_config': {'endpoint': 'http://127.0.0.1:1/v1/chat/completions', 'model': 'fixture',
+                             'api_key': 'not-sent', 'context_tokens': 8192, 'max_output_tokens': 200,
+                             'temperature': 0, 'timeout_seconds': 10},
+            'prompt': '看一下', 'context': {}, 'attachments': [],
+            'policy': {'allowed_tools': ['echo_probe']}, 'actions': [], 'cancel': False}
+        payload.update(extra)
+        return payload
+
+    def tool(self):
+        return [{'function': {'name': 'echo_probe', 'description': '探测',
+                              'parameters': {'type': 'object', 'properties': {}}}, 'label': '探测'}]
+
+    def runtime(self, client):
+        from pi_runtime import PiRuntime
+        runtime = PiRuntime(self.owner(client))
+        self.assertTrue(runtime.available(), 'Pi 运行环境未就绪，预算测试无法打到 worker')
+        return runtime
+
+    def test_one_request_cap_fails_before_a_second_provider_call(self):
+        def client(messages, **kwargs):
+            self.provider_calls.append(messages)
+            return {'content': None, 'tool_calls': [{'id': 'probe-1', 'type': 'function',
+                    'function': {'name': 'echo_probe', 'arguments': '{}'}}]}
+        result = self.runtime(client).run(
+            self.job(max_provider_requests=1, compaction_enabled=False, conversation_id='capped'),
+            '测试', self.tool())
+        self.assertEqual(len(self.provider_calls), 1)
+        self.assertNotEqual(result.get('status'), 'done')
+
+    def test_default_cap_still_allows_a_second_provider_call(self):
+        replies = [{'content': None, 'tool_calls': [{'id': 'probe-1', 'type': 'function',
+                    'function': {'name': 'echo_probe', 'arguments': '{}'}}]},
+                   {'content': '第二次可以回答'}]
+        def client(messages, **kwargs):
+            self.provider_calls.append(messages)
+            return replies[len(self.provider_calls) - 1]
+        result = self.runtime(client).run(self.job(conversation_id='default-two'), '测试', self.tool())
+        self.assertEqual(len(self.provider_calls), 2)
+        self.assertEqual(result.get('status'), 'done', result.get('answer'))
+        self.assertIn('第二次可以回答', result.get('answer', ''))
+
+    def test_default_provider_cap_is_still_twelve(self):
+        def client(messages, **kwargs):
+            self.provider_calls.append(messages)
+            return {'content': None, 'tool_calls': [{'id': 'probe-' + str(len(self.provider_calls)),
+                    'type': 'function', 'function': {'name': 'echo_probe', 'arguments': '{}'}}]}
+        result = self.runtime(client).run(self.job(conversation_id='default-twelve'), '测试', self.tool())
+        self.assertEqual(len(self.provider_calls), 12)
+        self.assertNotEqual(result.get('status'), 'done')
+
+    def test_plain_jobs_omit_vision_limits_and_flagged_jobs_keep_them(self):
+        from pi_runtime import PiRuntime
+        owner = self.owner(lambda *args, **kwargs: None)
+        owner.client = owner.request_model
+        runtime = PiRuntime(owner)
+        self.assertTrue(runtime.available())
+        captured = {}
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                self.lines = []
+                self.stdin = self
+                self.stdout = self
+                self.returncode = None
+                self._closed = False
+            def write(self, data):
+                captured['payload'] = json.loads(data)
+                names = [item['function']['name'] for item in captured['payload']['tools']]
+                self.lines.append(json.dumps({'type': 'ready', 'tools': names}))
+                self.lines.append(json.dumps({'type': 'done', 'status': 'done', 'answer': '好'}))
+            def flush(self): pass
+            def close(self): self._closed = True
+            def __iter__(self):
+                while self.lines or not self._closed:
+                    if self.lines:
+                        yield self.lines.pop(0) + '\n'
+                    elif self._closed:
+                        break
+                    else:
+                        time.sleep(.01)
+            def poll(self): return self.returncode
+            def terminate(self):
+                self.returncode = 0
+                self._closed = True
+            def kill(self):
+                self.returncode = -9
+                self._closed = True
+            def wait(self, timeout=None): return self.returncode
+
+        plain = self.job(conversation_id='plain')
+        plain['policy'] = {'allowed_tools': []}
+        with patch('pi_runtime.subprocess.Popen', FakeProc):
+            result = runtime.run(plain, '系统', [])
+        self.assertEqual(result['status'], 'done')
+        self.assertNotIn('max_provider_requests', captured['payload'])
+        self.assertNotIn('compaction_enabled', captured['payload'])
+        vision = self.job(conversation_id='vision', max_provider_requests=1, compaction_enabled=False)
+        vision['policy'] = {'allowed_tools': []}
+        with patch('pi_runtime.subprocess.Popen', FakeProc):
+            runtime.run(vision, '系统', [])
+        self.assertEqual(captured['payload']['max_provider_requests'], 1)
+        self.assertIs(captured['payload']['compaction_enabled'], False)
+        self.assertNotEqual(captured['payload']['session_dir'], str(self.root / 'pi-sessions' / 'intake-vision'))
+        rejected = self.job(conversation_id='bad', max_provider_requests=0)
+        with self.assertRaisesRegex(ValueError, '模型调用上限无效'):
+            runtime.run(rejected, '系统', [])
+        rejected['max_provider_requests'] = 1
+        rejected['compaction_enabled'] = 'no'
+        with self.assertRaisesRegex(ValueError, '压缩开关无效'):
+            runtime.run(rejected, '系统', [])
+
 
 if __name__=='__main__':unittest.main()

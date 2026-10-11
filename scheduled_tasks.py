@@ -18,6 +18,10 @@ from events_store import identity
 TZ = ZoneInfo('Asia/Shanghai')
 MAX_OUTPUT = 65536
 RUN_STATUSES = frozenset({'running', 'succeeded', 'partial', 'failed', 'timeout', 'cancelled', 'interrupted'})
+# Kinds that must resolve a real model profile before a run is claimed. `script` and
+# `intel_wechat_mp` run locally with no model; keeping one list stops claim() from
+# handing a model task a None config (intake_cards used to fall out of this list).
+MODEL_KINDS = ('pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','outsourced')
 
 class ModelBusy(ValueError):
     """A runnable task waits; no failure receipt or checkpoint is created."""
@@ -47,7 +51,7 @@ class ScheduledTasks:
         self.folder.mkdir(mode=0o700, parents=True, exist_ok=True); self.folder.chmod(0o700)
         self.db_path = self.folder / 'tasks.db'
         self.lock = threading.RLock(); self.stop_event = threading.Event()
-        self.active = {}; self.workers = {}; self.assistant = assistant; self.last_error = None; self.last_tick = None; self.publisher = None; self.wechat_analyzer = None; self.github_analyzer = None; self.radar_analyzer = None
+        self.active = {}; self.workers = {}; self.assistant = assistant; self.last_error = None; self.last_tick = None; self.heat_recomputer = None; self.publisher = None; self.wechat_analyzer = None; self.github_analyzer = None; self.radar_analyzer = None; self.deals_analyzer = None; self.intake_analyzer = None; self.intel_analyzer = None; self.outsourced_clues = None
         with self.db() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, revision INTEGER, data TEXT, next_run REAL);
             CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, task_id TEXT, snapshot TEXT, trigger TEXT,
@@ -87,10 +91,28 @@ class ScheduledTasks:
             if not isinstance(task[key],str) or not task[key].strip() or len(task[key]) > maximum or '\x00' in task[key]:
                 raise ValueError('请填写任务名称、执行内容和有效工作目录')
         task['name'] = task['name'].strip()
+        if task['kind']=='outsourced':
+            # 外包任务的工作目录就是它的交接子目录，由 slug 推出来，不让调用方自己填。
+            from outsourced_tasks import _check_slug, outbox_root, resolved_inside
+            task['slug']=_check_slug(payload.get('slug',''))
+            task['fallback']=payload.get('fallback','pi')
+            if task['fallback'] not in ('pi','none'): raise ValueError('兜底方式只能是 pi 或 none')
+            root = outbox_root()
+            folder = root / task['slug']
+            # 顺序不能反：先判软链逃逸再落盘。实测 mkdir 不会真的在根外建出目录
+            # （指向已存在目录时静默通过，指向不存在目录时抛 FileExistsError），
+            # 但那样报错会变成「无法创建目录」，把「slug 指到交接根之外」说成了
+            # 权限问题。先判能给出真正的原因，也完全不碰文件系统。
+            if not resolved_inside(root, folder): raise ValueError('外包任务目录必须位于交接目录之内')
+            try:
+                folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+            except OSError as exc:
+                raise ValueError('无法创建外包任务交接目录 %s：%s' % (folder, exc)) from None
+            task['cwd']=str(folder.resolve())
         path = Path(task['cwd']).expanduser()
         if not path.is_absolute() or not path.is_dir(): raise ValueError('工作目录必须是本机存在的绝对目录')
         task['cwd'] = str(path.resolve())
-        if task['kind'] not in ('script','pi','wechat_clues','github_clues','wechat_radar'): raise ValueError('请选择脚本、Pi 或微信线索分析任务')
+        if task['kind'] not in ('script','pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','intel_wechat_mp','recompute_heat','outsourced'): raise ValueError('请选择脚本、Pi、外包、商单分析、创意提炼、公众号订阅或线索分析任务')
         from scheduled_pi import validate_scope
         task.update(validate_scope(payload, task['kind']))
         if task['kind'] in ('wechat_clues','github_clues','wechat_radar'):
@@ -101,6 +123,26 @@ class ScheduledTasks:
                 task['wechat_review']=payload.get('wechat_review',False)
                 if type(task['wechat_review']) is not bool:raise ValueError('会话日复查开关格式错误')
                 if task['wechat_review'] and task['wechat_mode']!='incremental':raise ValueError('会话日复查需要持续增量任务')
+        if task['kind']=='recompute_heat':
+            if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id'] or task['frequency']!='daily':
+                raise ValueError('heat 重算仅允许每日本地计算，不允许命令或结果投递')
+        if task['kind']=='deals_review':
+            if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id']:
+                raise ValueError('商单分析只在本机生成提醒与待确认建议，不允许命令或通用结果投递')
+        if task['kind']=='intake_cards':
+            if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id']:
+                raise ValueError('创意提炼只生成候选提示词卡，需黄总确认，不允许命令或通用结果投递')
+        if task['kind']=='intel_wechat_mp':
+            # 公众号订阅：只按既定限流纪律抓已订阅号的最新一篇页，结果只进 intel.db。
+            if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id']:
+                raise ValueError('公众号订阅只抓已订阅号的最新文章，不允许命令或通用结果投递')
+            if task['frequency']!='daily':
+                raise ValueError('公众号订阅按每天一次执行，不支持间隔触发')
+        if task['kind']=='outsourced':
+            # 外包任务：WorkBuddy 按时把结果写成约定文件，工作台到点只验收并导入；
+            # 没有或不合格时才用本机 Pi 兜底。
+            if task['allow_commands'] or task['clue_id']:
+                raise ValueError('外包任务只按交接文件导入线索，不允许命令或指定线索编号')
         if task['kind']=='wechat_radar':
             value=payload.get('radar_since')
             try:
@@ -124,9 +166,20 @@ class ScheduledTasks:
                 if end.tzinfo is None: raise ValueError()
             except (ValueError, TypeError): raise ValueError('截止时间必须包含时区') from None
             task['ends_at'] = end.isoformat()
-        if task['kind'] in ('pi','wechat_clues','github_clues','wechat_radar'):
+        # outsourced 只有开本机兜底时才需要模型配置；fallback=none 纯等 WorkBuddy 交付。
+        if task['kind']=='outsourced' and task['fallback']=='none':
+            return task
+        if task['kind'] in MODEL_KINDS:
             self.model_config(task['profile_id'])
         return task
+
+    def seed_heat_schedule(self,workspace):
+        # Preserve existing user controls; registration performs no computation.
+        existing=next((t for t in self.listing()['tasks'] if t['kind']=='recompute_heat'),None)
+        if existing:return existing
+        return self.save({'name':'线索 heat 每日重算','kind':'recompute_heat','body':'只读本地观测并记录 heat 编辑条目，不联网、不调用模型。',
+                          'cwd':str(workspace),'frequency':'daily','at':'02:10','weekdays':list(range(7)),
+                          'timeout':1800,'enabled':False,'allow_commands':False,'result_destination':'runs'})
 
     def model_config(self, identity):
         from model_settings import find_profile, public_config
@@ -149,10 +202,16 @@ class ScheduledTasks:
                 if task['kind'] == 'script':
                     task['executor_name'] = 'Bash 脚本'
                     task['model_name'] = ''
+                elif task['kind'] in ('intel_wechat_mp','recompute_heat'):
+                    # 本机抓取，不调用任何模型。
+                    task['executor_name'] = '本机 heat 重算' if task['kind']=='recompute_heat' else '公众号订阅（本机抓取）'
+                    task['model_name'] = ''
                 else:
                     task['executor_name'] = ('微信雷达分析（Pi）' if task['kind'] == 'wechat_radar' else
                                              '微信线索分析（Pi）' if task['kind'] == 'wechat_clues' else
                                              'GitHub 线索分析（Pi）' if task['kind'] == 'github_clues' else
+                                             '商单分析（Pi）' if task['kind'] == 'deals_review' else
+                                             '创意提炼（Pi）' if task['kind'] == 'intake_cards' else
                                              '工作台助手（Pi）' if task['assistant_id'] == 'workbench' else '独立 Pi')
                     profile = profiles.get(task.get('profile_id'))
                     task['model_name'] = ((profile.get('display_name') or profile.get('model') or '')
@@ -290,6 +349,14 @@ class ScheduledTasks:
                     'total': total, 'page': page, 'page_size': page_size,
                     'has_more': page * page_size < total}
 
+    def model_in_use(self, profile_id):
+        """Is a scheduled run already holding this model profile? 即时分析用它避免撞同一个模型。"""
+        if not profile_id:
+            return False
+        with self.db() as db:
+            return db.execute("SELECT 1 FROM runs WHERE status='running' AND json_extract(snapshot,'$.profile_id')=?",
+                              (profile_id,)).fetchone() is not None
+
     def claim(self, identity, trigger, expected_due=None, launch=True):
         with self.lock, self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -304,7 +371,7 @@ class ScheduledTasks:
             if db.execute("SELECT COUNT(*) FROM runs WHERE status='running'").fetchone()[0]>=2: raise ValueError('同时最多运行两个任务，请稍后再试')
             if task.get('ends_at') and now>datetime.fromisoformat(task['ends_at']).timestamp():
                 db.execute('UPDATE tasks SET next_run=NULL WHERE id=?',(identity,));return None
-            config=self.model_config(task['profile_id']) if task['kind'] in ('pi','wechat_clues','github_clues','wechat_radar') else None
+            config=self.model_config(task['profile_id']) if task['kind'] in MODEL_KINDS else None
             if config and db.execute("SELECT 1 FROM runs WHERE status='running' AND json_extract(snapshot,'$.profile_id')=?",(task['profile_id'],)).fetchone():
                 raise ModelBusy('同一模型已有后台任务，排队等待，不重复占用推理服务')
             run_id=uuid.uuid4().hex; snapshot={**task,'id':identity,'revision':row['revision'],'execution_trigger':trigger}
@@ -453,6 +520,124 @@ class ScheduledTasks:
                 if path.is_file(): path.chmod(0o600)
                 elif path.is_dir(): path.chmod(0o700)
 
+    def _run_outsourced(self, run_id, task, cancel, config, pi_runner=None, date=None):
+        """外包任务的一次执行：先验收 WorkBuddy 的交接文件，没有或不合法才本机 Pi 兜底。
+
+        顺序不能反：有合法文件时**绝不**兜底 —— 那是黄总的免费额度。
+        本机兜底只该在「没交付」或「交付不合法」时发生。
+        """
+        import outsourced_tasks as ot
+        slug = task['slug']
+        day = date or ot.today()
+        folder = Path(task['cwd'])
+        outbox = folder.parent
+        with ot.outbox_root_override(outbox):
+            target = ot.file_for(slug, day)
+            warnings, data = [], None
+            if target.is_file():
+                try:
+                    data = ot.validate(target, slug, day)
+                except (ValueError, FileNotFoundError) as exc:
+                    warnings.append('交接文件不合格，改用本机兜底：%s' % str(exc)[:200])
+            else:
+                warnings.append('外包任务未交付：未见 %s' % target)
+            # 交付方自己报 failed 时同样不导入，但**按兜底设置决定补不补做**：
+            # 这个功能的目的就是保证当天有产出，「失败了」和「没交付」同等对待。
+            # 是否补做由 fallback 开关决定，不是自动的。
+            if data is None or data['status'] == 'failed':
+                return self._outsourced_fallback(run_id, task, cancel, config, day, target,
+                                                  outbox, warnings, pi_runner, data)
+            return self._outsourced_collect(slug, day, target, data, warnings)
+
+    def _outsourced_collect(self, slug, day, target, data, warnings):
+        """验收通过：导入线索中心。不调用模型。"""
+        import outsourced_tasks as ot
+        if not self.outsourced_clues:
+            # 没接上就是没干活 —— 记成功会让黄总以为线索到了。
+            # 交接文件保留在原处，下次到点还能再收。
+            reason = '线索存储入口未连接，本次未导入；交接文件已保留，下次可再收'
+            warnings.append(reason)
+            return {'status': 'failed', 'producer': data['producer'], 'file': str(target),
+                    'error': reason,
+                    'imported': 0, 'skipped_duplicates': 0, 'warnings': warnings, 'clue_ids': []}
+        result = ot.ingest(self.outsourced_clues, slug, data)
+        result['warnings'] = warnings + list(result.get('warnings', []))
+        result['file'] = str(target)
+        return result
+
+    def _outsourced_fallback(self, run_id, task, cancel, config, day, target, outbox, warnings,
+                             pi_runner=None, failed_delivery=None):
+        """没交付、不合格或交付方报失败：按开关决定是否用本机 Pi 兜底，用同一份提示词补做。"""
+        import outsourced_tasks as ot
+        if task.get('fallback', 'pi') != 'pi':
+            if failed_delivery is not None:
+                reason = failed_delivery.get('error') or '交付方未说明原因'
+                return {'status': 'failed', 'producer': failed_delivery['producer'],
+                        'file': str(target),
+                        'error': '交付方报告失败：%s（未开启本机兜底，本次未补做）' % reason,
+                        'imported': 0, 'skipped_duplicates': 0,
+                        'warnings': warnings, 'clue_ids': []}
+            return {'status': 'failed', 'producer': None, 'file': str(target),
+                    'error': '外包任务未交付（%s 缺失或不合法），且该任务未开启本机兜底' % target.name,
+                    'imported': 0, 'skipped_duplicates': 0, 'warnings': warnings, 'clue_ids': []}
+        prompt = ot.prompt_for(task, producer='local-pi', outbox=outbox, date=day)
+        deadline = time.monotonic() + task['timeout']
+        status, code, output = (pi_runner or self.pi)(run_id, {**task, 'body': prompt, 'cwd': str(Path(task['cwd']))},
+                                                        cancel, config, deadline)
+        if cancel.is_set():
+            status = 'cancelled'
+        elif time.monotonic() >= deadline and status == 'succeeded':
+            status = 'timeout'
+        if status != 'succeeded':
+            return {'status': status, 'producer': 'local-pi', 'file': str(target), 'error': output,
+                    'imported': 0, 'skipped_duplicates': 0, 'warnings': warnings, 'clue_ids': []}
+        if not target.is_file():
+            return {'status': 'failed', 'producer': 'local-pi', 'file': str(target),
+                    'error': '本机兜底已执行，但没有留下约定的交接文件 %s' % target.name,
+                    'imported': 0, 'skipped_duplicates': 0, 'warnings': warnings, 'clue_ids': []}
+        try:
+            data = ot.validate(target, task['slug'], day)
+        except (ValueError, FileNotFoundError) as exc:
+            return {'status': 'failed', 'producer': 'local-pi', 'file': str(target),
+                    'error': '本机兜底写出的交接文件仍不合格：%s' % str(exc)[:200],
+                    'imported': 0, 'skipped_duplicates': 0, 'warnings': warnings, 'clue_ids': []}
+        if data['producer'] != 'local-pi':
+            # 这条路径上我们已经确定是本机 Pi 在跑。产物自称什么都不改变事实，
+            # 所以在**导入前**改掉数据，而不是只在警告里说说 —— 否则回执、证据
+            # provenance、页面徽章三处仍会各说各的。
+            warnings.append('兜底产物自称 producer=%s，已按实际交付方记为 local-pi' % data['producer'])
+            # 必须走 ot 的 helper：`{**data, ...}` 会把已规范化数据降级成普通 dict，
+            # adopt 就不认了，重新规范化会把 validate 记下的截断警告弄丢（M3）。
+            data = ot.relabel_producer(data, 'local-pi')
+        return self._outsourced_collect(task['slug'], day, target, data, warnings)
+
+    def outsourced_prompt(self, task_id):
+        """只读：返回可直接粘给 WorkBuddy 的完整提示词（页面「复制」按钮用）。"""
+        import outsourced_tasks as ot
+        task = self._task(task_id)
+        if task['kind'] != 'outsourced':
+            raise ValueError('只有外包任务才有 WorkBuddy 提示词')
+        return {'prompt': ot.prompt_for(task, producer='workbuddy', outbox=Path(task['cwd']).parent),
+                'slug': task['slug'], 'folder': task['cwd']}
+
+    def _task(self, task_id):
+        with self.db() as db:
+            row = db.execute('SELECT data FROM tasks WHERE id=?', (identity(task_id, '任务编号'),)).fetchone()
+        if not row:
+            raise ValueError('任务不存在')
+        return json.loads(row['data'])
+
+    def _outsourced_execute(self, run_id, task, cancel, config, deadline):
+        """把 _run_outsourced 的结果压成 execute() 认得的 (status, code, output)。"""
+        remaining = max(1, int(deadline - time.monotonic()))
+        result = self._run_outsourced(run_id, task, cancel, config,
+                                      pi_runner=lambda *a: self.pi(*a[:4], min(deadline, time.monotonic() + remaining)))
+        payload = {k: result.get(k) for k in ('producer', 'file', 'imported', 'skipped_duplicates', 'warnings')}
+        if result.get('error'):
+            payload['error'] = result['error']
+        status = result.get('status', 'succeeded')
+        return ('succeeded' if status == 'succeeded' else status), (0 if status == 'succeeded' else None), json.dumps(payload, ensure_ascii=False)
+
     def _wechat_failure(self,run_id,task,exc):
         """Recover only this analyzer owner's validated, durable run progress."""
         progress = None
@@ -500,6 +685,9 @@ class ScheduledTasks:
         result = {'scope': scope, 'processed': progress.get('processed', 0), 'skipped': progress.get('skipped', 0),
                   'clues': list(dict.fromkeys(progress.get('clue_ids', []))),
                   'has_more': progress.get('has_more', True), 'errors': errors}
+        format_counts=progress.get('format')
+        if isinstance(format_counts,dict):
+            result['format']={key:value for key,value in format_counts.items() if key in ('field_names','ignored_fields','dropped_clues','requeued_documents','quote_mapped') and type(value) is int and value>=0}
         reviewed=progress.get('reviewed')
         if type(reviewed) is int and reviewed>=0:result['reviewed']=reviewed
         deferred = progress.get('deferred')
@@ -518,12 +706,29 @@ class ScheduledTasks:
     def execute(self,run_id,task,cancel,config):
         deadline=time.monotonic()+task['timeout']
         try:
-            if task['kind']=='github_clues':
+            if task['kind']=='recompute_heat':
+                if not self.heat_recomputer:raise ValueError('heat 重算入口未连接')
+                result=self.heat_recomputer(cancel,deadline)
+                status=('cancelled' if cancel.is_set() else 'timeout' if time.monotonic()>=deadline else 'succeeded')
+                code=0 if status=='succeeded' else None
+                output=json.dumps(result,ensure_ascii=False)
+            elif task['kind']=='github_clues':
                 if not self.github_analyzer:raise ValueError('GitHub 分析入口未连接')
                 status,code,output=self.github_analyzer(run_id,task,cancel,config,deadline)
             elif task['kind']=='wechat_radar':
                 if not self.radar_analyzer:raise ValueError('微信雷达分析入口未连接')
                 status,code,output=self.radar_analyzer(run_id,task,cancel,config,deadline)
+            elif task['kind']=='deals_review':
+                if not self.deals_analyzer:raise ValueError('商单分析入口未连接')
+                status,code,output=self.deals_analyzer(run_id,task,cancel,config,deadline)
+            elif task['kind']=='intake_cards':
+                if not self.intake_analyzer:raise ValueError('创意提炼入口未连接')
+                status,code,output=self.intake_analyzer(run_id,task,cancel,config,deadline)
+            elif task['kind']=='intel_wechat_mp':
+                if not self.intel_analyzer:raise ValueError('公众号订阅入口未连接')
+                status,code,output=self.intel_analyzer(run_id,task,cancel,config,deadline)
+            elif task['kind']=='outsourced':
+                status,code,output=self._outsourced_execute(run_id,task,cancel,config,deadline)
             elif task['kind']=='wechat_clues':
                 if not self.wechat_analyzer:raise ValueError('微信线索分析入口未连接')
                 status,code,output=self.wechat_analyzer(run_id,task,cancel,config,deadline)

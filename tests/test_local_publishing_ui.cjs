@@ -9,12 +9,12 @@ function fixture(){
   let deferAccount=null,resolveRun,deferStart=false,resolveStart;
   const pendingAccounts=[];
   const capacity=new Map();
-  const job={id:'a'.repeat(32),account:'demo_account',status:'blocked',message:'等待续传',version:'v0001',updated_at:'2026-10-04',checkpoint:{}};
+  const job={id:'a'.repeat(32),account:'servasyy',status:'blocked',message:'等待续传',version:'v0001',updated_at:'2026-10-04',checkpoint:{}};
   let jobs=[job];
   w.$=selector=>w.document.querySelector(selector);
   w.state={slug:'fixture',article:{version:{id:'v0001'}},dirty:false};
   w.escapeHTML=text=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  w.getPlatformDraft=()=>({account:'demo_account'});
+  w.getPlatformDraft=()=>({account:'servasyy'});
   w.versionName=value=>value;w.date=value=>value;w.toast=message=>messages.push(message);
   w.setInterval=(fn,delay)=>{intervals.push({fn,delay});return intervals.length;};w.clearInterval=()=>{};
   w.api=async(path,payload)=>{
@@ -80,15 +80,15 @@ test('slow old-account preflight cannot replace the current-account result',asyn
 test('changing target hides old-account actions and starts an independent task for the selected account',async()=>{
   const f=fixture();try{
     await f.mount();const account=f.w.document.querySelector('#local-x-account');
-    account.value='demo_account_ai';account.dispatchEvent(new f.w.Event('input'));await tick();await tick();
+    account.value='servasyy_ai';account.dispatchEvent(new f.w.Event('input'));await tick();await tick();
     assert.equal(f.w.document.querySelector('[data-resume]'),null);
     assert.equal(f.w.document.querySelector('[data-confirm]'),null);
-    assert.match(f.w.document.querySelector('.local-other-accounts').textContent,/@demo_account/);
-    assert.match(f.w.document.querySelector('#local-x-start').textContent,/@demo_account_ai/);
+    assert.match(f.w.document.querySelector('.local-other-accounts').textContent,/@servasyy/);
+    assert.match(f.w.document.querySelector('#local-x-start').textContent,/@servasyy_ai/);
     f.w.document.querySelector('#local-x-start').click();await tick();await tick();
-    assert.equal(f.calls.find(x=>x.path?.includes('/start/')).payload.account,'demo_account_ai');
-    assert.equal(f.calls.find(x=>x.command==='run').payload.job.account,'demo_account_ai');
-    assert.equal(f.job.account,'demo_account');
+    assert.equal(f.calls.find(x=>x.path?.includes('/start/')).payload.account,'servasyy_ai');
+    assert.equal(f.calls.find(x=>x.command==='run').payload.job.account,'servasyy_ai');
+    assert.equal(f.job.account,'servasyy');
     assert.equal(account.disabled,true);
     f.finishRun();await tick();await tick();
     assert.equal(account.disabled,false);
@@ -99,22 +99,22 @@ test('changing target hides old-account actions and starts an independent task f
 test('stale resume handler cannot execute another account while replacement UI is loading',async()=>{
   const f=fixture();try{
     await f.mount();const stale=f.w.document.querySelector('[data-resume]').onclick;
-    const account=f.w.document.querySelector('#local-x-account');f.defer('demo_account_ai');
-    account.value='demo_account_ai';account.dispatchEvent(new f.w.Event('input'));
+    const account=f.w.document.querySelector('#local-x-account');f.defer('servasyy_ai');
+    account.value='servasyy_ai';account.dispatchEvent(new f.w.Event('input'));
     stale();await tick();await tick();
     assert.equal(f.calls.filter(x=>x.command==='run').length,0);
-    f.settleAccount({account:'demo_account_ai',source_images:4,needs_split:false});await tick();await tick();
+    f.settleAccount({account:'servasyy_ai',source_images:4,needs_split:false});await tick();await tick();
     assert.match(f.messages.at(-1),/目标账号已改变/);
   }finally{f.close();}
 });
 test('target preference survives remount and normalizes a typed handle',async()=>{
   const f=fixture();try{
     await f.mount();const account=f.w.document.querySelector('#local-x-account');
-    account.value=' @DeMo_AcCoUnT_AI ';account.dispatchEvent(new f.w.Event('input'));await tick();
-    assert.equal(f.w.localStorage.getItem('article-studio:x-target:fixture'),'demo_account_ai');
-    assert.match(f.w.document.querySelector('#local-x-start').textContent,/@demo_account_ai/);
+    account.value=' @Servasyy_AI ';account.dispatchEvent(new f.w.Event('input'));await tick();
+    assert.equal(f.w.localStorage.getItem('article-studio:x-target:fixture'),'servasyy_ai');
+    assert.match(f.w.document.querySelector('#local-x-start').textContent,/@servasyy_ai/);
     f.w.document.querySelector('.local-publishing').remove();await f.mount();
-    assert.equal(f.w.document.querySelector('#local-x-account').value,'demo_account_ai');
+    assert.equal(f.w.document.querySelector('#local-x-account').value,'servasyy_ai');
     assert.equal(f.w.document.querySelector('[data-resume]'),null);
   }finally{f.close();}
 });
@@ -137,7 +137,7 @@ test('switching target rejects a stale publish confirmation and hides every old-
     f.setJobs([f.job,{...f.job,id:'c'.repeat(32),status:'blocked',error_code:'DRAFT_UNAVAILABLE'}]);
     await f.mount();const stale=f.w.document.querySelector('[data-confirm]').onclick;
     const account=f.w.document.querySelector('#local-x-account');
-    account.value='demo_account_ai';account.dispatchEvent(new f.w.Event('input'));await tick();
+    account.value='servasyy_ai';account.dispatchEvent(new f.w.Event('input'));await tick();
     await stale();await tick();
     assert.equal(f.w.document.querySelector('dialog'),null);
     assert.equal(f.w.document.querySelector('[data-confirm]'),null);
@@ -149,7 +149,7 @@ test('switching target rejects a stale publish confirmation and hides every old-
 });
 test('known over-limit source warns before upload and offers no split or retry path',async()=>{
   const f=fixture();try{
-    f.setCapacity('demo_account',{source_images:29,over_limit:true,needs_split:true,limit:{body_images:25}});
+    f.setCapacity('servasyy',{source_images:29,over_limit:true,needs_split:true,limit:{body_images:25}});
     await f.mount();
     const alert=f.w.document.querySelector('#local-x-preflight [role=alert]');
     assert.match(alert.textContent,/正文 29 张/);assert.match(alert.textContent,/上限 25 张/);assert.match(alert.textContent,/超出 4 张/);
@@ -166,7 +166,7 @@ test('known over-limit source warns before upload and offers no split or retry p
 test('a limit learned after rendering blocks a stale resume before any X command',async()=>{
   const f=fixture();try{
     await f.mount();const stale=f.w.document.querySelector('[data-resume]').onclick;
-    f.setCapacity('demo_account',{source_images:29,over_limit:true,needs_split:true,limit:{body_images:25}});
+    f.setCapacity('servasyy',{source_images:29,over_limit:true,needs_split:true,limit:{body_images:25}});
     await stale();await tick();
     assert.equal(f.calls.filter(x=>x.command==='run').length,0);
     assert.match(f.messages.at(-1),/图片数量超限/);
@@ -174,11 +174,67 @@ test('a limit learned after rendering blocks a stale resume before any X command
 });
 test('unknown account labels its limit uncertainty and warns using scoped reference evidence',async()=>{
   const f=fixture();try{
-    f.setCapacity('demo_account',{source_images:29,reference_limit:{account:'another',body_images:25}});
+    f.setCapacity('servasyy',{source_images:29,reference_limit:{account:'another',body_images:25}});
     await f.mount();const preflight=f.w.document.querySelector('#local-x-preflight');
     assert.match(preflight.textContent,/此账号图片上限尚未验证/);
     assert.match(preflight.querySelector('[role=alert]').textContent,/@another 实测的 25 张/);
-    assert.match(preflight.querySelector('[role=alert]').textContent,/@demo_account 的上限尚未验证/);
+    assert.match(preflight.querySelector('[role=alert]').textContent,/@servasyy 的上限尚未验证/);
     assert.equal(f.w.document.querySelector('#local-x-start').disabled,false);
+  }finally{f.close();}
+});
+test('a fresh profile defaults the X target to empty and uses a generic placeholder',async()=>{
+  const f=fixture();try{
+    f.w.getPlatformDraft=()=>({account:''});
+    await f.mount();
+    const account=f.w.document.querySelector('#local-x-account');
+    assert.equal(account.value,'');
+    assert.equal(account.placeholder,'目标 X 账号');
+    assert.equal(f.w.localStorage.getItem('article-studio:x-target:last'),null);
+  }finally{f.close();}
+});
+test('an account used in one article becomes the default when another article opens',async()=>{
+  const f=fixture();try{
+    f.w.getPlatformDraft=()=>({account:''});
+    f.w.state={slug:'alpha',article:{version:{id:'v0001'}},dirty:false};
+    await f.mount();
+    const account=f.w.document.querySelector('#local-x-account');
+    account.value='alice_x';account.dispatchEvent(new f.w.Event('input'));await tick();
+    assert.equal(f.w.localStorage.getItem('article-studio:x-target:alpha'),'alice_x');
+    assert.equal(f.w.localStorage.getItem('article-studio:x-target:last'),'alice_x');
+    f.w.document.querySelector('.local-publishing').remove();
+    f.w.state={slug:'beta',article:{version:{id:'v0001'}},dirty:false};
+    await f.mount();
+    assert.equal(f.w.document.querySelector('#local-x-account').value,'alice_x');
+  }finally{f.close();}
+});
+test('an article-specific remembered account wins over the global last-used account',async()=>{
+  const f=fixture();try{
+    f.w.getPlatformDraft=()=>({account:''});
+    f.w.localStorage.setItem('article-studio:x-target:last','global_x');
+    f.w.localStorage.setItem('article-studio:x-target:beta','beta_y');
+    f.w.state={slug:'beta',article:{version:{id:'v0001'}},dirty:false};
+    await f.mount();
+    assert.equal(f.w.document.querySelector('#local-x-account').value,'beta_y');
+  }finally{f.close();}
+});
+test('an invalid target is remembered in neither the article nor the global key',async()=>{
+  const f=fixture();try{
+    f.w.getPlatformDraft=()=>({account:''});
+    await f.mount();
+    const account=f.w.document.querySelector('#local-x-account');
+    account.value='Not A Handle';account.dispatchEvent(new f.w.Event('input'));await tick();
+    assert.equal(f.w.localStorage.getItem('article-studio:x-target:fixture'),null);
+    assert.equal(f.w.localStorage.getItem('article-studio:x-target:last'),null);
+  }finally{f.close();}
+});
+test('an unavailable localStorage leaves the target empty and never throws',async()=>{
+  const f=fixture();try{
+    f.w.getPlatformDraft=()=>({account:''});
+    Object.defineProperty(f.w,'localStorage',{configurable:true,get(){throw new Error('localStorage 被禁用');}});
+    await f.mount();
+    assert.equal(f.w.document.querySelector('#local-x-account').value,'');
+    const account=f.w.document.querySelector('#local-x-account');
+    account.value='alice_x';account.dispatchEvent(new f.w.Event('input'));await tick();
+    assert.deepEqual(f.messages,[]);
   }finally{f.close();}
 });

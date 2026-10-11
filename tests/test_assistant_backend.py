@@ -14,6 +14,31 @@ from generation.models import MODELS
 from generation.video_options import REFERENCE_LIMITS
 
 
+WAIT_SECONDS = 30
+
+
+def wait_for_background(test, agent, job_id=None, *, ready=None):
+    """Bound background progress by monotonic time; keep terminal assertions strict."""
+    import time
+    condition = ready if ready is not None else lambda: agent.active is None
+    deadline = time.monotonic() + WAIT_SECONDS
+    while not condition():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            identity = job_id or agent.active
+            state = {'active': agent.active}
+            if identity:
+                try:
+                    job = agent.public_job(identity)
+                    state['status'] = job.get('status')
+                    state['stages'] = [stage.get('status') for stage in
+                                       (job.get('workflow') or {}).get('stages', [])]
+                except Exception as exc:
+                    state['status_error'] = type(exc).__name__
+            test.fail(f'后台作业未在 {WAIT_SECONDS} 秒内满足等待条件：{state}')
+        time.sleep(min(.02, remaining))
+
+
 class AssistantBackendTests(unittest.TestCase):
     def setUp(self):
         # Bypass the constructor so the tests cannot start Pi or a model service.
@@ -123,7 +148,19 @@ class AssistantBackendTests(unittest.TestCase):
         self.assertTrue(h3['reference_media']['total_includes_first_last'])
         self.assertEqual(h3['reference_media']['entry_points'], ['generation_lab'])
         self.assertEqual(h3['reference_media']['recipe_reuse_entry_points'], ['manual_composer'])
-        self.assertEqual(h3['reference_media']['sizes'], ['768x448', '448x768'])
+        # reference workflows only accept 32-aligned pixels; the list follows the catalog
+        self.assertEqual(h3['reference_media']['sizes'],
+                         [size for size in MODELS['h3']['sizes']
+                          if all(int(n) % 32 == 0 for n in size.split('x'))])
+        self.assertIn('768x448', h3['reference_media']['sizes'])
+        self.assertNotIn('768x432', h3['reference_media']['sizes'])
+        self.assertEqual(h3['durations'], [{'frames': frames, 'fps': 24, 'seconds': round(frames / 24, 2),
+                                            'measured': frames in (56, 124)}
+                                           for frames in MODELS['h3']['frames']])
+        self.assertEqual(h3['durations_measured'], [56, 124])
+        self.assertEqual(h3['sizes_measured'], ['768x448', '448x768'])
+        self.assertEqual(h3['custom_size'], {'min': 256, 'max': 1024, 'step': 32, 'max_area': 589824})
+        self.assertIn('未经逐项实测', h3['constraint_note'])
         self.assertEqual(h3['reference_media']['source_total_duration_seconds'], {'videos': 15, 'audios': 15})
         tests = h3['validation_scope']['live_gpu_tests']
         self.assertEqual({row['workflow'] for row in tests}, {'r2v', 'ir2v', 'flr2v'})
@@ -145,8 +182,8 @@ class AssistantBackendTests(unittest.TestCase):
         self.assertEqual(capabilities['preferences']['video']['model'], 'h3')
         self.assertEqual(capabilities['chat']['model'], 'mock-chat')
         by_model = {row['id']: row for row in capabilities['models']}
-        self.assertFalse(by_model['qi21']['reference_images'])
-        self.assertFalse(by_model['krea2']['reference_images'])
+        self.assertTrue(by_model['qi21']['reference_images'])
+        self.assertTrue(by_model['krea2']['reference_images'])
         entries = capabilities['entry_points']
         lab = entries['generation_lab']
         self.assertTrue(lab['reference_upload'])
@@ -154,8 +191,8 @@ class AssistantBackendTests(unittest.TestCase):
         self.assertEqual(set(lab['h3_workflows']), {wf['id'] for wf in MODELS['h3']['workflows']})
         manual = entries['manual_composer']
         self.assertEqual(manual['h3_workflows'], ['t2v'])
-        self.assertFalse(manual['reference_upload'])
-        self.assertFalse(manual['reference_selection'])
+        self.assertTrue(manual['reference_upload'])
+        self.assertTrue(manual['reference_selection'])
         self.assertEqual(manual['h3_reference_media'], [])
         self.assertEqual(manual['h3_options'], [])
         self.assertTrue(manual['source_job_recipe_reuse'])
@@ -174,7 +211,7 @@ class AssistantBackendTests(unittest.TestCase):
         self.assertNotIn('references', llm['parameters'])
         self.assertNotIn('workflow', llm['parameters'])
         self.assertTrue(capabilities['limits']['media_reference_images'])
-        self.assertEqual(capabilities['limits']['media_reference_models'], ['h3'])
+        self.assertEqual(capabilities['limits']['media_reference_models'], ['qi21', 'krea2', 'h3'])
         self.assertEqual(capabilities['limits']['media_reference_entry_points'], ['generation_lab'])
         self.assertEqual(capabilities['limits']['media_reference_recipe_reuse_entry_points'], ['manual_composer'])
         self.assertFalse(capabilities['limits']['llm_generate_media_reference_images'])

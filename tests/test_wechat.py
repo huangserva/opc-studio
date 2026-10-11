@@ -1,11 +1,15 @@
 """公众号输出必须保留固定版本、图文顺序，并明确区分本地导出与发布。"""
 import base64
 import io
+import os
+from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 from PIL import Image
 from server import Store
+import publishing.platforms.wechat as wechat
 from publishing.platforms.wechat import InlineHTML
 
 class WeChatTests(unittest.TestCase):
@@ -69,6 +73,56 @@ class WeChatTests(unittest.TestCase):
         for word in ('onclick','script','alert','javascript'):
             self.assertNotIn(word,output)
         self.assertIn('正文',output)
+
+class WeChatSkillPathTests(unittest.TestCase):
+    """排版 skill 路径必须可移植：环境覆盖 > 第一个存在的候选 > 第一个候选。"""
+
+    def make_home(self, home, candidates):
+        for candidate in candidates:
+            path = home / candidate
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('# formatter')
+
+    def test_environment_variable_overrides_every_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self.make_home(home, wechat.SKILL_CANDIDATES)
+            with patch.dict(os.environ, {'ARTICLE_STUDIO_WECHAT_SKILL': str(home / 'custom' / 'SKILL.md')}):
+                self.assertEqual(wechat.resolve_skill(os.environ, home), str(home / 'custom' / 'SKILL.md'))
+
+    def test_only_downloads_candidate_selects_downloads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            downloads = wechat.SKILL_CANDIDATES[1]
+            self.make_home(home, [downloads])
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(wechat.resolve_skill(os.environ, home), str(home / downloads))
+
+    def test_first_existing_candidate_wins_when_both_exist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            self.make_home(home, wechat.SKILL_CANDIDATES)
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(wechat.resolve_skill(os.environ, home), str(home / wechat.SKILL_CANDIDATES[0]))
+
+    def test_missing_candidates_fall_back_to_first_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            with patch.dict(os.environ, {}, clear=True):
+                resolved = wechat.resolve_skill(os.environ, home)
+            self.assertEqual(resolved, str(home / wechat.SKILL_CANDIDATES[0]))
+            self.assertFalse(Path(resolved).is_file())
+
+    def test_module_skill_is_derived_from_the_resolver(self):
+        self.assertEqual(wechat.SKILL, wechat.resolve_skill(os.environ, Path.home()))
+        self.assertTrue(Path(wechat.SKILL).is_absolute())
+
+    def test_plan_note_documents_the_environment_override(self):
+        plan = wechat.prepare({'studio': {'type': 'article'}, 'slug': 'a', 'version': 'v0001',
+                                    'package': Path('.'), 'manifest': {}, 'target': {}}, {})
+        self.assertEqual(plan['skill'], wechat.SKILL)
+        self.assertTrue(any('ARTICLE_STUDIO_WECHAT_SKILL' in note for note in plan['notes']))
+
 
 if __name__ == '__main__':
     unittest.main()

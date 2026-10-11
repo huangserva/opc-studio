@@ -6,6 +6,19 @@ def capability(kind):
     return {'adapter':'x.'+kind,'transport':'buffer_cli',
             'stage':'payload_ready_only','label':'X 普通推文 / 串文 · Buffer CLI'}
 
+# Two submission modes only. Anything else must never reach the CLI.
+SUBMISSION_MODES={'draft':{'mode':'addToQueue','saveToDraft':True},
+                  'publish_now':{'mode':'shareNow','saveToDraft':False}}
+# The one blocking reason the image host can resolve later; kept as a constant so the
+# service layer can tell it apart from every other blocking rule.
+MISSING_MEDIA_NOTE='本机素材需要先取得可公开访问的 HTTPS 链接'
+
+def submission_mode(options):
+    value=options.get('mode')
+    if value is None:return 'draft'
+    if value not in SUBMISSION_MODES:raise ValueError('Buffer 只接受 draft（草稿箱）或 publish_now（立即发布）模式')
+    return value
+
 def public_url(value):
     p=urlsplit(str(value))
     if p.scheme!='https' or not p.hostname or p.username or p.password:
@@ -19,6 +32,7 @@ def public_url(value):
 
 def prepare(snapshot, options):
     kind=snapshot['studio']['type']; manifest=snapshot['manifest']; target=snapshot['target']
+    mode=submission_mode(options); schedule=SUBMISSION_MODES[mode]
     channel=str(options.get('channel_id') or '').strip()
     urls=options.get('media_urls') or {}
     if not isinstance(urls,dict):raise ValueError('media_urls 必须为素材文件名到公开 HTTPS 链接的映射')
@@ -64,16 +78,18 @@ def prepare(snapshot, options):
     if not posts or not any(p['text'].strip() or p['assets'] for p in posts):
         blocking.append('推文内容为空')
     if not channel:blocking.append('尚未指定 Buffer 的 X channel_id；账号名称不能代替渠道 ID')
-    if missing:blocking.append('本机素材需要先取得可公开访问的 HTTPS 链接')
-    notes.append('仅生成草稿请求；提交前须核对 Buffer 渠道确为目标 X 账号。')
+    if missing:blocking.append(MISSING_MEDIA_NOTE)
+    notes.append('提交前须核对 Buffer 渠道确为目标 X 账号。'
+                 +('本请求只进入 Buffer 草稿箱，不会公开发布。' if mode=='draft'
+                   else '本请求会让 Buffer 立即公开发布到 X。'))
     notes.append('素材 URL 仅做格式检查，实际可访问性和平台限制由 Buffer 校验。')
     payload=None
     if not blocking:
-        payload={'channelId':channel,'schedulingType':'automatic','mode':'addToQueue',
-                 'saveToDraft':True,'text':posts[0]['text']}
+        payload={'channelId':channel,'schedulingType':'automatic','mode':schedule['mode'],
+                 'saveToDraft':schedule['saveToDraft'],'text':posts[0]['text']}
         if posts[0]['assets']:payload['assets']=posts[0]['assets']
         if len(posts)>1:payload['metadata']={'twitter':{'thread':posts}}
     return {**capability(kind),'status':'blocked' if blocking else 'payload_ready',
             'blocking':blocking,'notes':notes,'missing_media':list(dict.fromkeys(missing)),
-            'posts':posts,'buffer_input':payload,
+            'posts':posts,'buffer_input':payload,'submission_mode':mode,
             'next_step':'buffer posts create --input <请求文件> --dry-run'}

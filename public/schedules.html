@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>定时任务 · 内容工作台</title><link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/schedules.css">
-<script src="/schedules.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script>
+<script src="/schedules.js" defer></script><link rel="stylesheet" href="/workspace-nav.css"><script src="/workspace-nav.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script>
 </head>
 <body class="schedules-workspace">
 <aside class="sidebar">
   <a class="brand" href="/"><span class="brand-icon">▤</span><span>内容工作台<small>CONTENT STUDIO</small></span></a>
-  <nav class="schedule-nav" aria-label="工作台栏目"><a href="/">▤ 我的作品</a><a href="/knowledge.html">▥ 知识库</a><a href="/events.html">◷ 事项与日程</a><a href="/feedback.html">↗ 发布反馈</a><a class="selected" href="/schedules.html" aria-current="page">◴ 定时任务</a><a href="/clues.html">⌁ 线索中心</a><a href="/deals.html">▣ 商单管理</a></nav>
+  <nav id="workspace-nav" class="workspace-nav" aria-label="工作台栏目"><a href="/">▤ 我的作品</a><a href="/lab.html?kind=image">▧ 图片生成</a><a href="/lab.html?kind=video">▷ 视频生成</a><a href="/knowledge.html">▥ 知识库</a><a href="/intake.html">◈ 创意回收</a><a href="/cards.html">✦ 提示词卡</a><a href="/clues.html">⌁ 线索中心</a><a href="/events.html">◷ 事项与日程</a><a href="/feedback.html">↗ 发布反馈</a><a href="/deals.html">▣ 商单管理</a><a href="/intel.html">☰ 情报采集</a><a href="/github.html">⑂ GitHub 来源</a><a class="selected" href="/schedules.html" aria-current="page">◴ 定时任务</a></nav>
   <div class="local-note"><span></span>任务与运行记录保存在本机</div>
 </aside>
 <main class="main">
@@ -28,6 +28,11 @@
     <div id="runs"><div class="empty">正在读取记录…</div></div>
     <div id="runs-pager" class="runs-pager"><span id="run-count" class="muted"></span><button id="previous-page" class="button" disabled>上一页</button><span id="page-label">第 1 页</span><button id="next-page" class="button" disabled>下一页</button></div>
   </section>
+  <section id="radar-quarantine" class="quarantine-panel" aria-label="雷达隔离批次" hidden>
+    <div class="list-toolbar"><strong>雷达隔离批次</strong><span id="quarantine-note" class="muted"></span><button id="quarantine-refresh" class="button">刷新</button><button id="quarantine-retry-all" class="button" disabled>人工重试全部</button></div>
+    <p class="muted">二次修复仍无效的资料会被隔离，不再每小时重放。原文与已有结果保留，人工重试只把它们重新排队。</p>
+    <div id="quarantine-items"></div>
+  </section>
 </section>
 </main>
 <dialog id="editor">
@@ -36,7 +41,10 @@
   <div class="editor-grid"><div>
     <label>名称<input name="name" maxlength="100" required></label>
     <label id="radar-since-label" hidden>雷达分析起点（北京时间）<input name="radar_since" type="datetime-local"><small>仅分析此起点之后的已采集缓存，结果有引用并保存到本机；本任务不推送飞书。</small></label>
-    <label>执行方式<select name="kind"><option value="pi">Pi 助手任务</option><option value="script">Bash 脚本</option><option value="github_clues">GitHub 线索分析（Pi）</option><option value="wechat_clues">微信采集与线索分析（Pi）</option><option value="wechat_radar">微信雷达 · 热点 / 知识 / 画像（Pi）</option></select></label>
+    <label>执行方式<select name="kind"><option value="pi">Pi 助手任务</option><option value="script">Bash 脚本</option><option value="github_clues">GitHub 线索分析（Pi）</option><option value="wechat_clues">微信采集与线索分析（Pi）</option><option value="wechat_radar">微信雷达 · 热点 / 知识 / 画像（Pi）</option><option value="deals_review">商单分析（Pi）</option><option value="intake_cards">创意提炼（Pi）</option><option value="outsourced">外包任务（WorkBuddy 优先，本机 Pi 兜底）</option></select></label>
+    <label id="outsourced-slug-label" hidden>外包任务标识 slug<input name="slug" pattern="[a-z0-9-]{1,40}" placeholder="github-trending-ai" autocomplete="off"></label>
+    <label id="outsourced-fallback-label" hidden>没交付时由谁补做<select name="fallback"><option value="pi">本机 Pi 兜底（用同一份提示词补做）</option><option value="none">不兜底，如实记失败</option></select></label>
+    <p id="outsourced-hint" class="muted" hidden>slug 只能用小写字母、数字与连字符，决定交接目录名。到点时间建议设在 WorkBuddy 之后 30～60 分钟；没交付时自动由本机 Pi 用同一份提示词补做。</p>
     <label id="wechat-mode-label" hidden>微信分析范围<select name="wechat_mode"><option value="incremental">持续增量：采集 → 分析 → 线索，无条数配额</option><option value="once">缓存试跑：最多30条，不刷新采集</option></select></label>
     <label id="wechat-review-label" class="check" hidden><input name="wechat_review" type="checkbox">复查已分析的完整会话日，补漏并对照后续变化（最近七天）</label>
     <div id="pi-options">

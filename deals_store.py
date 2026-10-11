@@ -200,6 +200,32 @@ class Deals:
             c.execute('INSERT OR REPLACE INTO evidence_scans VALUES(?,?)',(ident,json.dumps(result,ensure_ascii=False)))
         return self.detail(ident)
 
+    def evidence_candidates(self,ident):
+        """Stored WeChat candidates for one deal; read-only, used to spot newly matched evidence."""
+        with self.db() as c:
+            return [json.loads(r[0]) for r in c.execute('SELECT data FROM evidence WHERE deal_id=?',(identity(ident),))]
+    def pending_proposals(self,limit=50):
+        """Proposals waiting for the user's confirmation; nothing here has touched the ledger."""
+        if type(limit) is not int or not 1<=limit<=200:raise ValueError('建议数量无效')
+        with self.db() as c:
+            return [json.loads(r[0]) for r in c.execute('SELECT data FROM proposals WHERE result IS NULL ORDER BY rowid DESC LIMIT ?',(limit,))]
+    def pending_proposal_keys(self,ident):
+        """Same deal plus same operation and same field set is never proposed twice."""
+        with self.db() as c:
+            rows=list(c.execute('SELECT data FROM proposals WHERE deal_id=? AND result IS NULL',(identity(ident),)))
+        return {(p.get('operation'),tuple(sorted(p.get('changes',{})))) for p in (json.loads(r[0]) for r in rows)}
+    def activity_window(self,start,end,limit=2000):
+        """Ledger edits inside a time window, for the weekly report. Audit rows only."""
+        if not isinstance(start,str) or not isinstance(end,str) or start>end:raise ValueError('统计区间无效')
+        if type(limit) is not int or not 1<=limit<=5000:raise ValueError('统计条数无效')
+        with self.db() as c:
+            rows=list(c.execute('SELECT deal_id,revision,at,action,data FROM audit WHERE at>=? AND at<? ORDER BY at,deal_id,revision LIMIT ?',(start,end,limit)))
+        out=[]
+        for r in rows:
+            d=json.loads(r['data'])
+            out.append(dict(deal_id=r['deal_id'],revision=r['revision'],at=r['at'],action=r['action'],
+                            title=d['title'],customer=d['customer'],stage=d['stage']))
+        return out
     def review_evidence(self,ident,p):
         fields(p,('revision','request_key','evidence_id','state'))
         if p.get('state') not in ('confirmed','rejected','candidate'):raise ValueError('来源核对状态无效')
@@ -398,21 +424,33 @@ class Deals:
         return self.detail(d['id'])
     def import_initial(self):
         path=os.environ.get('ARTICLE_STUDIO_DEALS_SEED','').strip()
-        if not path:
-            return dict(configured=False,imported=False,count=0,ids=[],unassigned=[],
-                        message='未配置商单导入文件；请新建商单，或配置 ARTICLE_STUDIO_DEALS_SEED 后导入。')
-        try:
-            with Path(path).open('rb') as source:raw=source.read(2*1024*1024+1)
-            if len(raw)>2*1024*1024:raise ValueError('商单导入文件过大')
-            document=json.loads(raw)
-        except (OSError,UnicodeDecodeError,json.JSONDecodeError) as exc:
-            raise ValueError('无法读取商单导入文件；请核对 JSON 格式与本机路径') from exc
-        fields(document,('rows','unassigned','source_url'))
-        rows=document.get('rows',[]);unassigned=document.get('unassigned',[])
-        if not isinstance(rows,list) or len(rows)>1000 or not isinstance(unassigned,list) or len(unassigned)>1000:
-            raise ValueError('商单导入 rows 和 unassigned 必须是最多 1000 项的列表')
-        unassigned=[text(v,'未分配记录',4000) for v in unassigned]
-        source_url=text(document.get('source_url',''),'导入来源',2000)
+        if path:
+            try:
+                with Path(path).open('rb') as source:raw=source.read(2*1024*1024+1)
+                if len(raw)>2*1024*1024:raise ValueError('商单导入文件过大')
+                document=json.loads(raw)
+            except (OSError,UnicodeDecodeError,json.JSONDecodeError) as exc:
+                raise ValueError('无法读取商单导入文件；请核对 JSON 格式与本机路径') from exc
+            fields(document,('rows','unassigned','source_url'))
+            rows=document.get('rows',[]);unassigned=document.get('unassigned',[])
+            if not isinstance(rows,list) or len(rows)>1000 or not isinstance(unassigned,list) or len(unassigned)>1000:
+                raise ValueError('商单导入 rows 和 unassigned 必须是最多 1000 项的列表')
+            unassigned=[text(v,'未分配记录',4000) for v in unassigned]
+            source_url=text(document.get('source_url',''),'导入来源',2000)
+            key='initial-json-'+hashlib.sha256(raw).hexdigest()
+        else:
+            try:
+                import deals_seed as seed
+            except ImportError:
+                return dict(configured=False,imported=False,count=0,ids=[],unassigned=[],
+                            message='未配置商单导入文件；请新建商单，或配置 ARTICLE_STUDIO_DEALS_SEED 后导入。')
+            rows=list(getattr(seed,'ROWS',[]));unassigned=list(getattr(seed,'UNASSIGNED',[]))
+            if len(rows)>1000 or len(unassigned)>1000:
+                raise ValueError('商单导入 rows 和 unassigned 必须是最多 1000 项的列表')
+            unassigned=[text(v,'未分配记录',4000) for v in unassigned]
+            source_url=text(getattr(seed,'SOURCE_URL',''),'导入来源',2000)
+            # 稳定键：本机私有种子沿用既有 imports 记录，避免重复导入。
+            key='huang-ledger-20261006-v1'
         prepared=[]
         for row in rows:
             fields(row,('title','customer','stage','text','group','notes','quote','currency','count'))
@@ -421,7 +459,6 @@ class Deals:
             d=self._new(dict(title=row.get('title',''),customer=row.get('customer',row.get('title','')),stage=row.get('stage','unknown'),price_note=original,notes=row.get('notes',''),quote=row.get('quote'),currency=row.get('currency'),expected_deliverables=row.get('count')))
             d.update(original_group=group,original_text=original,reported_payment='client_paid' if group=='已付' else 'unpaid' if group=='未付' else 'unknown')
             prepared.append(d)
-        key='initial-json-'+hashlib.sha256(raw).hexdigest()
         with self.lock,self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             old=c.execute('SELECT data FROM imports WHERE key=?',(key,)).fetchone()

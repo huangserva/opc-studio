@@ -6,6 +6,62 @@ const deferred = () => { let resolve; const promise = new Promise(done => {resol
 const taskId = 'a'.repeat(32), otherId = 'c'.repeat(32), runId = 'b'.repeat(32);
 const task = {id:taskId,revision:3,name:'每日查询',body:'查询今日进展',kind:'pi',assistant_id:'workbench',tool_groups:['workspace'],profile_id:'fake',cwd:'/Users/example/projects/studio',frequency:'interval',minutes:360,weekdays:[0],at:'08:00',timeout:300,enabled:false,allow_commands:false,next_run:null,result_destination:'runs',result_category:'other',clue_id:''};
 const run = {id:runId,task_id:taskId,snapshot:{...task,executor_name:'工作台助手（Pi）',model_name:'合成模型'},status:'succeeded',trigger:'manual',started_at:'2026-10-05T02:00:00Z',finished_at:'2026-10-05T02:01:05Z',exit_code:0,output:'查询结果'};
+test('radar error receipts expose saved progress and actual validation reason',async t => {
+  const records=[0,859].map((processed,i)=>({...run,id:String(i).repeat(32),status:i?'partial':'failed',snapshot:{...task,kind:'wechat_radar'},output:JSON.stringify({processed,has_more:true,error:'单条引用超量，最多 15 条'})}));
+  const f=await fixture(t,{runs:records});f.d.querySelector('#run-tab').click();await settle();
+  const text=f.d.querySelector('#runs').textContent;
+  assert.match(text,/保存 859 条消息/);assert.match(text,/单条引用超量/);assert(!text.includes('运行结果格式异常'));
+});
+test('radar receipts separate run limit, no answer, empty output, model failure, rejection and quarantine',async t => {
+  const cases=[['deadline','运行期限已到'],['model_unresponsive','模型无响应'],['empty_output','空输出'],['model_failed','模型执行失败'],['validation','未通过校验'],['quarantined','已隔离']];
+  const records=cases.map(([kind],i)=>({...run,id:String(i+1).repeat(32),status:'partial',snapshot:{...task,kind:'wechat_radar'},output:JSON.stringify({processed:12,has_more:true,batches:3,error:'合成原因',error_kind:kind,quarantined:kind==='quarantined'?4:undefined,refs_capped:kind==='validation'?7:undefined})}));
+  const f=await fixture(t,{runs:records});f.d.querySelector('#run-tab').click();await settle();
+  const text=f.d.querySelector('#runs').textContent;
+  for(const [,label] of cases)assert.ok(text.includes(label),`missing ${label} in ${text}`);
+  assert.match(text,/保存 12 条消息 · 3 批/);assert.match(text,/已隔离 4 条资料/);assert.match(text,/已按批次上限裁剪 7 个/);
+  assert.ok(!text.includes('运行结果格式异常'));
+});
+test('legacy stopped-source receipt is incomplete statistics, not invalid JSON',async t => {
+  const item={...run,status:'timeout',snapshot:{...task,kind:'wechat_clues'},output:JSON.stringify({source_run_id:runId,state:'来源任务停止；已完成结果与检查点保留'})};
+  const f=await fixture(t,{runs:[item]});f.d.querySelector('#run-tab').click();await settle();
+  const text=f.d.querySelector('#runs').textContent;
+  assert.match(text,/达到本次运行时限/);assert.match(text,/缺少最终统计/);assert(!text.includes('运行结果格式异常'));
+});
+test('durable in-flight progress distinguishes final receipt still pending',async t => {
+  const item={...run,status:'timeout',snapshot:{...task,kind:'wechat_clues'},output:JSON.stringify({processed:274,skipped:65,clues:[],has_more:true,receipt_pending:true})};
+  const f=await fixture(t,{runs:[item]});f.d.querySelector('#run-tab').click();await settle();
+  const text=f.d.querySelector('#runs').textContent;
+  assert.match(text,/分析 274 条/);assert.match(text,/最终停止回执尚未返回/);assert(!text.includes('运行结果格式异常'));
+});
+test('quarantine panel lists held radar batches and manual retry only re-queues them',async t => {
+  const tasks=[{...task,kind:'wechat_radar'}];
+  const items=[{document_id:'a'.repeat(32),hash:'b'.repeat(64),error_kind:'validation',at:'2026-10-09T11:00:00Z',run_id:'r'.repeat(32),detail:'二次修复仍无效，本批已隔离',title:'群 · 作者 · 日期'}];
+  const posts=[];
+  const f=await fixture(t,{tasks,handler:call=>{
+    if(call.url==='/api/sources/wechat/radar-quarantine/retry'){posts.push(call.body);return response({schema:'wechat-source/v1',available:true,requeued:1});}
+    if(call.url.startsWith('/api/sources/wechat/radar-quarantine'))return response({schema:'wechat-source/v1',available:true,items,counts:{validation:1},scope:'隔离只停止每小时重放'});
+  }});
+  await settle();
+  const panel=f.d.querySelector('#radar-quarantine');
+  assert.equal(panel.hidden,false);
+  assert.match(panel.textContent,/1 条资料已隔离/);assert.match(panel.textContent,/模型输出未通过校验/);assert.match(panel.textContent,/二次修复仍无效/);
+  const link=panel.querySelector('a[href*="knowledge.html"]');
+  assert.match(link.getAttribute('href'),/document=a{32}/);
+  assert.ok(!panel.innerHTML.includes('javascript:'));
+  panel.querySelector('[data-retry-quarantine]').click();await settle();
+  assert.deepEqual(posts,[{document_ids:['a'.repeat(32)]}]);
+  assert.match(f.d.querySelector('#message').textContent,/已重新排队 1 条资料/);
+});
+test('quarantine panel stays hidden without a radar task and never reads as empty when the source is down',async t => {
+  const down=call=>call.url.startsWith('/api/sources/wechat/radar-quarantine')?response({error:'微信雷达接口不可用'},false):undefined;
+  const plain=await fixture(t,{tasks:[task],handler:down});await settle();
+  assert.equal(plain.d.querySelector('#radar-quarantine').hidden,true);
+  const blind=await fixture(t,{tasks:[{...task,kind:'wechat_radar'}],handler:down});await settle();
+  assert.equal(blind.d.querySelector('#radar-quarantine').hidden,false);
+  assert.match(blind.d.querySelector('#quarantine-items').textContent,/暂不可读/);
+  assert.ok(!blind.d.querySelector('#quarantine-items').textContent.includes('当前没有隔离批次'));
+  assert.equal(blind.d.querySelector('#quarantine-retry-all').disabled,true);
+});
 const response = (data,ok = true) => ({ok,json:async () => data});
 async function fixture(t, options = {}) {
   const dom = new JSDOM(fs.readFileSync('public/schedules.html','utf8'), {url:options.url || 'http://127.0.0.1:8766/schedules.html',runScripts:'outside-only',pretendToBeVisual:true});
@@ -465,4 +521,16 @@ test('daily review receipts show review and remaining coverage independently of 
   assert.match(f.d.querySelector('#runs').textContent,/复查 20 个消息版本/);
   assert.match(f.d.querySelector('#runs').textContent,/待复查 80 个版本/);
   assert.equal(f.postCalls().length,0);
+});
+
+test('clue and radar receipts display validated quote mapping counts',async t => {
+  const records=['wechat_clues','wechat_radar'].map((kind,i)=>({...run,id:String(i+4).repeat(32),snapshot:{...task,kind},output:JSON.stringify({processed:1,skipped:0,clues:[],has_more:false,format:{quote_mapped:i+2}})}));
+  const f=await fixture(t,{runs:records});f.d.querySelector('#run-tab').click();await settle();
+  const text=f.d.querySelector('#runs').textContent;
+  assert.match(text,/精确映射为证据编号 2 次/);assert.match(text,/精确映射为证据编号 3 次/);
+});
+test('invalid quote mapping metadata cannot inject public receipt content',async t => {
+  const records=['-1','<img src=x onerror=alert(1)>',1.5].map((count,i)=>({...run,id:String(i+6).repeat(32),snapshot:{...task,kind:'wechat_radar'},output:JSON.stringify({processed:1,has_more:false,format:{quote_mapped:count}})}));
+  const f=await fixture(t,{runs:records});f.d.querySelector('#run-tab').click();await settle();
+  assert(!f.d.querySelector('#runs').textContent.includes('精确映射'));assert.equal(f.d.querySelector('#runs img'),null);
 });

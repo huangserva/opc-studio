@@ -1,3 +1,4 @@
+from isolation_patches import module_thread
 import json
 from pathlib import Path
 import sys
@@ -17,7 +18,7 @@ class MediaConversationTests(unittest.TestCase):
         self.payload={'model':'qi21','prompt':'红军长征会师的历史场景','request_id':'a'*32}
     def tearDown(self):self.tmp.cleanup()
     def test_popup_submission_is_persistent_and_idempotent(self):
-        with patch('generation.service.threading.Thread') as thread:
+        with module_thread('generation.service') as thread:
             first=self.agent.start_media(self.payload);second=self.agent.start_media(self.payload)
         self.assertEqual(first['id'],second['id']);self.assertEqual(thread.call_count,1)
         self.assertEqual(len(self.agent.turns),1)
@@ -29,7 +30,7 @@ class MediaConversationTests(unittest.TestCase):
         self.assertEqual(restarted.generation.public(first['id'])['error'],'4090 busy')
         with self.assertRaises(ValueError):restarted.start_media({**self.payload,'prompt':'different'})
     def test_missing_receipt_is_recovered_without_resubmission(self):
-        with patch('generation.service.threading.Thread'):
+        with module_thread('generation.service'):
             job=self.agent.generation.start(self.payload,origin='composer',conversation_id=self.agent.conversation_id)
         self.assertEqual(self.agent.turns,[])
         self.agent.status();self.agent.status()
@@ -37,7 +38,7 @@ class MediaConversationTests(unittest.TestCase):
         self.assertEqual(self.agent.turns[0]['actions'][0]['media_job'],job['id'])
         self.assertEqual(len(self.agent.generation.jobs),1)
     def test_new_chat_does_not_resurrect_old_media_requests(self):
-        with patch('generation.service.threading.Thread'):
+        with module_thread('generation.service'):
             job=self.agent.start_media(self.payload)
         previous=self.agent.conversation_id;self.agent.new_chat()
         self.assertNotEqual(previous,self.agent.conversation_id)
@@ -52,23 +53,43 @@ class MediaConversationTests(unittest.TestCase):
             result=self.agent.start(payload)
         return self.agent.generation.public(result['media_job']),worker
 
+    def test_image_tool_uses_attachments_and_retry_reuses_upload(self):
+        import base64
+        from tests.test_media_http_transport import PNG
+        attachment=self.agent.upload_chat_image({'data':base64.b64encode(PNG).decode(),'name':'reference.png'})
+        original,_=self.send_media(tool='image',attachments=[attachment['id']],message='改成蓝色')
+        self.assertEqual(len(original['api_params']['references']['images']),1)
+        self.assertEqual(original['settings']['workflow'],'reference')
+        self.assertEqual(self.agent.turns[-1]['attachments'][0]['id'],attachment['id'])
+        count=len(list(self.agent.generation.references.folder.glob('*.png')))
+        repeat,_=self.send_media(tool='image',attachments=[attachment['id']],message='改成蓝色')
+        self.assertEqual(repeat['id'],original['id'])
+        self.assertEqual(len(list(self.agent.generation.references.folder.glob('*.png'))),count)
+
     def test_explicit_tool_without_chat_config_and_preferences_survive_restart(self):
         self.agent.save_media_preferences({'kind':'image','model':'qi21','size':'1344x768'})
         self.agent=assistant_module.Assistant(self.store,content,self.config);self.agent.generation=Generation(self.store)
-        # a Krea2 preference must be refused by the media layer, never served over SSH
+        # Krea2 now goes through the HTTPS media API like every other wired model
         self.agent.save_media_preferences({'kind':'image','model':'krea2','size':'1344x768'})
-        with patch.object(Generation,'_spawn',lambda _s,*a:None), \
-             patch.object(self.agent,'client',side_effect=AssertionError('must bypass LLM')):
+        job,worker=self.send_media()
+        self.assertEqual(job['model'],'krea2');self.assertEqual(job['transport'],'https')
+        self.assertEqual(job['api_params']['model'],'krea2')
+        self.assertEqual(job['settings']['size'],'1344x768');self.assertEqual(worker.call_count,1)
+        self.agent.generation.update(job['id'],status='error')
+        # a model id that is not wired must still be refused, never served over the retired SSH path
+        unwired={'id':'notwired','name':'未接入模型','kind':'image','checkpoint':'x.safetensors',
+                 'sizes':['1024x1024'],'steps':8,'cfg':2.5}
+        with patch.dict('generation.models.MODELS',{'notwired':unwired},clear=False):
             with self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):
-                self.agent.start({'message':'@生图 一只猫','request_id':'a'*32})
-        self.assertEqual(self.agent.generation.listing()['jobs'],[])
+                self.agent.generation.start({'model':'notwired','prompt':'一只猫','size':'1024x1024'})
+        self.assertEqual([row for row in self.agent.generation.listing()['jobs'] if row['model']=='notwired'],[])
         self.agent.save_media_preferences({'kind':'image','model':'qi21','size':'1344x768'})
         self.agent=assistant_module.Assistant(self.store,content,self.config);self.agent.generation=Generation(self.store)
-        job,worker=self.send_media()
+        job,worker=self.send_media(request_id='e'*32)
         self.assertEqual(job['model'],'qi21');self.assertEqual(job['settings']['size'],'1344x768')
         self.assertEqual(job['prompt'],'一只猫');self.assertEqual(worker.call_count,1)
-        duplicate,_=self.send_media();self.assertEqual(job['id'],duplicate['id'])
-        with self.assertRaises(ValueError):self.send_media(message='@生图 不同描述')
+        duplicate,_=self.send_media(request_id='e'*32);self.assertEqual(job['id'],duplicate['id'])
+        with self.assertRaises(ValueError):self.send_media(request_id='e'*32,message='@生图 不同描述')
 
     def test_qwen_2k_preference_survives_restart_and_is_used_by_chat_generation(self):
         self.agent.save_media_preferences({'kind':'image','model':'qi21','size':'2752x1536'})
@@ -113,8 +134,12 @@ class MediaConversationTests(unittest.TestCase):
         self.agent.save_media_preferences({'kind':'image','model':'krea2','size':'1344x768'})
         with patch.object(Generation,'_spawn',lambda _s,*a:None), \
              patch.object(self.agent,'client',side_effect=AssertionError('must bypass LLM')):
-            with self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):
-                self.agent.start({'message':'换成 Krea2','request_id':'d'*32})
+            switched=self.agent.start({'message':'换成 Krea2','request_id':'d'*32})
+        # switching to Krea2 is a normal HTTPS media job now, not a refusal
+        switched_job=self.agent.generation.public(switched['media_job'])
+        self.assertEqual(switched_job['model'],'krea2')
+        self.assertEqual(switched_job['transport'],'https')
+        self.assertEqual(switched_job['api_params']['model'],'krea2')
 
     def test_greeting_and_stale_reference_never_regenerate(self):
         original,_=self.send_media()

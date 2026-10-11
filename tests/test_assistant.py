@@ -1,3 +1,4 @@
+from tests.test_assistant_backend import wait_for_background
 import importlib.util
 import json
 from pathlib import Path
@@ -58,8 +59,7 @@ class AssistantTests(unittest.TestCase):
                {'role':'assistant','content':'已保存 v0003。'}]
         self.agent.client=lambda messages,**kwargs:calls.pop(0)
         result=self.agent.start({'message':'修改第一段','request_id':'a'*32,'context':{'slug':self.slug,'version':'v0002'}})
-        deadline=time.time()+3
-        while self.agent.active and time.time()<deadline:time.sleep(.01)
+        wait_for_background(self, self.agent, result['id'])
         job=self.agent.public_job(result['id'])
         self.assertEqual(job['status'],'done');self.assertEqual(len(job['actions']),2)
         self.assertEqual(self.store.detail(self.slug)['blocks'][0]['text'],'模型修改')
@@ -73,20 +73,26 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.agent.start({'message':'修改','unsaved':True})
         entered=threading.Event();release=threading.Event()
         def model(messages,**kwargs):
-            entered.set();release.wait(2)
+            entered.set()
+            # Stay blocked until the test stops the job. A short timeout lets a busy
+            # machine schedule the tool call before stop() runs.
+            if not release.wait(30):
+                return {'role':'assistant','content':'测试未释放'}
             return {'role':'assistant','content':'不应继续','tool_calls':[{'id':'bad','type':'function','function':{'name':'organize_collection','arguments':'{"name":"不应创建"}'}}]}
         self.agent.client=model
         result=self.agent.start({'message':'归档','request_id':'b'*32})
-        self.assertTrue(entered.wait(5));self.agent.stop(result['id']);release.set()
-        deadline=time.time()+3
-        while self.agent.active and time.time()<deadline:time.sleep(.01)
+        # client() runs only after the Pi worker emits model_request. Under a full
+        # suite that process start exceeds 1 second; wait on the event.
+        self.assertTrue(entered.wait(30),'模型请求未在 30 秒内到达')
+        self.agent.stop(result['id']);release.set()
+        wait_for_background(self, self.agent, result['id'])
+        self.assertIsNone(self.agent.active)
         self.assertEqual(self.agent.public_job(result['id'])['status'],'cancelled')
         self.assertEqual(self.store.collections(),[])
         with self.assertRaises(ValueError):self.agent.execute('unknown',{},self.job)
 
     def wait_job(self, result):
-        deadline=time.time()+3
-        while self.agent.active and time.time()<deadline:time.sleep(.01)
+        wait_for_background(self, self.agent, result['id'])
         self.assertIsNone(self.agent.active)
         return self.agent.public_job(result['id'])
 
@@ -98,7 +104,7 @@ class AssistantTests(unittest.TestCase):
         self.agent.client=forbidden
         result=self.wait_job(self.agent.start({'message':'你好','unsaved':True}))
         self.assertEqual(result['status'],'done');self.assertEqual(result['actions'],[])
-        self.assertEqual(result['answer'],'用户，您好！')
+        self.assertEqual(result['answer'],'黄总，您好！')
         self.assertEqual(self.store.collections(),[])
         self.assertEqual(self.store.meta(self.slug)['head'],'v0002')
 

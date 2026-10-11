@@ -1,12 +1,14 @@
+// 「终态可管理」判据（done/error/cancelled）只有一份，定义在 lab.js 的 labManageable()；
+// 这里只消费它，历史行、全选和结果区才不会三处口径不一致。
 function labHistoryActions(j){
- const inactive=['done','error'].includes(j.status),id=escapeHTML(j.id);
- return `<div class="lab-card-actions"><label><input type="checkbox" data-select="${id}" ${lab.selection.has(j.id)?'checked':''} ${inactive?'':'disabled'} aria-label="选择记录 ${j.id.slice(0,8)}">选择</label><button class="button subtle" type="button" data-refill="${id}">沿用参数</button>${j.status==='done'?`<a class="button subtle" href="${escapeHTML(j.asset_url)}" download="生成结果-${j.id.slice(0,8)}.${j.kind==='image'?'png':'mp4'}">下载</a>`:''}<button class="button lab-danger" type="button" data-manage="${id}" ${inactive?'':'disabled title="生成完成后可删除"'}>${lab.trash?'恢复':'删除'}</button></div>`;
+ const manageable=labManageable(j),id=escapeHTML(j.id);
+ return `<div class="lab-card-actions"><label><input type="checkbox" data-select="${id}" ${lab.selection.has(j.id)?'checked':''} ${manageable?'':'disabled'} aria-label="选择记录 ${j.id.slice(0,8)}">选择</label><button class="button subtle" type="button" data-refill="${id}">沿用参数</button>${j.kind==='image'&&j.status==='done'&&!lab.trash?`<button class="button subtle" type="button" data-video-from="${id}">做成视频</button>`:''}${j.status==='done'?`<a class="button subtle" href="${escapeHTML(j.asset_url)}" download="生成结果-${j.id.slice(0,8)}.${j.kind==='image'?'png':'mp4'}">下载</a>`:''}<button class="button lab-danger" type="button" data-manage="${id}" ${manageable?'':'disabled title="生成完成后可删除"'}>${lab.trash?'恢复':'删除'}</button></div>`;
 }
 function clearLabSelectionPreview(){
  lab.selected=null;lab.previewKey=null;$('#lab-progress').hidden=true;$('#lab-result-actions').hidden=true;$('#lab-job-details').hidden=true;$('#lab-result-model').textContent='';$('#lab-preview video')?.pause();$('#lab-preview').replaceChildren();const p=document.createElement('p');p.className='lab-muted';p.textContent='选择一条记录查看结果，或开始新的生成。';$('#lab-preview').append(p);
 }
 function updateLabSelection(){
- const eligible=lab.jobs.filter(j=>['done','error'].includes(j.status)&&[j.prompt,j.model_name,j.settings.lora_name||''].join(' ').toLowerCase().includes($('#lab-history-search').value.trim().toLowerCase()));
+ const eligible=lab.jobs.filter(j=>labManageable(j)&&[j.prompt,j.model_name,j.settings.lora_name||''].join(' ').toLowerCase().includes($('#lab-history-search').value.trim().toLowerCase()));
  $('#lab-selection-count').textContent=`已选 ${lab.selection.size} 项`;$('#lab-batch-manage').disabled=!lab.selection.size;$('#lab-batch-manage').textContent=lab.trash?'恢复所选':'删除所选';
  $('#lab-select-all').checked=eligible.length>0&&eligible.every(j=>lab.selection.has(j.id));$('#lab-select-all').indeterminate=eligible.some(j=>lab.selection.has(j.id))&&!$('#lab-select-all').checked;
  $('#lab-trash-toggle').textContent=lab.trash?'← 返回生成记录':'回收站';
@@ -14,6 +16,7 @@ function updateLabSelection(){
 function bindLabManagement(list){
  list.querySelectorAll('[data-select]').forEach(e=>e.onchange=()=>{if(e.checked)lab.selection.add(e.dataset.select);else lab.selection.delete(e.dataset.select);updateLabSelection();});
  list.querySelectorAll('[data-refill]').forEach(e=>e.onclick=()=>{const j=lab.jobs.find(j=>j.id===e.dataset.refill);if(j)fillLab(j);});
+ list.querySelectorAll('[data-video-from]').forEach(e=>e.onclick=()=>{const j=lab.jobs.find(j=>j.id===e.dataset.videoFrom);if(j&&typeof startVideoFromImage==='function')startVideoFromImage(j);});
  list.querySelectorAll('[data-manage]').forEach(e=>e.onclick=()=>manageLabJobs([e.dataset.manage],lab.trash?'restore':'delete'));
  updateLabSelection();
 }
@@ -30,4 +33,4 @@ $('#lab-delete-confirm').onclick=async()=>{const ids=lab.pendingDelete;if(!ids)r
 $('#lab-delete-result').onclick=()=>{if(lab.selected)manageLabJobs([lab.selected.id],lab.selected.deleted_at?'restore':'delete');};
 $('#lab-batch-manage').onclick=()=>manageLabJobs([...lab.selection],lab.trash?'restore':'delete');
 $('#lab-trash-toggle').onclick=()=>{lab.trash=!lab.trash;lab.selection.clear();lab.compare.clear();clearLabSelectionPreview();renderLabCompare();lab.historySignature=null;refreshLab();};
-$('#lab-select-all').onchange=()=>{for(const j of lab.jobs){if(!['done','error'].includes(j.status))continue;if(![j.prompt,j.model_name,j.settings.lora_name||''].join(' ').toLowerCase().includes($('#lab-history-search').value.trim().toLowerCase()))continue;if($('#lab-select-all').checked)lab.selection.add(j.id);else lab.selection.delete(j.id);}lab.historySignature=null;renderLabHistory();};
+$('#lab-select-all').onchange=()=>{for(const j of lab.jobs){if(!labManageable(j))continue;if(![j.prompt,j.model_name,j.settings.lora_name||''].join(' ').toLowerCase().includes($('#lab-history-search').value.trim().toLowerCase()))continue;if($('#lab-select-all').checked)lab.selection.add(j.id);else lab.selection.delete(j.id);}lab.historySignature=null;renderLabHistory();};

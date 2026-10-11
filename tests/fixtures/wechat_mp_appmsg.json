@@ -1,0 +1,8 @@
+{"base_resp":{"ret":0,"err_msg":"ok"},
+ "app_msg_list":{"publish_list":[
+  {"title":"占位文章一","link":"https://mp.weixin.qq.com/s/AAAAAAAAAAAA?chksm=abc&scene=27",
+   "create_time":1700000000,"aid":"2247483001"},
+  {"title":"占位文章二 &amp; 符号","link":"https://mp.weixin.qq.com/s/BBBBBBBBBBBB",
+   "create_time":1700086400,"aid":"2247483002"},
+  {"title":"非公众号链接","link":"https://example.com/not-wechat","create_time":1700000000,"aid":"2247483003"}
+ ]}}

@@ -1,8 +1,10 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
+import types
 import unittest
 import uuid
 from datetime import datetime,timedelta,timezone
@@ -111,10 +113,20 @@ class DealsTests(unittest.TestCase):
         self.assertTrue(r['configured'] and r['imported']);self.assertEqual(r['unassigned'],seed['unassigned'])
         self.assertEqual(self.deals.listing()['summary']['received']['CNY'],'0.00')
     def test_initial_import_without_configuration_does_not_claim_a_ledger(self):
-        with patch.dict(os.environ,{'ARTICLE_STUDIO_DEALS_SEED':''}):r=self.deals.import_initial()
+        with patch.dict(os.environ,{'ARTICLE_STUDIO_DEALS_SEED':''}),patch.dict(sys.modules,{'deals_seed':None}):r=self.deals.import_initial()
         self.assertFalse(r['configured']);self.assertFalse(r['imported']);self.assertEqual(r['count'],0)
         self.assertEqual(self.deals.listing()['deals'],[])
         with self.deals.db() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM imports').fetchone()[0],0)
+    def test_private_deals_seed_module_is_used_when_no_env(self):
+        module=types.ModuleType('deals_seed')
+        module.ROWS=[{'group':'未付','title':'合成私有种子项目','text':'合成测试：私有模块','quote':'900','currency':'CNY','count':2}]
+        module.UNASSIGNED=['合成私有未分配']
+        with patch.dict(os.environ,{'ARTICLE_STUDIO_DEALS_SEED':''}),patch.dict(sys.modules,{'deals_seed':module}):
+            r=self.deals.import_initial();self.assertEqual(self.deals.import_initial()['ids'],r['ids'])
+        self.assertTrue(r['configured'] and r['imported']);self.assertEqual(r['count'],1)
+        ds=self.deals.listing()['deals'];self.assertEqual([d['title'] for d in ds],['合成私有种子项目'])
+        self.assertEqual(ds[0]['expected_deliverables'],2);self.assertEqual(ds[0]['quote'],'900.00')
+        self.assertEqual(r['unassigned'],['合成私有未分配'])
     def test_initial_import_validates_all_rows_before_writing(self):
         path=Path(self.tmp.name)/'invalid-seed.json'
         path.write_text(json.dumps({'rows':[{'title':'合成有效记录'},{'title':'合成无效记录','stage':'invalid'}]}))

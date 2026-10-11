@@ -100,7 +100,7 @@ class EventsTests(unittest.TestCase):
         self.assertEqual(self.events.list_events(view='calendar')['events'], [])
         self.assertEqual(self.events.list_events(view='mine')['events'], [])
         event = self.events.save_action(event['id'], {'id': action['id'], 'revision': action['revision'],
-            'owner': '用户', 'reason': '填写负责人'})
+            'owner': '黄总', 'reason': '填写负责人'})
         self.assertEqual(self.events.list_events(view='mine')['events'], [])
         action = event['actions'][0]
         event = self.events.save_action(event['id'], {'id': action['id'], 'revision': action['revision'],

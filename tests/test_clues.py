@@ -198,4 +198,107 @@ class ClueTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.clues.listing(**kwargs)
         with self.assertRaises(ValueError):self.create(tags=['bad'])
 
+
+class TimeRangeTests(ClueTests):
+    """时间范围：昨天、最近三天。口径与现有 today / 7d 一致（按原文时间）。"""
+
+    def at(self, **delta):
+        from datetime import timedelta
+        from clues_store import ZONE
+        return (datetime.now(ZONE)-timedelta(**delta)).isoformat()
+
+    def midnight(self, days=0):
+        """北京时间某天的零点。测试要锚在零点而不是「现在」——
+        否则凌晨 0–1 点跑的时候，「昨天此刻再往前推 N 小时」会跨过日界，
+        用例在不同钟点结果不同，那是测试自己的定时炸弹。"""
+        from datetime import timedelta
+        from clues_store import ZONE
+        return datetime.now(ZONE).replace(hour=0,minute=0,second=0,microsecond=0)-timedelta(days=days)
+
+    def clock(self, days=0, hours=0, minutes=0):
+        from datetime import timedelta
+        return (self.midnight(days)+timedelta(hours=hours,minutes=minutes)).isoformat()
+
+    def ids(self, **kw):
+        return sorted(r['id'] for r in self.clues.listing(**kw)['items'])
+
+    def test_yesterday_is_the_full_previous_beijing_day(self):
+        now=self.create(title='此刻')
+        yesterday=self.create(title='昨天白天',occurred_at=self.clock(1,10))
+        yesterday_late=self.create(title='昨天深夜',occurred_at=self.clock(1,23,59))
+        two_days=self.create(title='前天',occurred_at=self.clock(2,10))
+        self.assertEqual(self.ids(period='yesterday'),sorted([yesterday,yesterday_late]))
+        self.assertNotIn(now,self.ids(period='yesterday'))
+        self.assertNotIn(two_days,self.ids(period='yesterday'))
+
+    def test_yesterday_window_is_lower_inclusive_and_upper_exclusive(self):
+        from datetime import timedelta
+        # 上界 = 今天 00:00，恰好落在 00:00:00 的线索不算昨天
+        exactly_midnight=self.create(title='今天零点整',occurred_at=self.clock(0))
+        just_after=self.create(title='今天零点刚过',occurred_at=(self.midnight(0)+timedelta(seconds=1)).isoformat())
+        yesterday=self.create(title='昨天零点整',occurred_at=self.clock(1))
+        self.assertEqual(self.ids(period='yesterday'),[yesterday])
+        self.assertNotIn(exactly_midnight,self.ids(period='yesterday'),'上界不含：今天 00:00 不能算昨天')
+        self.assertNotIn(just_after,self.ids(period='yesterday'))
+
+    def test_yesterday_spans_the_whole_day_even_when_now_is_early(self):
+        # 00:30 时「昨天」仍然应包含昨天 00:00–23:59 的全部内容
+        from datetime import timedelta
+        late_yesterday=(self.midnight(0)-timedelta(minutes=1)).isoformat()
+        clue=self.create(title='昨天最后一分钟',occurred_at=late_yesterday)
+        self.assertIn(clue,self.ids(period='yesterday'))
+
+    def test_yesterday_excludes_clues_with_unknown_source_time(self):
+        self.create(title='昨天有原文',occurred_at=self.clock(1,12))
+        self.knowledge.docs[self.doc_id]['provenance']={}
+        self.create(title='原文时间未知')
+        self.assertEqual(self.clues.listing(period='yesterday')['total'],1)
+
+    def test_yesterday_window_is_the_same_instant_written_in_any_timezone(self):
+        """同一个时刻写成 +08:00 还是 +00:00，归属必须一致。
+        真实线索的 clock 不统时区（邮件/GitHub 直接存 +00:00），
+        只测 +08:00 写法测不出「把 UTC 写法当成另一个时刻」这类错。"""
+        from datetime import timedelta, timezone
+        def utc_form(dt):
+            return dt.astimezone(timezone.utc).isoformat()
+        midnight_today=self.midnight(0)
+        beijing_edge=self.create(title='今天零点 +08',occurred_at=midnight_today.isoformat())
+        utc_edge=self.create(title='今天零点 UTC写法',occurred_at=utc_form(midnight_today))
+        beijing_last=self.create(title='昨天最后一分钟 +08',occurred_at=(midnight_today-timedelta(minutes=1)).isoformat())
+        utc_last=self.create(title='昨天最后一分钟 UTC写法',occurred_at=utc_form(midnight_today-timedelta(minutes=1)))
+        got=self.ids(period='yesterday')
+        self.assertEqual(got,sorted([beijing_last,utc_last]),'上界两侧各取一种写法：两种写法都得跟着同一个时刻走')
+        self.assertNotIn(beijing_edge,got);self.assertNotIn(utc_edge,got)
+
+    def test_three_days_uses_the_same_rolling_cutoff_as_seven_and_thirty(self):
+        inside=self.create(title='两天前',occurred_at=self.clock(2,10))
+        outside=self.create(title='很久以前',occurred_at='2020-01-01T00:00:00+00:00')
+        self.assertEqual(self.ids(period='3d'),[inside])
+        self.assertIn(inside,self.ids(period='7d'),'3d 比 7d 更窄但同向')
+        self.assertIn(inside,self.ids(period='30d'))
+        self.assertNotIn(outside,self.ids(period='3d'))
+
+    def test_three_days_is_narrower_than_seven_days(self):
+        three=self.create(title='三天内',occurred_at=self.clock(2,10))
+        self.create(title='五天前',occurred_at=self.clock(5))
+        self.assertEqual(self.ids(period='3d'),[three])
+        self.assertEqual(self.clues.listing(period='7d')['total'],2)
+
+    def test_every_range_ignores_unknown_source_time(self):
+        # 一次性建好「原文时间未知」的线索，再逐个范围查 —— setUp 是按方法走的，
+        # subTest 之间共享同一批数据，所以这里不能每个 subTest 各建一条。
+        self.knowledge.docs[self.doc_id]['provenance']={}
+        self.create(title='原文时间未知')
+        for period in ('today','yesterday','3d','7d','30d'):
+            with self.subTest(period=period):
+                self.assertEqual(self.clues.listing(period=period)['total'],0,
+                                 '原文时间未知的线索在任何时间范围下都不该出现')
+
+    def test_unknown_period_still_raises_the_same_message(self):
+        for bad in ('bad','yesterda','2d','1d','Yesterday','YESTERDAY','3D','0d','-1d','昨天'):
+            with self.subTest(period=bad):
+                with self.assertRaises(ValueError) as caught:
+                    self.clues.listing(period=bad)
+                self.assertEqual(str(caught.exception),'时间范围无效')
+
 if __name__=='__main__':unittest.main()

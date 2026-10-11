@@ -79,6 +79,32 @@ function modelFailure(message, seconds) {
   if (message?.stopReason === 'aborted') return `模型请求超时或中断（连续 ${seconds} 秒无响应），请稍后重试。已保存的操作仍保留。`;
   return '模型请求未完成，请检查模型服务后重试。';
 }
+// 被拦工具的用户提示按工具类别给一条可行动示例。只按工具名分类：
+// 参数、HTML、正文、图片和密钥不得进入提示，工具名本身也不写给用户。
+// example 必须能在现网 assistant_policy 下真正拿到对应授权，tests/test_pi_runtime.py 逐条断言。
+const TOOL_POLICY_HINTS=[
+  {tools:['update_text'],example:'把当前作品正文加粗'},
+  {tools:['edit_work'],example:'把当前作品的截图插到第一段之后'},
+  {tools:['generate_media'],example:'生成一张猫咪图片'},
+  {tools:['organize_collection'],example:'把当前作品归档到合成合集'},
+  {tools:['create_card'],example:'生成一张文字卡片'},
+  {tools:['remio_create_note'],example:'记住黄总偏好短句标题'},
+  {tools:['remio_update_note'],example:'更新笔记里的黄总偏好'},
+  {tools:['memos_write'],example:'记住这个偏好并存到 MemOS'},
+];
+const TOOL_POLICY_FALLBACK='请说明要进行的具体修改。';
+function toolPolicyHint(names){
+  const hit=TOOL_POLICY_HINTS.find(h=>names.some(n=>h.tools.includes(n)));
+  if(!hit)return TOOL_POLICY_FALLBACK;
+  const lead={update_text:'请明确作品和要修改的文字',edit_work:'请明确作品和要调整的结构',
+    generate_media:'要生成图片请直接说清主题和风格',organize_collection:'要归档请点名目标合集',
+    create_card:'要文字封面或信息卡请说明内容',remio_create_note:'要记住偏好请以“记住”开头',
+    remio_update_note:'要更新笔记请以“更新笔记”开头',memos_write:'要写入 MemOS 请明确说存到 MemOS'};
+  const key=hit.tools.find(n=>names.includes(n));
+  const versioned=key==='update_text'||key==='edit_work';
+  return (lead[key]||'请按下面说法重说一次') + '，例如“' + hit.example + '”。'
+    + (versioned ? '改前我会先核对作品版本。' : '');
+}
 function importHistory(manager, history, model) {
   const imported = new Set(manager.getEntries().filter(e => e.type === 'custom' && e.customType === 'studio-turn').map(e => e.data.id));
   for (const turn of history || []) {
@@ -90,16 +116,35 @@ function importHistory(manager, history, model) {
     manager.appendCustomEntry('studio-turn', { id: turn.id, status: turn.status });
   }
 }
+function optionalRunLimits(input) {
+  // 缺省与改前一致：压缩开着，一轮最多 12 次 provider 请求。调用方显式给出才收紧。
+  let maxProviderRequests = 12;
+  if (input.max_provider_requests != null) {
+    if (!Number.isInteger(input.max_provider_requests) || input.max_provider_requests < 1)
+      throw new Error('模型调用上限无效');
+    maxProviderRequests = input.max_provider_requests;
+  }
+  let compactionOn = true;
+  if (input.compaction_enabled != null) {
+    if (typeof input.compaction_enabled !== 'boolean') throw new Error('压缩开关无效');
+    compactionOn = input.compaction_enabled;
+  }
+  return { maxProviderRequests, compactionOn };
+}
 async function run(input) {
   request = input;
-  let timer, mediaReceipt, stageReceipt, dealReceipt, toolViolation;
+  let timer, mediaReceipt, stageReceipt, dealReceipt, toolViolation, pasteStop;
+  let blockedToolNames = [];
+  let lastEditReject = '', editRejects = 0, savedBeforeStop = false;
+  const workBaseVersions = new Map();
   try {
+    const limits = optionalRunLimits(input);
     fs.mkdirSync(input.session_dir, { recursive: true, mode: 0o700 });
     const config = input.config;
     const settings = SettingsManager.inMemory({
       enableAnalytics: false, enableInstallTelemetry: false, cacheWarming: 'off',
       retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: config.timeout_seconds * 1000 } },
-      compaction: { enabled: true, reserveTokens: Math.min(config.max_output_tokens + 2048,
+      compaction: { enabled: limits.compactionOn, reserveTokens: Math.min(config.max_output_tokens + 2048,
         Math.floor(config.context_tokens / 3)), keepRecentTokens: Math.min(16000, Math.floor(config.context_tokens / 4)) },
       images: { autoResize: false },
     });
@@ -115,7 +160,7 @@ async function run(input) {
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
           ...(/^qwen/i.test(config.model) ? {thinkingFormat:'qwen-chat-template', supportsReasoningEffort:false} : {}) } }],
       streamSimple(model, context, options) {
-        if (++requests > 12) throw new Error('本轮已到模型调用上限');
+        if (++requests > limits.maxProviderRequests) throw new Error('本轮已到模型调用上限');
         if (input.test_transport) return testStream(model, context, options);
         emit({type:'phase',phase:'模型正在读取上下文，长内容首字需要等待…'});
         let thinking = false;
@@ -147,8 +192,46 @@ async function run(input) {
     const customTools = input.tools.map(t => ({ name: t.function.name, label: t.label || t.function.name,
       description: t.function.description + (t.function.name === 'propose_deal_update' ? '\n商单进度 stage 使用 read_deal 返回的 stage_options。待写 writing 与撰写中 in_progress 不同。等待打款是收款进度，用 stage="payment_pending"（待结账）；承诺日期写 notes，不写交稿截止 deadline。确认合作全部到账并结清才用 stage="settled"，尚无实际明细时同时需要用户明确确认 settled=true；未实际到账不创建 receipt。' : ''), parameters: t.function.parameters, executionMode: 'sequential',
       async execute(toolCallId, params, signal) {
+        if (pasteStop) {
+          const error = '本轮已停止，未执行';
+          return { content: [{ type: 'text', text: JSON.stringify({ error }) }], details: { error }, isError: true };
+        }
         if (++calls > 24) throw new Error('本轮已到操作上限');
         const result = await rpc('tool', { call_id: toolCallId, name: t.function.name, args: params }, signal);
+        const baseVersion = params && typeof params.base_version === 'string' ? params.base_version : '';
+        const slug = typeof result.slug === 'string' && result.slug ? result.slug : params?.slug;
+        const writeTool = ['edit_work', 'update_text', 'create_card', 'organize_collection'].includes(t.function.name);
+        if (slug && !workBaseVersions.has(slug)) {
+          if (t.function.name === 'read_work' && !result.error && result.version)
+            workBaseVersions.set(slug, result.version);
+          else if (writeTool && baseVersion) workBaseVersions.set(slug, baseVersion);
+        }
+        // 版本号只在同一作品内比较，不能把 B 的新版本与 A 的起始版本比较。
+        const baseline = slug ? workBaseVersions.get(slug) : undefined;
+        const versionMoved = Boolean(result.version && (!baseline || result.version !== baseline));
+        if (writeTool && !result.error && !result.unchanged && versionMoved) savedBeforeStop = true;
+        if (t.function.name === 'edit_work') {
+          if (result.error) {
+            const reason = String(result.error);
+            if (reason && reason === lastEditReject) editRejects += 1;
+            else { lastEditReject = reason; editRejects = 1; }
+            if (editRejects >= 2) {
+              const detail = reason.replace(/[。！？]/g, '；').replace(/\s+/g, ' ').trim();
+              const saved = savedBeforeStop
+                ? '停止前已有修改保存成功，请核对作品里的新版本。'
+                : '停止前没有保存新版本。';
+              const pasteValidation = /贴文|paste_original|原文范围/.test(reason);
+              pasteStop = pasteValidation
+                ? '贴文已因同一原因连续被拒两次，原因是' + detail + '已停止继续调用工具，请换行写清完整原文后再发，或让助手使用 paste_original 而不是抄写 html。' + saved
+                : '同一修改连续两次失败，已停止：' + detail + (/[；。]$/.test(detail) ? '' : '。') + saved;
+              try { session?.agent?.abort(); } catch {}
+              setTimeout(() => { try { session?.agent?.abort(); } catch {} }, 0);
+            }
+          } else {
+            lastEditReject = '';
+            editRejects = 0;
+          }
+        }
         if (input.finish_after_media && t.function.name === 'generate_media' && result.media_job && !result.error)
           mediaReceipt = '已提交 4090 生成任务。完成后会在聊天中直接显示预览，生成结果不会自动插入作品。';
         if (input.workflow_stage && t.function.name === 'submit_workflow_stage' && result.workflow_stage && !result.error)
@@ -172,12 +255,21 @@ async function run(input) {
         if (event.message.errorMessage) event.message.errorMessage = String(event.message.errorMessage)
           .split(config.api_key || '\u0000').join('[redacted]').replace(/https?:\/\/[^\s]+/g,'[endpoint]');
         const allowed = new Set(input.tools.map(t => t.function.name));
-        if (event.message.content.some(p => p.type === 'toolCall' && !allowed.has(p.name))) {
-          toolViolation = '助手提出了本次请求未授权的操作，已停止执行。请说明要进行的具体修改。';
+        const blocked = event.message.content.filter(p => p.type === 'toolCall' && !allowed.has(p.name));
+        if (blocked.length) {
+          const names=blocked.map(p =>
+            typeof p.name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(p.name)
+              ? p.name : '[invalid_tool_name]');
+          const seen=[...new Set([...blockedToolNames.filter(n=>n!=='[truncated]'), ...names])];
+          blockedToolNames=[...seen.slice(0,16),
+            ...(seen.length>16||blockedToolNames.includes('[truncated]')?['[truncated]']:[])];
+          toolViolation = (savedBeforeStop
+            ? '被拦的操作未执行；停止前已有修改保存成功，请核对作品新版本。'
+            : '本轮未执行修改。') + toolPolicyHint(blockedToolNames);
           session.agent.abort();
         }
       }
-      if (event.type === 'turn_end' && (mediaReceipt || stageReceipt || dealReceipt)) session.agent.abort();
+      if (event.type === 'turn_end' && (mediaReceipt || stageReceipt || dealReceipt || pasteStop)) session.agent.abort();
       if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta')
         emit({ type: 'text', delta: event.assistantMessageEvent.delta });
       if (event.type === 'message_start' && event.message.role === 'assistant') emit({ type: 'text_start' });
@@ -189,13 +281,14 @@ async function run(input) {
     else await session.prompt(input.text, { images: input.images || [], expandPromptTemplates: false });
     const last = [...session.messages].reverse().find(m => m.role === 'assistant');
     const text = session.getLastAssistantText();
-    const empty = !mediaReceipt && !stageReceipt && !dealReceipt && !toolViolation && !cancelled && !text?.trim();
-    const error = !dealReceipt && (['error', 'aborted'].includes(last?.stopReason) || empty);
+    const empty = !mediaReceipt && !stageReceipt && !dealReceipt && !toolViolation && !pasteStop && !cancelled && !text?.trim();
+    const error = !dealReceipt && !pasteStop && !toolViolation && (['error', 'aborted'].includes(last?.stopReason) || empty);
     if (mediaReceipt && !cancelled) manager.appendMessage(assistantMessage(model,[{type:'text',text:mediaReceipt}]));
     if (dealReceipt && !cancelled) manager.appendMessage(assistantMessage(model,[{type:'text',text:dealReceipt}]));
-    emit({ type: 'done', status: cancelled ? 'cancelled' : toolViolation ? 'error' : (mediaReceipt || stageReceipt || dealReceipt) ? 'done' : error ? 'error' : 'done',
-      answer: cancelled ? '已停止。已保存的修改仍保留。' : toolViolation || mediaReceipt || dealReceipt || (stageReceipt ? '阶段完成' : (last?.stopReason === 'aborted' ? modelFailure(last, config.timeout_seconds) : empty ? '模型没有返回回复正文。请检查输出预算和模型服务后重试。' : error ? modelFailure(last, config.timeout_seconds) : text)),
+    emit({ type: 'done', status: cancelled ? 'cancelled' : (toolViolation || pasteStop) ? 'error' : (mediaReceipt || stageReceipt || dealReceipt) ? 'done' : error ? 'error' : 'done',
+      answer: cancelled ? '已停止。已保存的修改仍保留。' : toolViolation || pasteStop || mediaReceipt || dealReceipt || (stageReceipt ? '阶段完成' : (last?.stopReason === 'aborted' ? modelFailure(last, config.timeout_seconds) : empty ? '模型没有返回回复正文。请检查输出预算和模型服务后重试。' : error ? modelFailure(last, config.timeout_seconds) : text)),
       session_id: manager.getSessionId(), usage: last?.usage,
+      ...(toolViolation ? {blocked_tool_names: blockedToolNames, error_kind: 'tool_policy'} : {}),
       stop_reason:last?.stopReason,content_types:last?.content.map(p=>p.type),
       ...(error ? { diagnostic: String(last?.errorMessage || '').split(config.api_key || '\u0000').join('[redacted]').replace(/https?:\/\/[^\s]+/g,'[endpoint]').slice(0,600) } : {}),
       ...(error ? { error_kind: /image|vision|multimodal/i.test(last?.errorMessage || '') ? 'vision' : 'model' } : {}) });

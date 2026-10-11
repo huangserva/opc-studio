@@ -1,4 +1,5 @@
 """Real local media fixtures; no user media, SSH, or GPU work is performed."""
+from isolation_patches import module_thread
 import base64
 import io
 import json
@@ -231,7 +232,7 @@ class ReferenceMediaTests(unittest.TestCase):
         legacy = self.generation.resolve_references({'reference': identity}, frames=56)
         self.assertEqual(legacy['reference']['id'], identity)
         self.assertEqual(legacy['images'][0]['id'], identity)
-        with patch('generation.service.threading.Thread') as thread:
+        with module_thread('generation.service') as thread:
             job = self.generation.start({'model': 'h3', 'workflow': 'i2v', 'size': '768x448',
                                          'frames': 56, 'prompt': 'Synthetic legacy lake', 'references': {'first': identity}})
             thread.return_value.start.assert_called_once()

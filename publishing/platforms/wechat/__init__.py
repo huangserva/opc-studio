@@ -1,14 +1,33 @@
 """Official Account rich-text preparation following wechat-article-formatter."""
 import html
+import os
 import mimetypes
 import base64
-import os
 from pathlib import Path
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, quote
 from ...core.common import under
 
-SKILL = os.environ.get('ARTICLE_STUDIO_WECHAT_SKILL') or str(Path.home()/'.codex/skills/wechat-article-formatter/SKILL.md')
+# Portable skill resolution: an explicit override wins, otherwise the first
+# candidate that actually exists on this host, otherwise the documented default.
+SKILL_CANDIDATES = ('.codex/skills/wechat-article-formatter/SKILL.md',
+                    'Downloads/skills/wechat-article-formatter/SKILL.md')
+
+
+def resolve_skill(env=None, home=None):
+    env = os.environ if env is None else env
+    override = env.get('ARTICLE_STUDIO_WECHAT_SKILL')
+    if override:
+        return str(override)
+    base = Path.home() if home is None else Path(home)
+    for candidate in SKILL_CANDIDATES:
+        path = base / candidate
+        if path.is_file():
+            return str(path)
+    return str(base / SKILL_CANDIDATES[0])
+
+
+SKILL = resolve_skill()
 STYLES = {
     'p': 'font-size:16px;line-height:1.8;color:#333;margin:15px 0;text-align:justify;',
     'h1': 'font-size:22px;font-weight:bold;margin:20px 0;line-height:1.5;',

@@ -49,4 +49,21 @@ def event_progress(event, prompt_id, graph, kind, previous=None):
             progress.update(current=value, total=total, percent=round(100 * value / total))
     elif previous and previous.get('node') == node:
         progress.update({k: previous[k] for k in ('current', 'total', 'percent') if k in previous})
+    if 'refine_sampler' in graph:
+        first = graph['scheduler']['inputs']['steps']
+        second = graph['refine_scheduler']['inputs']['steps']
+        combined = first + second
+        if node in ('native_sampler', 'refine_sampler'):
+            fraction = value / total if event_type == 'progress' and 'percent' in progress else 0
+            completed = fraction * (first if node == 'native_sampler' else second)
+            if node == 'refine_sampler':
+                completed += first
+            completed = max(completed, (previous or {}).get('current', 0))
+            percent = round(100 * completed / combined)
+            percent = max(percent, (previous or {}).get('percent', 0))
+            progress.update(current=completed, total=combined, percent=percent,
+                            label='第一遍采样' if node == 'native_sampler' else '第二遍精修')
+        elif previous and previous.get('phase') == 'sampling' and phase not in ('decoding', 'saving'):
+            progress.update(phase='sampling', label='正在准备第二遍精修',
+                            **{k: previous[k] for k in ('current', 'total', 'percent') if k in previous})
     return progress

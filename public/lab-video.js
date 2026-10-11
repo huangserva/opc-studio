@@ -42,10 +42,16 @@ function videoParameters(){
  }
  for(const item of currentVideoItems())if(item.id&&item.meta&&!item.error)media[item.id]=videoMetadata(item.meta,item.id,item.kind);
  return {workflow:$('#lab-workflow').value,video_checkpoint:$('#lab-checkpoint').value,video_accelerator:$('#lab-accelerator').value,
+  video_sampling:$('#lab-video-sampling').value,...($('#lab-video-sampling').value==='dual'?{video_refine_steps:Number($('#lab-video-refine-steps').value),video_refine_denoise:Number($('#lab-video-refine-denoise').value),video_upscale:Number($('#lab-video-upscale').value)}:{}),
   references,reference_media:media,draftreference_media:{references,media},
   video_loras:[...document.querySelectorAll('[data-video-lora]:checked')].map(e=>({id:e.dataset.videoLora,strength:Number(document.querySelector('[data-video-strength="'+e.dataset.videoLora+'"]').value)}))};
 }
 function validateVideoParameters(payload){
+ if(!['single','dual'].includes(payload.video_sampling||'single'))throw new Error('请选择有效采样方式');
+ if(payload.video_sampling==='dual'){
+  if(payload.size.split('x').some(n=>Number(n)%32))throw new Error('双采输出宽高须为 32 的倍数');
+  for(const [key,min,max,integer] of [['video_refine_steps',1,25,true],['video_refine_denoise',0.05,0.75,false],['video_upscale',1,2,false]]){const value=payload[key];if(!Number.isFinite(value)||value<min||value>max||(integer&&!Number.isInteger(value)))throw new Error('双采参数超出范围：'+key);}
+ }
  const mode=videoModes[payload.workflow];if(!mode)throw new Error('请选择有效的视频输入模式');
  const refs=normalizedVideoReferences(payload.references),media=videoMetadataMap(payload.reference_media);
  if(mode.anchors.some(key=>!refs[key]))throw new Error('请先上传当前模式需要的首帧或尾帧图片');
@@ -126,6 +132,9 @@ function configureVideo(settings={}){
   if(items.some(row=>row.id===settings[field]))$('#'+id).value=settings[field];
  }
  $('#lab-video-loras').innerHTML=(model.video_loras||[]).map(lo=>{const selected=(settings.video_loras||[]).find(row=>row.id===lo.id);return `<div class="video-lora-row"><label><input type="checkbox" data-video-lora="${escapeHTML(lo.id)}" ${selected?'checked':''}>${escapeHTML(lo.name)}</label><input type="number" aria-label="${escapeHTML(lo.name)}强度" data-video-strength="${escapeHTML(lo.id)}" min="0" max="2" step="0.05" value="${selected?.strength??1}"></div>`;}).join('');
+ $('#lab-video-sampling').value=settings.video_sampling||'single';
+ for(const [id,key,value] of [['lab-video-refine-steps','video_refine_steps',4],['lab-video-refine-denoise','video_refine_denoise',0.35],['lab-video-upscale','video_upscale',2]])$('#'+id).value=settings[key]??value;
+ updateVideoSamplingControls();
  hydrateVideoInputs(settings);videoNote();
 }
 function videoNote(){
@@ -149,7 +158,7 @@ function renderVideoRefs(){
  const mode=videoMode(),sections=[];
  for(const [index,key] of mode.anchors.entries()){
   const label=(key==='first'?'首帧图片':'尾帧图片')+` · <Picture ${index+1}>`;
-  sections.push(`<section class="video-reference"><label>${escapeHTML(label)}<input type="file" accept="image/png,image/jpeg,image/webp" data-video-upload="${key}" aria-label="${escapeHTML(label)}"></label>${videoInputs[key]?videoInputTile(videoInputs[key],label):''}</section>`);
+  sections.push(`<section class="video-reference"><label>${escapeHTML(label)}<input type="file" accept="image/png,image/jpeg,image/webp" data-video-upload="${key}" aria-label="${escapeHTML(label)}"></label><button class="button subtle" type="button" data-video-gallery="${key}">从图库选择</button>${videoInputs[key]?videoInputTile(videoInputs[key],label):''}</section>`);
  }
  if(mode.mixed){
   const audioUnknown=videoInputs.videos.some(item=>!item.meta&&!item.error),embeddedAudio=videoInputs.videos.filter(item=>item.meta?.has_audio&&!item.error).length;
@@ -163,7 +172,7 @@ function renderVideoRefs(){
     if(key==='videos'&&item.meta?.has_audio&&!item.error)label+=` · <Audio ${++videoAudioIndex}>`;
     return videoInputTile(item,label);
    }).join('');
-   sections.push(`<section class="video-reference"><label>${title}<input type="file" accept="${accept}" multiple data-video-upload="${key}" aria-label="添加${title}"></label><small>${hint}</small><div class="video-reference-grid">${tiles}</div></section>`);
+   sections.push(`<section class="video-reference"><label>${title}<input type="file" accept="${accept}" multiple data-video-upload="${key}" aria-label="添加${title}"></label><small>${hint}</small>${key==='images'?'<button class="button subtle" type="button" data-video-gallery="images">从图库选择</button>':''}<div class="video-reference-grid">${tiles}</div></section>`);
   }
   const total=currentVideoItems().filter(item=>!item.error).length;
   sections.push(`<small class="video-reference-guide">已选 ${total}/12 个素材。描述中可用 &lt;Picture 1&gt;、&lt;Video 1&gt;、&lt;Audio 1&gt; 指代。视频自带音轨先编号，独立音频随后编号；移除素材会更新编号。</small><small class="video-reference-guide">参考视频只取开头，按本次生成时长截取，实际使用的片段可能略短。</small>`);
@@ -178,7 +187,81 @@ function renderVideoRefs(){
   renderVideoRefs();syncVideoInputState();rememberLab();
  });
  $('#lab-video-refs').querySelectorAll('[data-video-upload]').forEach(input=>input.onchange=async()=>{const files=[...input.files];input.value='';await addVideoInputFiles(input.dataset.videoUpload,files);});
+ $('#lab-video-refs').querySelectorAll('[data-video-gallery]').forEach(button=>button.onclick=()=>openVideoGallery(button.dataset.videoGallery));
 }
+/* Finished images from the generation history become references server side; the page
+   only names the record, so nothing is downloaded and re-uploaded as a copy. */
+const videoGallery={dialog:null,jobs:[],slot:'first',query:'',loading:false,busy:false};
+function galleryJobPrompt(job){return job.image_skill?.user_prompt||job.input_prompt||job.prompt||'';}
+function videoGalleryMatches(){
+ const needle=videoGallery.query.trim().toLowerCase();
+ return videoGallery.jobs.filter(job=>[galleryJobPrompt(job),job.model_name,job.settings?.lora_name||''].join(' ').toLowerCase().includes(needle));
+}
+function renderVideoGallery(){
+ if(!videoGallery.dialog)return;
+ const jobs=videoGalleryMatches();
+ videoGallery.dialog.querySelector('#lab-gallery-count').textContent=videoGallery.loading?'正在读取生成历史…':`已完成图片 ${jobs.length} 张；选一张作为${videoGallery.slot==='images'?'参考图':'首帧'}`;
+ const list=videoGallery.dialog.querySelector('#lab-gallery-list');
+ list.innerHTML=jobs.length?jobs.map(job=>`<button class="lab-gallery-item" type="button" data-gallery-pick="${escapeHTML(job.id)}" aria-label="使用这张图片作为参考"><img src="${escapeHTML(job.asset_url)}" alt="生成结果" loading="lazy"><span title="${escapeHTML(galleryJobPrompt(job))}">${escapeHTML(galleryJobPrompt(job)||'无描述')}</span><small>${escapeHTML(job.model_name)} · ${escapeHTML(job.settings?.size||'')} · ${escapeHTML(labDate(job.created_at))} · ${job.origin==='lab'?'独立页':'AI 助手'}</small></button>`).join(''):'<p class="lab-muted">没有匹配的已完成图片。先到图片生成页产出一张，或换个关键词。</p>';
+ list.querySelectorAll('[data-gallery-pick]').forEach(button=>button.onclick=()=>pickVideoGalleryImage(button.dataset.galleryPick));
+}
+async function loadVideoGallery(){
+ videoGallery.loading=true;renderVideoGallery();
+ try{
+  const data=await api('/api/generation/lab?kind=image&scope=all&trash=0');
+  videoGallery.jobs=data.jobs.filter(job=>job.status==='done'&&!job.deleted_at&&job.asset_url);
+ }catch(e){videoGallery.jobs=[];videoGallery.loadError=e.message;}
+ finally{videoGallery.loading=false;renderVideoGallery();}
+ if(videoGallery.loadError)videoGallery.dialog.querySelector('#lab-gallery-count').textContent='生成历史读取失败：'+videoGallery.loadError;
+}
+function openVideoGallery(slot){
+ if(!videoGallery.dialog){
+  const dialog=document.createElement('dialog');dialog.id='lab-gallery-dialog';
+  dialog.innerHTML='<div class="lab-card-heading"><h2>从图片生成历史选择</h2><button class="button subtle" type="button" data-gallery-close>关闭</button></div><label>搜索<input type="search" id="lab-gallery-search" placeholder="按提示词或模型搜索" aria-label="搜索图片生成历史"></label><small id="lab-gallery-count"></small><div class="lab-gallery-grid" id="lab-gallery-list"></div>';
+  document.body.append(dialog);
+  dialog.querySelector('[data-gallery-close]').onclick=()=>dialog.close();
+  dialog.querySelector('#lab-gallery-search').oninput=event=>{videoGallery.query=event.target.value;renderVideoGallery();};
+  videoGallery.dialog=dialog;
+ }
+ videoGallery.slot=slot;videoGallery.query='';videoGallery.loadError=null;
+ const search=videoGallery.dialog.querySelector('#lab-gallery-search');search.value='';
+ videoGallery.dialog.showModal();loadVideoGallery();
+}
+async function pickVideoGalleryImage(jobId){
+ if(videoGallery.busy)return;videoGallery.busy=true;
+ try{
+  await attachVideoGalleryImage(videoGallery.slot,jobId);
+  videoGallery.dialog.close();toast('已选用生成历史里的图片，可继续调整描述后生成');
+ }catch(e){toast('无法使用该图片：'+e.message);loadVideoGallery();}
+ finally{videoGallery.busy=false;}
+}
+async function attachVideoGalleryImage(slot,jobId){
+ const mode=videoMode(),anchor=mode.anchors.includes(slot),mixed=slot==='images'&&mode.mixed;
+ if(!anchor&&!mixed)throw new Error('当前输入模式不使用该图片位置');
+ if(anchor){
+  if(videoInputs[slot]){videoInputs[slot].removed=true;videoInputs[slot].controller?.abort();videoInputs[slot]=null;}
+ }else{
+  const active=currentVideoItems().filter(item=>!item.error),missingAnchors=mode.anchors.filter(key=>!videoInputs[key]).length;
+  if(active.length+1+missingAnchors>12)throw new Error('全部参考素材最多 12 个，包含首帧和尾帧');
+  if(active.filter(item=>item.kind==='image').length>=9)throw new Error('图片总数最多 9 张，包含首帧和尾帧');
+  if(videoInputs.images.filter(item=>!item.error).length>=9-mode.anchors.length)throw new Error(`当前模式最多添加 ${9-mode.anchors.length} 张参考图，为首尾帧保留位置`);
+ }
+ const info=await api('/api/generation/reference-from-job',{job_id:jobId});
+ const meta=videoMetadata(info,info.id,'image');
+ const item={token:String(++videoInputSequence),epoch:videoInputEpoch,id:meta.id,kind:'image',name:meta.name,meta,pending:false,verifying:false,removed:false,error:null};
+ if(anchor)videoInputs[slot]=item;else videoInputs[slot].push(item);
+ renderVideoRefs();syncVideoInputState();rememberLab();
+ return item;
+}
+async function setVideoFrameFromJob(jobId){
+ if(!videoMode().anchors.includes('first')){
+  const select=$('#lab-workflow');
+  if([...select.options].some(option=>option.value==='i2v')){select.value='i2v';configureLab(currentLabValues());}
+ }
+ return attachVideoGalleryImage('first',jobId);
+}
+function videoFrameLocation(job){return '/lab.html?kind=video&frame_from='+encodeURIComponent(job.id);}
+function startVideoFromImage(job){location.href=videoFrameLocation(job);}
 function videoFileKind(slot){return slot==='videos'?'video':slot==='audios'?'audio':'image';}
 function videoFileAllowed(file,kind){
  if(kind==='image')return ['image/png','image/jpeg','image/webp'].includes(file.type)||(!file.type&&/\.(png|jpe?g|webp)$/i.test(file.name));
@@ -226,3 +309,6 @@ async function addVideoInputFiles(slot,files){
 }
 $('#lab-workflow').onchange=()=>{const settings=videoParameters();configureLab(settings);rememberLab();};
 $('#lab-accelerator').onchange=()=>{videoNote();rememberLab();};
+
+function updateVideoSamplingControls(){const single=$('#lab-video-sampling').value!=='dual';$('#lab-video-refine').hidden=single;$('#lab-video-refine').querySelectorAll('input').forEach(input=>input.disabled=single);}
+$('#lab-video-sampling').onchange=()=>{updateVideoSamplingControls();rememberLab();};

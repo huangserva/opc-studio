@@ -137,4 +137,85 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(result['status'],'succeeded',result['output'])
         self.assertIn('synthetic-pi-finished',result['output']);self.assertIn('synthetic-pi-tool',result['output'])
 
+    # ── round4-fixes A：claim 的模型白名单不能漏掉创意提炼 ──────────────────────
+
+    SOURCE = ('黄昏的旧码头先把木头泡软，绳索在风里轻轻晃，远处渡船只留一条灯线。'
+              '拍照的人蹲下来，让水面把天空再复制一遍，人物只留一个背影，不露脸。')
+
+    def intake_task(self, **changes):
+        from types import SimpleNamespace
+        config = {'model': 'synthetic', 'endpoint': 'http://127.0.0.1:1/v1/chat/completions', 'api_key': 'not-a-real-key'}
+        self.scheduler.assistant = SimpleNamespace(model_document=lambda: {'profiles': [{'id': 'fake', 'config': config}]},
+                                                   settings=lambda: {'profiles': []})
+        p = self.payload(); p.update(kind='intake_cards', profile_id='fake', timeout=300, **changes)
+        return self.scheduler.save(p)['id']
+
+    def cards_engine(self, stub_model=True):
+        """Real IntakeCards; with stub_model only the model turn is replaced, no real call."""
+        from server import Store
+        from knowledge_store import Knowledge
+        from intake_store import Intake
+        from intake_cards import IntakeCards
+        store = Store(self.cwd); store._knowledge = Knowledge(store, sources=[])
+        intake = Intake(store.knowledge, self.cwd); cards = IntakeCards(intake, store.knowledge, self.cwd)
+        record = intake.receive({'kind': 'text', 'text': self.SOURCE, 'reason': '这个开头方式可以借'})
+        intake.resolve(record['id'])
+        answer = json.dumps({'cards': [{'prompt': '旧码头黄昏，蹲拍视角，水面倒映天空，人物只留背影，暖色低对比',
+                                        'model': 'qi21', 'scene': '公众号头图', 'refs': ['e0']}]}, ensure_ascii=False)
+        seen = []
+        def fake_call(identity, prompt, system, cancel, config, deadline):
+            seen.append(config); return answer
+        if stub_model: cards.call_model = fake_call
+        return cards, seen
+
+    def test_manual_run_of_intake_cards_task_gets_a_real_model_config(self):
+        cards, seen = self.cards_engine(); self.scheduler.intake_analyzer = cards.analyze
+        identity = self.intake_task()
+        run = self.wait(self.scheduler.control(identity, 'run')['id'])
+        # Before the fix config was None and PiRuntime raised TypeError: 'NoneType' object is not a mapping.
+        self.assertEqual(run['status'], 'succeeded', run['output'])
+        self.assertEqual(len(seen), 1)
+        self.assertIsNotNone(seen[0]); self.assertEqual(seen[0]['model'], 'synthetic')
+        self.assertEqual(json.loads(run['output'])['cards'], 1)
+        self.assertEqual(self.scheduler.runs()['runs'][0]['snapshot']['model'], 'synthetic')
+        self.assertNotIn('not-a-real-key', json.dumps(self.scheduler.runs()))
+
+    def test_scheduled_intake_run_takes_the_same_model_path(self):
+        cards, seen = self.cards_engine(); self.scheduler.intake_analyzer = cards.analyze
+        identity = self.intake_task(enabled=True)
+        with self.scheduler.db() as db: db.execute('UPDATE tasks SET next_run=? WHERE id=?', (time.time()-30, identity))
+        self.scheduler.tick()
+        run = self.wait(self.scheduler.runs()['runs'][0]['id'])
+        self.assertEqual(run['status'], 'succeeded', run['output'])
+        self.assertEqual([config['model'] for config in seen], ['synthetic'])
+
+    def test_intake_cards_model_turn_reaches_pi_with_a_real_job_config(self):
+        # The production crash was inside PiRuntime: {**DEFAULTS, **job['model_config']} with None.
+        cards, _ = self.cards_engine(stub_model=False); self.scheduler.intake_analyzer = cards.analyze
+        identity = self.intake_task(); seen = []
+        def fake(runtime, job, system, tools):
+            seen.append(dict(job)); return {'status': 'done', 'answer': json.dumps({'cards': []}, ensure_ascii=False)}
+        with patch('pi_runtime.PiRuntime.run', fake):
+            run = self.wait(self.scheduler.control(identity, 'run')['id'])
+        self.assertEqual(run['status'], 'succeeded', run['output'])
+        self.assertEqual(len(seen), 1)
+        self.assertIsInstance(seen[0]['model_config'], dict)
+        self.assertEqual(seen[0]['model_config']['model'], 'synthetic')
+        self.assertEqual(seen[0]['policy']['allowed_tools'], [])  # 不继承工作台工具
+
+    def test_intake_cards_task_honours_the_shared_model_slot(self):
+        from scheduled_tasks import ModelBusy
+        first = self.intake_task(); second = self.intake_task()
+        self.scheduler.claim(first, 'manual', launch=False)
+        with self.assertRaises(ModelBusy): self.scheduler.claim(second, 'manual', launch=False)
+
+    def test_local_subscription_and_script_still_run_without_a_model(self):
+        seen = []
+        self.scheduler.intel_analyzer = lambda run_id, task, cancel, config, deadline: (seen.append(config), 'succeeded', 0, '{}')[3]
+        p = self.payload(); p.update(kind='intel_wechat_mp', frequency='daily', at='08:00')
+        identity = self.scheduler.save(p)['id']
+        self.assertEqual(self.scheduler.listing()['tasks'][0]['executor_name'], '公众号订阅（本机抓取）')
+        self.wait(self.scheduler.control(identity, 'run')['id'])
+        self.assertEqual(seen, [None])
+
 if __name__=='__main__':unittest.main()

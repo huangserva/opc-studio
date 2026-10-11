@@ -86,6 +86,17 @@ class References:
             raise ValueError('参考素材不存在，请重新上传')
         return path
 
+    def register(self, image, name, extra=None):
+        """Persist an already decoded image as a local reference asset."""
+        identity = uuid.uuid4().hex
+        path = self.folder / (identity + '.png')
+        image.save(path)
+        record = {'id': identity, 'kind': 'image', 'name': str(name)[:120],
+                  'width': image.width, 'height': image.height, 'bytes': path.stat().st_size}
+        record.update(extra or {})
+        write(self.folder / (identity + '.json'), record)
+        return self.info(identity)
+
     def image(self, payload):
         raw = payload.get('data', '')
         if not isinstance(raw, str) or len(raw) > 15_000_000:
@@ -101,13 +112,25 @@ class References:
                 image.thumbnail((1280, 1280))
         except Exception:
             raise ValueError('请上传有效的 PNG、JPEG 或 WebP 图片（最大 10 MB）') from None
-        identity = uuid.uuid4().hex
-        path = self.folder / (identity + '.png')
-        image.save(path)
-        write(self.folder / (identity + '.json'), {
-            'id': identity, 'kind': 'image', 'name': str(payload.get('name', '参考图'))[:120],
-            'width': image.width, 'height': image.height, 'bytes': path.stat().st_size})
-        return self.info(identity)
+        return self.register(image, payload.get('name', '参考图'))
+
+    def from_local_file(self, path, name='图库图片', source_job=None, source_sha256=None):
+        """Register a file the workbench already owns, with no browser round trip.
+
+        The caller has proven the path stays inside the generation folder; this only
+        re-reads the pixels, so a deleted or unreadable result fails with a readable
+        message instead of a half-registered reference.
+        """
+        try:
+            with Image.open(path) as source:
+                image = ImageOps.exif_transpose(source).convert('RGB')
+                image.thumbnail((1280, 1280))
+        except Exception:
+            raise ValueError('这张图片无法读取，请重新选择') from None
+        extra = {'source': 'generation-history', 'source_job': source_job}
+        if isinstance(source_sha256, str):
+            extra['source_sha256'] = source_sha256
+        return self.register(image, name, extra)
 
     def upload(self, kind, name, stream, length):
         if kind not in ('video', 'audio'):

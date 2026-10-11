@@ -30,16 +30,21 @@ class KreaSizesTests(unittest.TestCase):
    agent=assistant_module.Assistant(store,content,path);agent.generation=Generation(store)
    self.assertEqual(agent.media_preferences()['image']['size'],'1600x1200')
    self.assertEqual(agent.capabilities('image')['models'][1]['custom_size']['step'],16)
-   # Krea2 is not wired to the 4090 media API: the workbench must refuse explicitly and
-   # must never fall back to the old SSH path or silently switch models.
-   with patch.object(Generation,'_spawn',lambda _s,*a:None):
-    with self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):
-     agent.start({'message':'湖泊','tool':'image','request_id':'a'*32})
-   self.assertEqual(agent.generation.listing()['jobs'],[])
-   # the preference/retry path itself is verified on a model the media API serves
-   agent.save_media_preferences({'kind':'image','model':'qi21','size':'1344x768'})
+   # Krea2 is served by the 4090 media API now: submitting it must create a job that goes
+   # down the HTTP path (never the old SSH path, never a silent model switch).
    with patch.object(Generation,'_spawn',lambda _s,*a:None):
     first=agent.start({'message':'湖泊','tool':'image','request_id':'a'*32})
+   job=agent.generation.public(first['media_job'])
+   self.assertEqual(job['model'],'krea2')
+   self.assertEqual(job['settings']['size'],'1600x1200')
+   self.assertEqual(job['settings']['lora'],'ccd')
+   self.assertEqual(len(agent.generation.listing()['jobs']),1)
+   # release the single-active gate the same way the rest of this test does
+   agent.generation.update(job['id'],status='error')
+   # the preference/retry path itself is verified on the other image model
+   agent.save_media_preferences({'kind':'image','model':'qi21','size':'1344x768'})
+   with patch.object(Generation,'_spawn',lambda _s,*a:None):
+    first=agent.start({'message':'湖泊','tool':'image','request_id':'d'*32})
    job=agent.generation.public(first['media_job']);self.assertEqual(job['settings']['size'],'1344x768')
    agent.generation.update(job['id'],status='error')
    with patch.object(Generation,'_spawn',lambda _s,*a:None):
@@ -48,7 +53,9 @@ class KreaSizesTests(unittest.TestCase):
    agent.generation.update(repeat['media_job'],status='error')
    agent.save_media_preferences({'kind':'image','model':'krea2','size':'1600x1200'})
    with patch.object(Generation,'_spawn',lambda _s,*a:None):
-    with self.assertRaisesRegex(ValueError,'未接入 4090 媒体 API'):
-     agent.start({'message':'换成 Krea2 Turbo','tool':'image','request_id':'c'*32})
-   self.assertEqual(len(agent.generation.listing()['jobs']),2)
+    switched=agent.start({'message':'换成 Krea2 Turbo','tool':'image','request_id':'c'*32})
+   switched_job=agent.generation.public(switched['media_job'])
+   self.assertEqual(switched_job['model'],'krea2')
+   self.assertEqual(switched_job['settings']['size'],'1600x1200')
+   self.assertEqual(len(agent.generation.listing()['jobs']),4)
 if __name__=='__main__':unittest.main()

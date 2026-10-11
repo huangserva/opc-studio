@@ -1,0 +1,83 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>情报采集 · 内容工作台</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/intel.css"><script src="/intel.js" defer></script><link rel="stylesheet" href="/workspace-nav.css"><script src="/workspace-nav.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script></head>
+<body class="intel-workspace"><aside class="sidebar"><a class="brand" href="/"><span class="brand-icon">▤</span><span>内容工作台<small>CONTENT STUDIO</small></span></a><nav id="workspace-nav" class="workspace-nav" aria-label="工作台栏目"><a href="/">▤ 我的作品</a><a href="/lab.html?kind=image">▧ 图片生成</a><a href="/lab.html?kind=video">▷ 视频生成</a><a href="/knowledge.html">▥ 知识库</a><a href="/intake.html">◈ 创意回收</a><a href="/cards.html">✦ 提示词卡</a><a href="/clues.html">⌁ 线索中心</a><a href="/events.html">◷ 事项与日程</a><a href="/feedback.html">↗ 发布反馈</a><a href="/deals.html">▣ 商单管理</a><a class="selected" href="/intel.html" aria-current="page">☰ 情报采集</a><a href="/github.html">⑂ GitHub 来源</a><a href="/schedules.html">◴ 定时任务</a></nav><div class="nav-heading">订阅号</div><nav id="itl-accounts" aria-label="订阅号"></nav><p class="itl-side-note">先录入订阅号，再抓最新或抓历史。<br>正文入库后待你确认，不会自动进知识库。</p><div class="local-note"><span></span>订阅号、文章与任务保存在本机</div></aside>
+<main class="itl-canvas">
+  <header class="itl-heading"><h1>☰ 情报采集</h1><p>按平台查看采集来源。已接通的可以直接看状态；公众号仍在本页录入、抓最新或抓历史。规划中的平台只占位，不会发起抓取。</p><div id="itl-quota" class="itl-quota"></div></header>
+  <section id="itl-platforms" aria-label="采集平台"></section>
+  <div id="itl-mp">
+
+  <section class="itl-add">
+    <div class="itl-add-col">
+      <label class="itl-field"><span>按号名搜索公众号</span>
+        <input id="itl-query" type="text" maxlength="50" placeholder="例如：数字生命卡兹克" autocomplete="off">
+      </label>
+      <button id="itl-search" class="button">搜索</button>
+      <div id="itl-candidates" class="itl-candidates"></div>
+    </div>
+    <div class="itl-add-col">
+      <label class="itl-field"><span>或粘贴一篇文章链接反查公众号</span>
+        <input id="itl-link" type="url" placeholder="https://mp.weixin.qq.com/s/…" autocomplete="off">
+      </label>
+      <button id="itl-by-link" class="button">反查</button>
+      <p class="itl-note">反查读的是文章页里的公众号编号，不需要先搜号名。</p>
+    </div>
+  </section>
+  <p id="itl-status" class="itl-status"></p>
+
+  <section class="itl-card" id="itl-results-card">
+    <header class="itl-card-head"><strong>最近采集结果</strong>
+      <span class="itl-muted">每个订阅号最近一次尝试的时间、状态与三条路线的结果；刷新页面也还在</span></header>
+    <div id="itl-results" class="itl-results"></div>
+  </section>
+
+  <section class="itl-run" id="itl-run" hidden>
+    <header><strong id="itl-run-name"></strong><span id="itl-run-label"></span></header>
+    <p id="itl-run-detail"></p>
+    <div class="itl-run-actions">
+      <button id="itl-run-latest" class="button primary">抓最新（1 页 ≤20 篇）</button>
+      <button id="itl-run-history" class="button">抓历史（≤30 篇）</button>
+      <button id="itl-run-close" class="button subtle">收起</button>
+    </div>
+    <div class="itl-paths">
+      <label><input id="itl-use-sogou" type="checkbox" checked> 搜狗补最新</label>
+      <label><input id="itl-use-backend" type="checkbox"> 后台接口（可选第三路）</label>
+      <span id="itl-album-note" class="itl-muted"></span>
+    </div>
+    <div class="itl-paths">
+      <label for="itl-album-link">补充该号合集</label>
+      <input id="itl-album-link" type="url" placeholder="该号完整文章链接（带 chksm）或合集链接（带 album_id）">
+      <button id="itl-discover-album" class="button">发现合集</button>
+    </div>
+    <p class="itl-note">默认走合集接口 → 搜狗补最新 → 后台接口（默认关闭）。
+      公开接口相邻请求间隔 ≥5 秒并叠加抖动，每轮合集 ≤10 次、搜狗 ≤3 次；后台那一路全局串行、间隔 ≥90 秒，命中限流立即停止不重试。正文每次最多 3 篇。</p>
+    <p class="itl-warn"><b>能力边界（请先知道）：</b>只出现在合集里的文章、以及搜狗能搜到的最新几篇才能拿到；
+      <b>不在任何合集里的老文章可能缺失</b>。搜狗的跳转链接实测必被反爬拦住，所以它通常只能带来标题与时间，拿不到正文。</p>
+  </section>
+
+  <div class="itl-list-head"><strong>文章</strong><span id="itl-count">0 篇</span>
+    <label class="itl-filter"><input id="itl-filter-account" type="checkbox"> 只看当前订阅号</label>
+  </div>
+  <div id="itl-list" class="itl-list"></div>
+
+  <section class="itl-card">
+    <header class="itl-card-head"><strong>推荐订阅</strong>
+      <span id="itl-reco-summary" class="itl-muted"></span>
+      <button id="itl-scan" class="button">扫描回收站与知识库</button>
+    </header>
+    <p class="itl-note">只读扫描回收站与知识库里的公众号文章链接。已订阅和已忽略的号不再出现；点「订阅」才真正加入，点「忽略」则不再推荐。解析走普通 HTTP，每轮最多 20 条，同一号只解析一次。</p>
+    <div id="itl-reco" class="itl-reco"></div>
+  </section>
+
+  <section class="itl-card" id="itl-sched-card">
+    <header class="itl-card-head"><strong>定时订阅</strong>
+      <span class="itl-muted">每天抓最新 1 页</span>
+    </header>
+    <p class="itl-note">默认每天 08:00。<b>初始停用</b>，需要你在这里点「开启」后才会每天自动跑。走与手动抓取同一套限流器：全局串行、间隔 ≥90 秒、命中限流立即停本轮、连续 3 次冷却 6 小时。冷却中整轮跳过并在回执写明。新文章只入库待确认，不自动送回收站或知识库。</p>
+    <div class="itl-sched">
+      <span id="itl-sched-state" class="itl-muted">读取中…</span>
+      <button id="itl-sched-toggle" class="button">开启</button>
+      <a class="itl-link" href="/schedules.html">定时任务页 ↗</a>
+    </div>
+  </section>
+  </div>
+  <section id="itl-delegated" class="itl-card" hidden></section>
+</main></body></html>

@@ -1,0 +1,1 @@
+{"name":"article-studio-e2e","private":true,"scripts":{"test":"node run.cjs"},"devDependencies":{"playwright":"1.58.2"}}

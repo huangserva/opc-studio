@@ -74,6 +74,25 @@ test('从聊天卡片重试后修改描述，发送仍保留完整H3配方且用
  assert.equal(JSON.stringify(s.source),original,'editing the form does not mutate the recorded job');
 });
 
+test('从聊天卡片重试后只在描述末尾多出换行或空格，仍沿用原任务',async t=>{
+ const s=setup(t);
+ await s.run('repeatMediaJob(fixtureJob)');
+ const prefilled=s.query('#assistant-input').value;
+ for(const tail of ['\n',' ']){
+  await s.run('submitComposerMedia('+JSON.stringify(prefilled+tail)+')');
+  const request=s.request('/api/assistant/send');
+  assert.equal(request.reference_job,s.source.id,'trailing whitespace alone is not an edit: '+JSON.stringify(tail));
+ }
+});
+
+test('历史任务没有描述时，空白消息不沿用原任务',async t=>{
+ const s=setup(t);
+ await s.run('repeatMediaJob(fixtureJob)');
+ await s.run('composerMedia.sourcePrompt=null');
+ await s.run('submitComposerMedia("   ")');
+ assert.equal(Object.hasOwn(s.request('/api/assistant/send'),'reference_job'),false);
+});
+
 test('聊天普通视频、切图片和取消工具均清空历史H3配方，偏好请求不保存素材',async t=>{
  const s=setup(t);await s.run('chooseMediaTool("video",fixtureJob)');
  s.query('#chat-media-frames').value='56';s.query('#chat-media-frames').dispatchEvent(new s.w.Event('change'));

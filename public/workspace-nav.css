@@ -1,0 +1,21 @@
+/* 全站统一的左侧主导航。只作用于 #workspace-nav，不影响各页自己的二级导航。 */
+.workspace-nav { display: grid; gap: 5px; margin: 0 0 26px; }
+.workspace-nav a {
+  display: block;
+  padding: 11px 13px;
+  border-radius: 9px;
+  color: #67728a;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.workspace-nav a:hover { background: #f1f4fb; }
+.workspace-nav a.selected { color: #4263eb; background: #edf1ff; }
+.workspace-nav a[aria-current="page"] { color: #4263eb; background: #edf1ff; }
+
+/* 窄屏侧栏是覆盖层（最宽 280px），条目收紧一点，保证一行放得下。 */
+@media (max-width: 760px) {
+  .workspace-nav { gap: 4px; margin-bottom: 20px; }
+  .workspace-nav a { padding: 10px 12px; font-size: 13px; }
+}

@@ -73,8 +73,8 @@ test('empty state is real and initial navigation makes no write or model request
   assert.match(f.d.querySelector('#ev-list').textContent,/还没有事项/);assert.equal(f.d.querySelectorAll('[data-event]').length,0);
   assert.match(f.calls[0].url,/view=all/);assert(f.calls.every(c=>c.method==='GET'));
   assert(!f.calls.some(c=>/assistant|completions|generation|sync/.test(c.url)));
-  const links=Array.from(f.d.querySelectorAll('.ev-main-nav a'),a=>a.getAttribute('href'));
-  for(const required of ['/?collection=all','/knowledge.html','/events.html'])assert(links.includes(required));f.close();
+  const links=Array.from(f.d.querySelectorAll('.workspace-nav a'),a=>a.getAttribute('href'));
+  for(const required of ['/','/knowledge.html','/events.html'])assert(links.includes(required));f.close();
 });
 test('a valid event deep link loads its detail even when it is absent from the current list',async()=>{
   const f=await fixture({events:[eventFixture()],url:'http://127.0.0.1:8766/events.html?event='+ids.event,onRequest:call=>call.url.startsWith('/api/events?')?{events:[],counts:{all:1}}:undefined});

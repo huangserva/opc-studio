@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -97,3 +98,84 @@ class SourceContractTests(unittest.TestCase):
             result = subprocess.run([sys.executable,'-m','wechat_source','--workspace',str(self.store.workspace),'--base',base,'run','--kind','clues'],cwd=package.parent,capture_output=True,text=True)
             self.assertEqual(result.returncode,2)
             self.assertIn('任务触发地址须为本机',result.stderr)
+
+
+class RadarQuarantineReaderTests(unittest.TestCase):
+    """radar-batch-hardening: the read-only view of batches held out of the hourly replay."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.workspace = Path(self.temp.name)
+        (self.workspace / 'knowledge').mkdir(mode=0o700)
+        (self.workspace / 'radar-analysis').mkdir(mode=0o700)
+        with sqlite3.connect(self.workspace / 'knowledge' / 'knowledge.db') as db:
+            db.execute('CREATE TABLE documents(id TEXT PRIMARY KEY,hash TEXT,source TEXT,kind TEXT,title TEXT,body TEXT,modified TEXT,provenance TEXT,url TEXT)')
+            db.execute('INSERT INTO documents VALUES(?,?,?,?,?,?,?,?,?)',
+                       ('a'*32,'b'*64,'wechat','wechat','群 · 作者 · 日期','合成技术资料',
+                        '2026-10-09T02:00:00+00:00',json.dumps({'chatroom_id':'fixture@chatroom'}),''))
+        self.reader = Reader(self.workspace)
+        self.package = Path(source_module('results').__file__).parent
+
+    def ledger(self, quarantined=True):
+        schema = source_module('wechat_radar_pipeline').SCHEMA
+        with sqlite3.connect(self.workspace / 'radar-analysis' / 'assistant.db') as db:
+            db.executescript(schema)
+            db.execute("INSERT OR IGNORE INTO analyzed VALUES('z'*32,'y'*64,'fixture','radar-evidence-v1','r'*32,'2026-10-09T02:00:00+00:00')")
+            if quarantined:
+                db.execute('INSERT INTO quarantined VALUES(?,?,?,?,?,?)',
+                           ('a'*32,'b'*64,'validation','2026-10-09T12:00:00+08:00','r'*32,'二次修复仍无效，本批已隔离'))
+        (self.workspace / 'radar-analysis' / 'analysis-status.json').write_text(
+            json.dumps({'policy':'radar-evidence-v1','model':'fixture','since':'2026-10-06T00:00:00+00:00'}, ensure_ascii=False))
+
+    def test_view_names_the_reason_and_links_the_original_without_touching_any_file(self):
+        self.ledger()
+        before = {p: p.read_bytes() for p in self.workspace.rglob('*.db')}
+        data = self.reader.radar_quarantine()
+        self.assertTrue(data['available']); self.assertEqual(data['schema'], 'wechat-source/v1')
+        self.assertEqual(data['counts'], {'validation': 1})
+        item = data['items'][0]
+        self.assertEqual((item['document_id'], item['hash'], item['error_kind'], item['run_id']),
+                         ('a'*32, 'b'*64, 'validation', 'r'*32))
+        self.assertEqual(item['title'], '群 · 作者 · 日期')
+        self.assertIn('二次修复仍无效', item['detail'])
+        self.assertIn('document=' + 'a'*32, item['url'])
+        self.assertIn('隔离只停止每小时重放', data['scope'])
+        for path, content in before.items(): self.assertEqual(path.read_bytes(), content)
+
+    def test_a_held_batch_is_reported_separately_instead_of_pending_replay(self):
+        self.ledger(quarantined=False)
+        open_stage = self.reader.status()['stages']['radar']
+        self.assertTrue(open_stage['available'])
+        self.assertEqual((open_stage['pending_versions'], open_stage['quarantined_versions']), (1, 0))
+        self.assertTrue(open_stage['has_pending'])
+        self.ledger()
+        held = self.reader.status()['stages']['radar']
+        self.assertEqual((held['pending_versions'], held['quarantined_versions']), (0, 1))
+        self.assertFalse(held['has_pending'])
+        # Only the radar stage can hold batches; the clues stage never invents a count.
+        self.assertIsNone(self.reader.status()['stages']['clues'].get('quarantined_versions'))
+
+    def test_arguments_are_validated_and_a_missing_ledger_is_not_reported_as_empty(self):
+        for limit in (0, 201, True, '5', None):
+            with self.subTest(limit=limit), self.assertRaises(ValueError): self.reader.radar_quarantine(limit)
+        with self.assertRaises(ValueError): self.reader.radar_quarantine()
+
+    def test_cli_quarantine_reads_without_the_workbench_and_writes_nothing(self):
+        self.ledger()
+        paths = list(self.workspace.rglob('*.db'))
+        before = {p: p.read_bytes() for p in paths}
+        env = {**os.environ}; env.pop('PYTHONPATH', None)
+        completed = subprocess.run([sys.executable,'-m','wechat_source','--workspace',str(self.workspace),'quarantine','--limit','5'],
+                                   cwd=self.package.parent, env=env, capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        data = json.loads(completed.stdout)
+        self.assertEqual(data['counts'], {'validation': 1})
+        self.assertEqual(data['items'][0]['document_id'], 'a'*32)
+        for path, content in before.items(): self.assertEqual(path.read_bytes(), content)
+        # A retry needs the source service; the CLI must not write the ledger itself.
+        refused = subprocess.run([sys.executable,'-m','wechat_source','--workspace',str(self.workspace),'--base','https://example.invalid','retry','--document','a'*32],
+                                 cwd=self.package.parent, env=env, capture_output=True, text=True)
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn('任务触发地址须为本机', refused.stderr)
+        for path, content in before.items(): self.assertEqual(path.read_bytes(), content)
+

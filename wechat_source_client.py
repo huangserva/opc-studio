@@ -1,5 +1,6 @@
 """Workbench adapter. All WeChat execution is remote, via the Radar API."""
 import json
+import re
 from pathlib import Path
 import time
 import urllib.error
@@ -45,6 +46,15 @@ class WechatSourceClient:
 
     def analyze_clues(self,*args):return self.analyze('clues',*args)
     def analyze_radar(self,*args):return self.analyze('radar',*args)
+    def radar_quarantine(self,limit=50):
+        # Read-only view of radar batches held out of the hourly replay.
+        if isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=200:raise ValueError('隔离列表数量无效')
+        return self.request('radar-quarantine?'+urllib.parse.urlencode({'limit':limit}))
+    def retry_radar_quarantined(self,document_ids):
+        # Re-queue only; the source keeps the original text and existing results.
+        if not isinstance(document_ids,(list,tuple)) or not 1<=len(document_ids)<=200 or not all(
+                isinstance(x,str) and x and len(x)<=200 for x in document_ids):raise ValueError('重试编号无效')
+        return self.request('radar-quarantine/retry',{'document_ids':list(document_ids)})
     def analyze(self,kind,run_id,task,cancel,config,deadline):
         # Config (including credentials) deliberately never enters the request.
         result=self.request('run',{'kind':kind,'run_id':run_id,'task_id':task['id']})
@@ -53,8 +63,32 @@ class WechatSourceClient:
             raise ValueError('微信雷达未返回独立执行回执')
         while result['status'] in ('queued','running'):
             if cancel.is_set() or time.monotonic()>=deadline:
-                self.request('jobs/'+rid+'/cancel',{})
-                return ('cancelled' if cancel.is_set() else 'timeout'),None,json.dumps({'source_run_id':rid,'state':'来源任务停止；已完成结果与检查点保留'},ensure_ascii=False)
+                reason='cancelled' if cancel.is_set() else 'timeout'
+                result=self.request('jobs/'+rid+'/cancel',{})
+                # Cancellation is asynchronous. Give the source a bounded grace
+                # period to persist its final receipt, without submitting again.
+                until=time.monotonic()+5
+                while result.get('status') in ('queued','running') and time.monotonic()<until:
+                    time.sleep(.2)
+                    try:result=self.request('jobs/'+rid)
+                    except ValueError:break  # Preserve an honest pending receipt if the source disconnects.
+                if result.get('run_id') == rid and result.get('status') not in ('queued','running') and result.get('output'):
+                    return reason,None,result['output']
+                if kind=='clues' and result.get('run_id')==rid and result.get('status') in ('queued','running'):
+                    # A slow model shutdown must not erase already committed
+                    # batches. Only accept durable progress bound to this job.
+                    try:
+                        progress=self.clue_status().get('progress') or {}
+                        ids=progress.get('clue_ids')
+                        if (progress.get('run_id')==rid and type(progress.get('processed')) is int and progress['processed']>=0
+                                and type(progress.get('skipped')) is int and progress['skipped']>=0
+                                and type(progress.get('has_more')) is bool and isinstance(ids,list)
+                                and all(isinstance(i,str) and re.fullmatch('[a-f0-9]{32}',i) for i in ids)):
+                            saved={k:progress[k] for k in ('processed','skipped','has_more','errors','deferred','capture','reviewed','daily_review','format') if k in progress}
+                            saved.update(clues=ids,receipt_pending=True,source_run_id=rid)
+                            return reason,None,json.dumps(saved,ensure_ascii=False)
+                    except ValueError:pass
+                return reason,None,json.dumps({'source_run_id':rid,'state':'来源任务已请求停止；最终回执尚未返回，已保存检查点保留'},ensure_ascii=False)
             cancel.wait(min(1,max(0,deadline-time.monotonic())))
             result=self.request('jobs/'+rid)
         return result['status'],result.get('exit_code'),result.get('output','')

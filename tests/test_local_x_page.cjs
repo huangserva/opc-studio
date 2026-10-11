@@ -13,21 +13,21 @@ function fixture({profile,menu,probeAccount,delayed=false,editorMissing=false}={
  vm.runInNewContext(fs.readFileSync('publishing/local-extension/x.js','utf8'),context);
  return {send:msg=>new Promise(resolve=>listener(msg,{},resolve)),verificationCalls:()=>verificationCalls,writes:()=>writes};
 }
-const bundle={job:{status:'publish_requested',id:'a'.repeat(32),account:'demo_account',draft_url:'https://x.com/compose/articles/edit/123/focus'}};
+const bundle={job:{status:'publish_requested',id:'a'.repeat(32),account:'servasyy',draft_url:'https://x.com/compose/articles/edit/123/focus'}};
 test('account wait tolerates delayed X sidebar render',async()=>{
- const f=fixture({profile:'demo_account',delayed:true});assert.equal((await f.send({command:'account'})).account,'demo_account');
+ const f=fixture({profile:'servasyy',delayed:true});assert.equal((await f.send({command:'account'})).account,'servasyy');
 });
 test('account switcher identifies visible handle without profile link',async()=>{
- const f=fixture({menu:'Demo User\n@demo_account'});assert.equal((await f.send({command:'account'})).account,'demo_account');
+ const f=fixture({menu:'serva huang\n@servasyy'});assert.equal((await f.send({command:'account'})).account,'servasyy');
 });
 test('conflicting visible account signals block operation',async()=>{
- const f=fixture({profile:'other',menu:'@demo_account'});assert.equal((await f.send({command:'account'})).code,'ACCOUNT_AMBIGUOUS');
+ const f=fixture({profile:'other',menu:'@servasyy'});assert.equal((await f.send({command:'account'})).code,'ACCOUNT_AMBIGUOUS');
 });
 test('focused page uses actual probe account and refuses mismatched target',async()=>{
  const f=fixture({probeAccount:'other'}),r=await f.send({command:'publish',bundle});
  assert.equal(r.code,'ACCOUNT_MISMATCH');assert.equal(f.verificationCalls(),1);assert.equal(f.writes(),0);
 });
 test('unavailable editor gets a distinct draft error after bounded wait',async()=>{
- const f=fixture({probeAccount:'demo_account'}),r=await f.send({command:'prepare',bundle});
+ const f=fixture({probeAccount:'servasyy'}),r=await f.send({command:'prepare',bundle});
  assert.equal(r.code,'DRAFT_UNAVAILABLE');assert.equal(f.verificationCalls(),2);assert.equal(f.writes(),0);
 });

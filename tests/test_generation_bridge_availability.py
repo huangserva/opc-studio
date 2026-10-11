@@ -1,3 +1,4 @@
+import sqlite3
 import errno
 import sys
 import unittest
@@ -19,9 +20,17 @@ class AvailabilityTests(unittest.TestCase):
                 raise urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, 'refused'))
             return {'queue_running': [], 'queue_pending': []}
 
-        with patch.object(bridge.sqlite3, 'connect', return_value=connection), patch.object(bridge, 'request', side_effect=probe):
+        real_connect = sqlite3.connect
+        def connect(database, *args, **kwargs):
+            if str(database) == 'file:/home/admin01/.h3storyboard/h3storyboard.db?mode=ro':
+                return connection
+            return real_connect(database, *args, **kwargs)
+
+        with patch.object(bridge.sqlite3, 'connect', side_effect=connect), patch.object(bridge, 'request', side_effect=probe):
+            with sqlite3.connect(':memory:') as unrelated:
+                self.assertEqual(unrelated.execute('SELECT 1').fetchone()[0], 1)
             self.assertEqual(bridge.ensure_idle(), [8190, 8192])
-        with patch.object(bridge.sqlite3, 'connect', return_value=connection), patch.object(bridge, 'request', return_value={'queue_running': [1]}):
+        with patch.object(bridge.sqlite3, 'connect', side_effect=connect), patch.object(bridge, 'request', return_value={'queue_running': [1]}):
             with self.assertRaisesRegex(ValueError, '已有生成任务'):
                 bridge.ensure_idle()
 

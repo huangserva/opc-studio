@@ -35,7 +35,7 @@ async function openMediaConnection(kind){
     $('#media-connection-model').innerHTML=data.models.filter(m=>m.kind===kind).map(m=>`<option value="${escapeHTML(m.id)}">${escapeHTML(m.name)}</option>`).join('');
     $('#media-connection-model').value=data.preferences?.[kind]?.model||$('#media-connection-model').value;
     updateMediaSizes(data.preferences?.[kind]);
-    $('#media-frames').value=data.preferences?.[kind]?.frames||56;$('#media-seed').value='';$('#media-prompt').value='';
+    $('#media-seed').value='';$('#media-prompt').value='';
     renderMediaHistory(data.jobs.filter(j=>j.kind===kind));
     const active=data.jobs.find(j=>mediaActiveStatuses.includes(j.status)&&j.kind===kind);
     mediaState.job=null;$('#media-result').replaceChildren();delete $('#media-result').dataset.job;$('#media-job-info').textContent='';$('#media-save-actions').hidden=true;
@@ -44,9 +44,19 @@ async function openMediaConnection(kind){
     if(!active)$('#media-start').textContent='开始生成 · 返回聊天';
   }catch(e){$('#media-connection-status').textContent=e.message;}
 }
+// Same rule as the lab and the chat composer: the reused recipe's workflow decides which
+// sizes are legal, because reference and first/last-frame workflows reject non-32-aligned
+// pixels on the server.
+function mediaWorkflow(){return (mediaState.videoSettings||{}).workflow||'t2v';}
 function updateMediaSizes(settings){
   const model=mediaState.models.find(m=>m.id===$('#media-connection-model').value);
-  renderMediaSize('media',model,settings?.size);
+  const workflow=mediaWorkflow();
+  const sizeModel=workflow!=='t2v'?filteredSizeModel(model):model;
+  renderMediaSize('media',sizeModel,settings?.size);
+  const chosen=$('#media-size').value;
+  $('#media-size-note').textContent=(settings?.size&&settings.size!=='custom'&&chosen!==settings.size&&!(sizeModel?.sizes||[]).includes(settings.size))
+    ? mediaWorkflowSizeNotice(settings.size,workflow,chosen):'';
+  renderMediaFrames('media',model,settings?.frames);
   $('#media-model-detail').textContent=model?`${model.name} · ${model.steps} 步 · 自有服务器`:'暂无可用模型';
   renderLoraFields('media',mediaState.models,model?.id,settings);
 }
@@ -60,7 +70,7 @@ function fillMediaJobForm(job){
   mediaState.videoSettings=mediaVideoRecipe(job);
   $('#media-connection-model').value=job.model;updateMediaSizes(job.settings);
   $('#media-prompt').value=job.image_skill?.user_prompt||job.input_prompt||job.prompt;$('#media-seed').value=job.settings.seed??'';
-  $('#media-image-style').value=job.image_skill?.style||'';$('#media-frames').value=job.settings.frames||56;
+  $('#media-image-style').value=job.image_skill?.style||'';
   mediaState.context=job.slug?{slug:job.slug,version:job.base_version}:{};
 }
 function watchMedia(job,refill=false){
@@ -119,7 +129,7 @@ $('#media-test').onclick=async()=>{
 $('#media-form').onsubmit=async event=>{
   event.preventDefault();$('#media-start').disabled=true;
   try{
-    const payload={...(mediaState.kind==='video'?mediaState.videoSettings||{}:{}),model:$('#media-connection-model').value,prompt:$('#media-prompt').value,size:selectedMediaSize('media'),frames:Number($('#media-frames').value),seed:$('#media-seed').value,...(mediaState.kind==='image'?{image_style:$('#media-image-style').value}:{}),...selectedLoraParameters('media',$('#media-connection-model').value),...mediaState.context};
+    const payload={...(mediaState.kind==='video'?mediaState.videoSettings||{}:{}),model:$('#media-connection-model').value,prompt:$('#media-prompt').value,size:selectedMediaSize('media',mediaWorkflow()),frames:selectedMediaFrames('media',mediaState.models.find(m=>m.id===$('#media-connection-model').value)),seed:$('#media-seed').value,...(mediaState.kind==='image'?{image_style:$('#media-image-style').value}:{}),...selectedLoraParameters('media',$('#media-connection-model').value),...mediaState.context};
     const fingerprint=JSON.stringify(payload);
     if(mediaState.submission?.fingerprint!==fingerprint)mediaState.submission={fingerprint,id:crypto.randomUUID()};
     await api('/api/generation/preferences',mediaPreferencePayload(payload,mediaState.kind));

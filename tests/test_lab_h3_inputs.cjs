@@ -49,7 +49,8 @@ function setup(t,{request,draft}={}){
   return {ok:true,json:async()=>data};
  };
  if(draft)w.localStorage.setItem('studio-generation-lab-v1-video',draft);
- for(const name of ['lab-core.js','media-size.js','lab-video.js','lab-management.js','lab.js']){
+ // lab.html loads lab-image.js before lab.js; configureLab calls configureImageReferences.
+ for(const name of ['lab-core.js','media-size.js','lab-video.js','lab-management.js','lab-image.js','lab.js']){
   const source=fs.readFileSync(path.join(root,'public',name),'utf8').replace(/\nrefreshLab\(true\);\s*$/,'\n');
   vm.runInContext(source,context,{filename:name});
  }

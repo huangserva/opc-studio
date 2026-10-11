@@ -1,3 +1,4 @@
+from isolation_patches import module_thread
 import json
 from pathlib import Path
 import sys
@@ -60,7 +61,7 @@ class GenerationTests(unittest.TestCase):
             store=Store(tmp)
             original=store.create({'title':'原作品','type':'article'})
             generation=Generation(store)
-            with patch('generation.service.threading.Thread'):
+            with module_thread('generation.service'):
                 job=generation.start({'model':'qi21','prompt':'图像','slug':original['slug'],'version':original['head']})
             job_id=job['id'];path=generation.folder/job_id/'result.png'
             Image.new('RGB',(64,64),'orange').save(path)

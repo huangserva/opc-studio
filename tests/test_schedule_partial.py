@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from isolation_patches import module_time
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scheduled_tasks import RUN_STATUSES, ScheduledTasks
 
@@ -42,11 +44,11 @@ class SchedulePartialTests(unittest.TestCase):
         self.scheduler.model_config = Mock(return_value={'model': 'synthetic'})
         self.scheduler.publisher = Mock(return_value={'id': 'c' * 32})
 
-    def start(self, *, kind='wechat_clues', destination='runs', trigger='manual'):
+    def start(self, *, kind='wechat_clues', destination='runs', trigger='manual', profile_id='synthetic'):
         payload = {'name': '合成微信分析', 'kind': kind, 'body': '仅合成测试资料',
                    'cwd': self.temporary.name, 'frequency': 'interval', 'minutes': 60,
                    'at': '08:00', 'weekdays': list(range(7)), 'ends_at': None, 'timeout': 5,
-                   'enabled': False, 'profile_id': 'synthetic', 'allow_commands': False,
+                   'enabled': False, 'profile_id': profile_id, 'allow_commands': False,
                    'result_destination': destination, 'wechat_mode': 'incremental'}
         task_id = self.scheduler.save(payload)['id']
         run_id = self.scheduler.claim(task_id, trigger, launch=False)['id']
@@ -181,7 +183,7 @@ class SchedulePartialTests(unittest.TestCase):
                     if stopping: cancel.set()
                     else: clock[0] = deadline + 1
                 analyzer = Analyzer({'processed': 9, 'skipped': 2, 'clue_ids': ['a' * 32]}, on_call=advance)
-                with patch('scheduled_tasks.time.monotonic', lambda: clock[0]):
+                with module_time('scheduled_tasks', monotonic=lambda: clock[0]):
                     row, result = self.execute(analyzer)
                 self.assertEqual(row['status'], 'cancelled' if stopping else 'timeout')
                 self.assertEqual((result['processed'], result['skipped'], result['clues']), (9, 2, ['a' * 32]))
@@ -197,7 +199,7 @@ class SchedulePartialTests(unittest.TestCase):
                         if stopping: cancel.set()
                         else: clock[0] = deadline + 1
                     analyzer = Analyzer({}, result=(status, 0, output), on_call=advance)
-                    with patch('scheduled_tasks.time.monotonic', lambda: clock[0]):
+                    with module_time('scheduled_tasks', monotonic=lambda: clock[0]):
                         row, _ = self.execute(analyzer)
                     self.assertEqual(row['status'], 'cancelled' if stopping else 'timeout')
                     self.assertIsNone(row['exit_code'])
@@ -230,9 +232,11 @@ class SchedulePartialTests(unittest.TestCase):
         self.scheduler.publisher.assert_not_called()
 
     def test_claim_snapshots_trigger_without_changing_saved_task_or_permissions(self):
+        # Each subTest keeps its own model slot: the first claim is never finished,
+        # and the scheduler deliberately queues a second run on the same profile.
         for trigger in ('manual', 'scheduled'):
             with self.subTest(trigger=trigger):
-                run_id, snapshot, _ = self.start(trigger=trigger)
+                _, snapshot, _ = self.start(trigger=trigger, profile_id='synthetic-' + trigger)
                 with self.scheduler.db() as db:
                     saved = db.execute('SELECT * FROM tasks WHERE id=?', (snapshot['id'],)).fetchone()
                     saved_data = json.loads(saved['data'])
@@ -242,11 +246,6 @@ class SchedulePartialTests(unittest.TestCase):
                 self.assertNotIn('execution_trigger', saved_data)
                 self.assertFalse(saved_data['enabled'])
                 self.assertEqual(saved['revision'], 1)
-                # No executor is launched by start(); retire this synthetic claim
-                # before testing the next trigger under the same model profile.
-                with self.scheduler.db() as db:
-                    db.execute("UPDATE runs SET status='cancelled' WHERE id=?", (run_id,))
-                self.scheduler.active.pop(run_id)
 
     def test_return_deadline_override_is_limited_to_wechat(self):
         for kind in ('pi', 'script'):
@@ -257,7 +256,7 @@ class SchedulePartialTests(unittest.TestCase):
                     clock[0] = 20.0
                     cancel.set()
                     return 'succeeded', 0, 'synthetic existing behavior'
-                with patch('scheduled_tasks.time.monotonic', lambda: clock[0]), \
+                with module_time('scheduled_tasks', monotonic=lambda: clock[0]), \
                      patch.object(self.scheduler, 'pi', synthetic_result), \
                      patch.object(self.scheduler, 'shell', synthetic_result):
                     self.scheduler.execute(run_id, task, cancel, {})

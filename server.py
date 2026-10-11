@@ -27,7 +27,10 @@ from urllib.parse import urlsplit, parse_qs, unquote
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-from publishing.core import article_package as importer
+IMPORTER = ROOT.parent / 'article-importer' / 'scripts' / 'article_importer.py'
+spec = importlib.util.spec_from_file_location('importer', IMPORTER)
+importer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(importer)
 content_spec = importlib.util.spec_from_file_location('content_store', ROOT / 'content_store.py')
 content = importlib.util.module_from_spec(content_spec)
 content_spec.loader.exec_module(content)
@@ -103,6 +106,11 @@ class Store(content.ContentMixin):
         self._knowledge = None
         self._events = None
         self._feedback = None
+        self._creative_intake = None
+        self._intake_cards = None
+        self._intel = None
+        self._intel_recommend = None
+        self._collect = None
 
     @property
     def knowledge(self):
@@ -111,6 +119,56 @@ class Store(content.ContentMixin):
                 from knowledge_store import Knowledge
                 self._knowledge = Knowledge(self)
             return self._knowledge
+
+    @property
+    def creative_intake(self):
+        # 创意回收工厂（第一期）。名字避开 self.intake，那是文章导入状态。
+        with self.lock:
+            if self._creative_intake is None:
+                from intake_store import Intake
+                self._creative_intake = Intake(self.knowledge, self.workspace)
+            return self._creative_intake
+
+    @property
+    def intake_cards(self):
+        # 创意回收工厂（第二期）：候选提示词卡。只读回收项，自己存卡片与证据指纹。
+        with self.lock:
+            if self._intake_cards is None:
+                from intake_cards import IntakeCards
+                self._intake_cards = IntakeCards(self.creative_intake, self.knowledge, self.workspace)
+                # 收下即分析：列表与详情里的分析状态由卡库提供，不另建一份状态。
+                self.creative_intake.analysis_provider = self._intake_cards.analysis_states
+                # 媒体识别（图片描述 / 视频转写）完成后自动排队一次分析；排队失败不动已保存的识别结果。
+                self.creative_intake.analysis_after_recognition = self._intake_cards.request_analysis_after_recognition
+            return self._intake_cards
+
+    @property
+    def intel(self):
+        # 情报采集（第一期 · 微信公众号）。独立库，不碰 intake* / knowledge_store。
+        with self.lock:
+            if self._intel is None:
+                from intel_store import Intel
+                self._intel = Intel(self)
+            return self._intel
+
+    @property
+    def collect(self):
+        # 通用采集模块。公众号走一期已有的 intel；三源只读状态。
+        with self.lock:
+            if self._collect is None:
+                from collect_adapters import build_adapters
+                from collect_core import Registry
+                self._collect = Registry(self, build_adapters(self))
+            return self._collect
+
+    @property
+    def intel_recommend(self):
+        # 回收站/知识库推荐订阅：只读那两个库，只往 intel.db 写。
+        with self.lock:
+            if self._intel_recommend is None:
+                from intel_recommend import Recommender
+                self._intel_recommend = Recommender(self.intel)
+            return self._intel_recommend
 
     @property
     def feedback(self):
@@ -151,6 +209,14 @@ class Store(content.ContentMixin):
                 from deals_store import Deals
                 self._deals = Deals(self)
             return self._deals
+
+    @property
+    def deals_review(self):
+        with self.lock:
+            if not hasattr(self, '_deals_review'):
+                from deals_review import DealsReview
+                self._deals_review = DealsReview(self)
+            return self._deals_review
 
     @property
     def github(self):
@@ -570,6 +636,12 @@ class Handler(BaseHTTPRequestHandler):
                 if set(query) - {'kind', 'q', 'category', 'offset', 'limit'} or any(len(v) != 1 for v in query.values()):
                     raise ValueError('微信来源查询参数无效')
                 return self.reply(200, store.wechat_source.results(kind=query.get('kind',['clues'])[0], query=query.get('q',[''])[0], category=query.get('category',[''])[0], offset=query.get('offset',[0])[0], limit=query.get('limit',[30])[0]))
+            if parts.path == '/api/sources/wechat/radar-quarantine':
+                # Read-only: radar batches held out of the hourly replay after a second invalid answer.
+                params = parse_qs(parts.query, keep_blank_values=True)
+                if set(params) - {'limit'} or any(len(v) != 1 for v in params.values()):
+                    raise ValueError('隔离列表只接受一个可选的 limit 参数')
+                return self.reply(200, store.wechat_source.radar_quarantine(int(params['limit'][0]) if params.get('limit') else 50))
             if parts.path == '/api/deals':
                 return self.reply(200, store.deals.listing(month=query.get('month',[''])[0], q=query.get('q',[''])[0], stage=query.get('stage',[''])[0], payment=query.get('payment',[''])[0], archived=query.get('archived',['0'])[0]=='1'))
             if parts.path == '/api/deals/proposals/status':
@@ -578,12 +650,85 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,self.server.store.deals.proposal_status(params['ids'][0].split(',') if params['ids'][0] else []))
             if parts.path == '/api/deals/options':
                 return self.reply(200, store.deals.options())
+            if parts.path == '/api/deals/review':
+                return self.reply(200, store.deals_review.summary())
+            if parts.path == '/api/deals/review/report':
+                params = parse_qs(parts.query, keep_blank_values=True)
+                if set(params) - {'week'} or len(params.get('week', [])) != 1:
+                    raise ValueError('周报参数无效')
+                return self.reply(200, store.deals_review.report(params['week'][0]))
+            if parts.path == '/api/intake':
+                params = parse_qs(parts.query, keep_blank_values=True)
+                if set(params) - {'limit'} or len(params.get('limit', [])) > 1:
+                    raise ValueError('回收站列表只接受一个可选的 limit 参数')
+                return self.reply(200, store.creative_intake.listing(int(params['limit'][0]) if params.get('limit') else 80))
+            if parts.path == '/api/intake/analysis-status':
+                # 回收站页面用它判断这个后端是否支持即时分析。旧版本没有这个接口（404），
+                # 页面就如实显示「服务未就绪」，不再给出误导性的「点重新分析」。
+                cards = store.intake_cards
+                try:
+                    configured = bool(cards.analysis_model())
+                except (OSError, ValueError, KeyError):
+                    configured = False
+                return self.reply(200, {'schema': 'intake-analysis-status/v1', 'supported': True,
+                                        'model_configured': configured, 'working': len(cards.analysis_workers),
+                                        'note': '即时分析只复用「创意提炼」已配置的模型，不新增服务、不读密钥'})
+            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'file':
+                return self.serve_file(store.creative_intake.file_path(segments[2]))
+            if len(segments) == 3 and segments[:2] == ['api', 'intake']:
+                return self.reply(200, store.creative_intake.detail(segments[2]))
+            if parts.path == '/api/cards':
+                params = parse_qs(parts.query, keep_blank_values=True)
+                if set(params) - {'status', 'q', 'limit', 'offset', 'kind', 'view'} or any(len(values) > 1 for values in params.values()):
+                    raise ValueError('提示词卡列表只接受 status、q、limit、offset、kind、view 各一个')
+                return self.reply(200, store.intake_cards.listing(
+                    params.get('status', [''])[0], params.get('q', [''])[0],
+                    int(params['limit'][0]) if params.get('limit') else 60,
+                    int(params['offset'][0]) if params.get('offset') else 0,
+                    params.get('kind', [''])[0], params.get('view', ['source'])[0] or 'source'))
+            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'prompt':
+                return self.reply(200, store.intake_cards.prompt_card(segments[2]))
+            if len(segments) == 3 and segments[:2] == ['api', 'cards']:
+                return self.reply(200, store.intake_cards.detail(segments[2]))
             if len(segments)==3 and segments[:2]==['api','deals']:
                 return self.reply(200, store.deals.detail(segments[2]))
+            if parts.path == '/api/collect/platforms':
+                return self.reply(200, store.collect.listing())
+            if parts.path == '/api/collect/status':
+                return self.reply(200, store.collect.status())
+            if parts.path == '/api/intel/recommendations':
+                return self.reply(200, store.intel_recommend.listing())
+            if parts.path == '/api/intel/status':
+                return self.reply(200, store.intel.status())
+            if parts.path == '/api/intel/subscriptions':
+                return self.reply(200, {'subscriptions': store.intel.subscriptions()})
+            if parts.path == '/api/intel/jobs':
+                return self.reply(200, {'jobs': store.intel.jobs(int(query.get('limit', [30])[0]))})
+            if parts.path == '/api/intel/articles':
+                account = query.get('fakeid', [''])[0] or None
+                return self.reply(200, {**store.intel.articles(
+                    account, int(query.get('limit', [100])[0]), int(query.get('offset', [0])[0])),
+                    'albums': store.intel.albums(account),
+                    # 只读：上次「发现合集」的留痕，刷新页面后也能看到。
+                    'album_search': store.intel.album_search(account)})
+            if parts.path == '/api/intel/accounts':
+                if set(query) - {'query'} or len(query.get('query', [])) != 1:
+                    raise ValueError('公众号搜索只接受一个 query 参数')
+                return self.reply(200, {'candidates': store.intel.search_accounts(query['query'][0])})
+            if len(segments) == 4 and segments[:3] == ['api', 'intel', 'articles']:
+                return self.reply(200, store.intel.article(segments[3]))
+            if len(segments) == 4 and segments[:3] == ['api', 'intel', 'jobs']:
+                return self.reply(200, store.intel.job(segments[3]))
             if parts.path == '/api/feedback':
                 return self.reply(200, store.feedback.bindings())
             if parts.path == '/api/feedback/observations':
                 return self.reply(200, store.feedback.observations.listing())
+            if parts.path == '/api/feedback/reviews':
+                return self.reply(200, store.feedback.reviews.works())
+            if parts.path == '/api/feedback/overviews':
+                return self.reply(200, {'overviews': store.feedback.reviews.overviews()})
+            if len(segments) == 4 and segments[:3] == ['api', 'feedback', 'review']:
+                return self.reply(200, store.feedback.reviews.review(segments[3]))
             if len(segments) == 4 and segments[:3] == ['api', 'feedback', 'observation']:
                 return self.reply(200, store.feedback.observations.get(segments[3]))
             if parts.path == '/api/feedback/snapshots':
@@ -593,7 +738,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts.path == '/api/clues/wechat/status':
                 return self.reply(200,store.wechat_source.clue_status())
             if parts.path == '/api/clues':
-                return self.reply(200, store.clues.listing(query=query.get('q',[''])[0],category=query.get('category',[''])[0],view=query.get('view',['all'])[0],source=query.get('source',[''])[0],year=query.get('year',[''])[0],offset=query.get('offset',[0])[0],tag=query.get('tag',[''])[0],sort=query.get('sort',['updated'])[0],period=query.get('period',[''])[0],priority=query.get('priority',[''])[0]))
+                return self.reply(200, store.clues.listing(query=query.get('q',[''])[0],category=query.get('category',[''])[0],view=query.get('view',['all'])[0],source=query.get('source',[''])[0],year=query.get('year',[''])[0],offset=query.get('offset',[0])[0],tag=query.get('tag',[''])[0],sort=query.get('sort',['updated'])[0],period=query.get('period',[''])[0],priority=query.get('priority',[''])[0],heat=query.get('heat',[''])[0]))
             if len(segments)==3 and segments[:2]==['api','clues']:
                 return self.reply(200, store.clues.detail(segments[2],offset=int(query.get('offset',[0])[0])))
             if parts.path == '/api/events':
@@ -659,6 +804,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, self.server.schedules.listing())
             if len(segments)==4 and segments[:3]==['api','schedules','run']:
                 return self.reply(200,self.server.schedules.get_run(segments[3]))
+            if len(segments)==4 and segments[:2]==['api','schedules'] and segments[3]=='outsourced_prompt':
+                # 只读：按任务定义拼一份可直接粘给 WorkBuddy 的提示词（impl-outsourced-tasks 新增的唯一路由）。
+                return self.reply(200,self.server.schedules.outsourced_prompt(segments[2]))
             if parts.path == '/api/schedules/runs':
                 parameters = parse_qs(parts.query, keep_blank_values=True)
                 allowed = {'task_id', 'q', 'status', 'page', 'page_size'}
@@ -749,6 +897,34 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError, KeyError) as exc:
                 self.close_connection = True
                 return self.reply(400, {'error': str(exc)})
+        if segments == ['api', 'intake', 'drop']:
+            # Same route, two payload styles: JSON for links/text, raw bytes for files.
+            try:
+                if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() == 'application/json':
+                    if not 0 < length <= 32_000_000:
+                        raise ValueError('请求过大或为空')
+                    return self.reply(201, self.server.store.creative_intake.receive(json.loads(self.rfile.read(length))))
+                options = parse_qs(route.query)
+                if set(options) - {'kind', 'name', 'reason'}:
+                    raise ValueError('文件投喂只接受 kind、name、reason')
+                return self.reply(201, self.server.store.creative_intake.receive_file(
+                    options.get('kind', [''])[0], options.get('name', [''])[0], options.get('reason', [''])[0],
+                    self.rfile, length))
+            except (OSError, ValueError, KeyError) as exc:
+                self.close_connection = True
+                return self.reply(400, {'error': str(exc)})
+        if segments == ['api', 'intake', 'stage']:
+            # 选了文件先暂存；点「收下」时链接/文字 + 理由 + 文件一起变成同一条回收项。
+            # 和文件投喂同一档大小上限，所以放在通用长度闸门之前。
+            try:
+                options = parse_qs(route.query)
+                if set(options) - {'kind', 'name'}:
+                    raise ValueError('文件暂存只接受 kind、name')
+                return self.reply(201, self.server.store.creative_intake.stage_file(
+                    options.get('kind', [''])[0], options.get('name', [''])[0], self.rfile, length))
+            except (OSError, ValueError, KeyError) as exc:
+                self.close_connection = True
+                return self.reply(400, {'error': str(exc)})
         if not 0 < length <= 32_000_000:
             return self.reply(413, {'error': '请求过大或为空'})
         try:
@@ -762,6 +938,14 @@ class Handler(BaseHTTPRequestHandler):
                 if len(tasks)!=1:raise ValueError('需要唯一已配置的微信分析任务；未另建分析器或猜测模型')
                 run = self.server.schedules.claim(tasks[0]['id'],'manual')
                 return self.reply(202, {'schema':'wechat-source/v1','owner':'wechat-assistant','task_id':tasks[0]['id'],'run_id':run['id']})
+            if segments == ['api','sources','wechat','radar-quarantine','retry']:
+                # Manual retry only re-queues the quarantined documents at the source;
+                # no original text, finding or checkpoint is deleted here. An empty
+                # request must never clear the whole ledger, so ids are mandatory.
+                ids = payload.get('document_ids') if isinstance(payload, dict) else None
+                if not isinstance(payload, dict) or set(payload) - {'document_ids'} or not isinstance(ids, list) or not 1 <= len(ids) <= 200:
+                    raise ValueError('隔离重试只接受 1–200 个 document_ids')
+                return self.reply(200, self.server.store.wechat_source.retry_radar_quarantined(ids))
             if segments[:2]==['api','deals']:
                 from deals_store import DealConflict
                 try:
@@ -780,6 +964,105 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply(200,deals.child(segments[2],segments[3],payload))
                     return self.reply(404,{'error':'商单接口不存在'})
                 except DealConflict as exc:return self.reply(409,{'error':str(exc)})
+            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'resolve':
+                if payload:
+                    raise ValueError('解析回收项不接受额外字段')
+                result = self.server.store.creative_intake.resolve(segments[2])
+                # 入库成功就排队一次即时分析；模型调用在后台线程，不拖住这次响应。
+                if result.get('status') == 'resolved':
+                    try:
+                        result['analysis'] = self.server.store.intake_cards.request_analysis(segments[2])
+                    except ValueError as exc:
+                        result['analysis'] = {'status': 'failed', 'error': str(exc)[:300], 'retryable': True}
+                return self.reply(200, result)
+            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'analyze':
+                # 手动重跑（失败后可用，也可用于媒体识别完成后刷新分析）。
+                if payload:
+                    raise ValueError('重新分析不接受额外字段')
+                return self.reply(200, self.server.store.intake_cards.request_analysis(segments[2], force=True))
+            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'delete':
+                # 删除：回收项 + 即时分析 + （最后一条引用时）知识库正文 + 本机媒体文件。
+                # 已生成的提示词卡不删，卡库会显示「来源已删除」。
+                if payload:
+                    raise ValueError('删除回收项不接受额外字段')
+                return self.reply(200, self.server.store.creative_intake.delete(segments[2]))
+            if segments == ['api', 'intake', 'delete-preview']:
+                # 批量删除前的预览：只读，给确认框用（条数、类型分布、正文删几篇留几篇、涉及几张卡）。
+                if not isinstance(payload, dict) or set(payload) - {'ids'} or not isinstance(payload.get('ids'), list):
+                    raise ValueError('批量删除预览只接受 ids 列表')
+                return self.reply(200, self.server.store.creative_intake.delete_preview(payload['ids']))
+            if segments == ['api', 'intake', 'delete-many']:
+                # 批量删除：逐条走单条删除的同一套规则，一次最多 50 条，逐条回执。
+                if not isinstance(payload, dict) or set(payload) - {'ids'} or not isinstance(payload.get('ids'), list):
+                    raise ValueError('批量删除只接受 ids 列表')
+                return self.reply(200, self.server.store.creative_intake.delete_many(payload['ids']))
+            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] in ('confirm', 'reject', 'restore'):
+                if set(payload) - {'reason'}:
+                    raise ValueError('卡片确认只接受 reason')
+                return self.reply(200, self.server.store.intake_cards.decide(segments[2], segments[3],
+                                                                            payload.get('reason', '')))
+            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'note':
+                if set(payload) - {'note'}:
+                    raise ValueError('卡片备注只接受 note')
+                return self.reply(200, self.server.store.intake_cards.save_note(segments[2], payload.get('note', '')))
+            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'delete':
+                if payload:
+                    raise ValueError('删除卡片不接受额外字段')
+                return self.reply(200, self.server.store.intake_cards.delete_card(segments[2]))
+            if segments == ['api', 'cards', 'cleanup']:
+                if not isinstance(payload, dict) or set(payload) - {'drop_id'}:
+                    raise ValueError('清理卡片只接受 drop_id')
+                return self.reply(200, self.server.store.intake_cards.delete_deleted_source(payload.get('drop_id', '')))
+            if segments == ['api', 'intel', 'recommendations', 'scan']:
+                # 扫描 + 解析合并成一步；解析走普通 HTTP，不碰公众号后台。
+                if payload:
+                    raise ValueError('推荐扫描不接受额外字段')
+                counted = self.server.store.intel_recommend.collect()
+                resolved = self.server.store.intel_recommend.resolve()
+                return self.reply(200, {'scan': counted, 'resolve': resolved,
+                                        'listing': self.server.store.intel_recommend.listing()})
+            if len(segments) == 4 and segments[:3] == ['api', 'intel', 'recommendations']:
+                action = segments[3]
+                if set(payload) - {'fakeid'}:
+                    raise ValueError('推荐订阅操作只接受 fakeid')
+                if action == 'subscribe':
+                    match = next((i for i in self.server.store.intel_recommend.listing()['items']
+                                  if i['fakeid'] == payload.get('fakeid')), None)
+                    if match is None:
+                        raise ValueError('这条推荐已不在列表里，请重新扫描')
+                    return self.reply(201, self.server.store.intel.subscribe({
+                        'fakeid': match['fakeid'], 'name': match['nickname'] or match['fakeid'],
+                        'origin': 'recommendation'}))
+                if action == 'ignore':
+                    return self.reply(200, self.server.store.intel_recommend.ignore(payload.get('fakeid')))
+                if action == 'unignore':
+                    return self.reply(200, self.server.store.intel_recommend.unignore(payload.get('fakeid')))
+                raise ValueError('未知推荐操作')
+            if segments[:2] == ['api', 'intel']:
+                from intel_wechat_mp import RateLimited
+                try:
+                    if segments == ['api', 'intel', 'subscriptions']:
+                        return self.reply(201, self.server.store.intel.subscribe(payload))
+                    if segments == ['api', 'intel', 'identify']:
+                        if not isinstance(payload, dict) or set(payload) - {'url'}:
+                            raise ValueError('反查公众号只接受一个 url 参数')
+                        return self.reply(200, self.server.store.intel.identify_from_link(payload.get('url', '')))
+                    if segments == ['api', 'intel', 'run']:
+                        return self.reply(202, self.server.store.intel.run(payload))
+                    if segments == ['api', 'intel', 'unsubscribe']:
+                        if not isinstance(payload, dict) or set(payload) - {'fakeid'}:
+                            raise ValueError('解除订阅只接受 fakeid')
+                        return self.reply(200, self.server.store.intel.remove_subscription(payload['fakeid']))
+                    if len(segments) == 5 and segments[:3] == ['api', 'intel', 'articles'] and segments[4] == 'intake':
+                        if payload:
+                            raise ValueError('送入回收站不接受额外字段')
+                        return self.reply(201, self.server.store.intel.push_to_intake(
+                            segments[3], self.server.store.creative_intake))
+                    return self.reply(404, {'error': '情报采集接口不存在'})
+                except RateLimited as exc:
+                    # 限流不是错误语义：明确回执 + 冷却截止时间，前端据此停手。
+                    return self.reply(429, {'error': str(exc),
+                                            'cooldown_until': exc.until or self.server.store.intel.quota.cooldown_until()})
             if segments == ['api','github','connect']:
                 return self.reply(200, self.server.store.github.connect(payload.get('owner')))
             if segments == ['api','github','source']:
@@ -796,6 +1079,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, self.server.schedules.control(saved['id'],'run'))
             if segments == ['api', 'feedback', 'import']:
                 return self.reply(201, self.server.store.feedback.import_snapshot(payload))
+            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'review'] and segments[4] == 'notes':
+                return self.reply(200, self.server.store.feedback.reviews.save(segments[3], payload))
+            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'review'] and segments[4] == 'knowledge':
+                return self.reply(201, self.server.store.feedback.reviews.export_note(segments[3]))
+            if segments == ['api', 'feedback', 'overview']:
+                # Read-only Buffer query, only on an explicit click; it reports the
+                # whole organization, never one work.
+                return self.reply(201, self.server.store.feedback.reviews.fetch_overview(payload))
             if segments == ['api', 'feedback', 'observe']:
                 return self.reply(201, self.server.store.feedback.observations.observe(payload))
             if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'observation'] and segments[4] == 'knowledge':
@@ -849,7 +1140,26 @@ class Handler(BaseHTTPRequestHandler):
             if segments == ['api', 'knowledge', 'note']:
                 return self.reply(201, self.server.store.knowledge.add_note(payload))
             if segments == ['api', 'knowledge', 'reference']:
-                return self.reply(201, self.server.store.knowledge.add_reference(payload))
+                # 旧键衔接：接入平台识别之前收藏的三家长链接，知识库拿 host+path+query 当主键；
+                # 现在去重键换成了 dedupe_url，这个入口不衔接就会把同一链接再收一次时多出一篇。
+                # 查找跟回收站入口（intake_store）共用 external_reference 里同一个函数，两个入口
+                # 不会分叉。命中旧记录时的返回与 add_reference 自己的判重完全一致（同一篇 +
+                # duplicate），知识库页面沿用既有「该原帖已经收藏」文案，不新造说法。
+                #
+                # 顺序：先校验、再查旧键。校验复用 add_reference 内部同一个
+                # external_reference.metadata（不另写一套规则），所以缺标题、标题非字符串、
+                # 多了未知字段这些非法请求在旧文档命中之前就已照原样 400，不会被当成收藏成功。
+                # metadata 只读 payload、不写库；add_reference 会再跑一次同样的校验再写。
+                from external_reference import existing_legacy_document, metadata
+                from knowledge_store import now
+                knowledge = self.server.store.knowledge
+                values, _ = metadata(payload, now())
+                legacy = existing_legacy_document(values['url'], knowledge)
+                if legacy:
+                    document = knowledge.document(legacy)
+                    document['duplicate'] = True
+                    return self.reply(201, document)
+                return self.reply(201, knowledge.add_reference(payload))
             if segments == ['api', 'knowledge', 'dossier']:
                 return self.reply(201, self.server.store.knowledge.save_dossier(payload))
             if segments == ['api', 'knowledge', 'draft']:
@@ -862,6 +1172,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(202, self.server.assistant.start_media(payload))
             if segments == ['api','generation','references']:
                 return self.reply(201,self.server.generation.upload_reference(payload))
+            if segments == ['api', 'generation', 'reference-from-job']:
+                # The page names a finished image record; the server copies its own file
+                # into the reference folder, so nothing is downloaded and re-uploaded.
+                return self.reply(201,self.server.generation.reference_from_job(payload.get('job_id')))
             if segments == ['api','generation','manage']:
                 return self.reply(200,self.server.generation.manage(payload.get('ids'),payload.get('action')))
             if segments == ['api', 'generation', 'lab', 'start']:
@@ -912,6 +1226,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,self.server.local_deliveries.update(segments[3],payload))
             if len(segments) == 3 and segments[:2] == ['api', 'publication-plan']:
                 return self.reply(200, self.server.store.publication_plan(segments[2], payload))
+            # X posts/threads through the official Buffer CLI. Read-only check first,
+            # then an explicitly confirmed submit, then a status read-back.
+            if len(segments) == 4 and segments[:3] == ['api', 'buffer', 'channels']:
+                return self.reply(200, self.server.store.buffer_channels(segments[3], payload))
+            if len(segments) == 4 and segments[:3] == ['api', 'buffer', 'submit']:
+                return self.reply(200, self.server.store.buffer_submit(segments[3], payload))
+            if len(segments) == 4 and segments[:3] == ['api', 'buffer', 'status']:
+                return self.reply(200, self.server.store.buffer_refresh(segments[3], payload))
+            if len(segments) == 4 and segments[:3] == ['api', 'buffer', 'media']:
+                # Read-only image-host readiness for the confirm dialog. Never any credential.
+                return self.reply(200, self.server.store.buffer_media_status())
             if len(segments) == 3 and segments[:2] == ['api', 'export']:
                 return self.reply(200, self.server.store.export_delivery(segments[2], payload))
             if len(segments) == 3 and segments[:2] == ['api', 'record']:
@@ -934,6 +1259,156 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': str(exc)})
 
 
+def seed_intel_schedule(schedules, workspace):
+    """登记「公众号订阅（每日抓最新）」。幂等：已存在就原样保留，不覆盖黄总的改动。
+
+    初始 enabled=False —— 按合同，必须黄总在页面点「开启」才会每天自动跑。
+    """
+    try:
+        existing = next((t for t in schedules.listing()['tasks'] if t['kind'] == 'intel_wechat_mp'), None)
+        if existing:
+            return existing
+        saved = schedules.save({'name': '公众号订阅（每日抓最新）', 'kind': 'intel_wechat_mp',
+            'body': '每天对已订阅的公众号各抓最新 1 页，新文章入库待确认。', 'cwd': str(workspace),
+            'frequency': 'daily', 'at': '08:00', 'weekdays': [0, 1, 2, 3, 4, 5, 6],
+            'timeout': 1800, 'enabled': False, 'allow_commands': False, 'result_destination': 'runs'})
+        return next((t for t in schedules.listing()['tasks'] if t['id'] == saved['id']), saved)
+    except (OSError, ValueError, KeyError):
+        return None  # 登记失败不阻断工作台启动；页面会如实提示「未登记」
+
+
+def wire_intake_analysis(server, store):
+    """收下即分析的接线：只复用「创意提炼」已配置的模型，不新增服务、不读密钥。
+
+    优先用定时任务「创意提炼（Pi）」选的模型（即使该任务当前处于关闭状态）；
+    没有则退回工作台助手当前模型。两者都没配置时返回 None，分析会如实记为可重试失败。
+    """
+    def model():
+        profile_id = None
+        try:
+            tasks = server.schedules.listing()['tasks']
+        except (OSError, ValueError, KeyError):
+            tasks = []
+        for task in tasks:
+            if task['kind'] == 'intake_cards' and task.get('profile_id'):
+                profile_id = task['profile_id']
+                break
+        if profile_id:
+            try:
+                config = server.schedules.model_config(profile_id)
+            except ValueError:
+                config = None
+            if config:
+                config['profile_id'] = profile_id
+                return config
+        if not server.assistant:
+            return None
+        try:
+            config = server.assistant.config()
+        except ValueError:
+            return None
+        config['profile_id'] = server.assistant.model_document().get('active_profile_id')
+        return config
+
+    def busy(config):
+        profile_id = (config or {}).get('profile_id')
+        if not profile_id:
+            return False
+        return server.schedules.model_in_use(profile_id)
+
+    cards = store.intake_cards
+    cards.model_provider = model
+    cards.busy_probe = busy
+    return cards
+
+
+def wire_intake_media(store):
+    """图片识别接工作台当前模型配置：复用即时分析那条模型与繁忙探测。
+
+    不新建服务、不新建模型配置、不读密钥：config 只在进程内递给 PiRuntime，
+    和聊天看图、定时提炼走同一条 chat/completions 通道。
+    """
+    from intake_media_recognition import MediaRecognizer, ProfileVision
+    cards, intake = store.intake_cards, store.creative_intake
+    if intake.media_recognizer is None:
+        intake.media_recognizer = MediaRecognizer(
+            ProfileVision(cards.analysis_model, cards.model_busy, cards.pi_folder))
+    return intake.media_recognizer
+
+
+class _IntakeLedger:
+    """删除回收项时的接线：同步清掉情报侧留下的链接痕迹。
+
+    清三样：link_index 里只剩这一条来源的链接、推荐订阅里的 intake 来源、
+    情报文章上的「已进回收站」标记。没跑过情报采集（intel.db 不存在）就不新建库。
+
+    单条 delete：__call__(links, drop_id) 里现算 live（与以前一致）。
+    批量 delete_many：先 prepare() 拿一份 live 快照逐条透传（省掉逐条全表扫描）；
+    但删除前快照会把「本批才删掉的链接」也算成存在，留下 knowledge 来源与推荐计数残留，
+    所以批末再 finalize() 用新算的 live 对本批涉及的 URL 统一对账一次（本批第 2 次扫描）。
+    """
+
+    def __init__(self, store):
+        self.store = store
+        self._live = None
+        self._touched = set()
+
+    def _ready(self):
+        return (self.store.workspace / 'intel' / 'intel.db').is_file()
+
+    def prepare(self):
+        self._live = None
+        self._touched = set()
+        if not self._ready():
+            return None
+        self._live = self.store.intel_recommend.live_links()
+        return self._live
+
+    def __call__(self, links, drop_id, live=None):
+        if not self._ready():
+            return
+        if live is None:
+            live = self._live if self._live is not None else self.store.intel_recommend.live_links()
+        for link in (links or []):
+            if link:
+                self._touched.add(link)
+        self.store.intel.forget_intake_drop(drop_id)
+        self.store.intel_recommend.forget_intake_source(links, drop_id, live=live)
+
+    def finalize(self):
+        if not self._ready() or not self._touched:
+            return
+        touched, self._touched = self._touched, set()
+        self.store.intel_recommend.reconcile_links(touched)
+
+
+def wire_intake_links(store):
+    """把情报侧的删除收尾接到回收项与知识库上，并返回接线对象。
+
+    两处：
+    - `creative_intake.link_ledger`：回收项删了要清链接痕迹；
+    - `knowledge.document_removed_hook`：知识库正文删了要按**文档**精确清推荐来源行。
+      推荐来源的主键是 `(source_kind, source_id, link)`，`source_id` 就是文档 id，
+      而清理链接痕迹只按 URL 判 —— 同一 URL 有多份文档时，删掉一份会留下一条孤儿来源，
+      推荐次数多算 1（reverify-perf-knowledge-report.md §6）。
+    """
+    ledger = _IntakeLedger(store)
+    store.creative_intake.link_ledger = ledger
+
+    def forget_document(document_id):
+        # 情报侧没跑过（intel.db 不存在）就不动：删个回收项不该凭空建一个情报库。
+        # 与 _IntakeLedger._ready 同一口径。
+        if not (Path(store.workspace) / 'intel' / 'intel.db').is_file():
+            return 0, 0
+        # 用完整的收尾（清来源行 + 对账该文档的链接），不只是清来源行：
+        # 直接删除入口没有批末 finalize 来做 URL 级对账，只清来源行会让 link_index
+        # 留下已无真实引用的孤儿行（review-recommend-doc-granularity-report.md §3 L1）。
+        return store.intel_recommend.forget_document_cleanup([document_id])
+
+    store.knowledge.document_removed_hook = forget_document
+    return ledger
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workspace', default=str(ROOT / 'workspace'))
@@ -951,16 +1426,27 @@ def main():
     server.local_deliveries = LocalDeliveries(store)
     from generation.service import Generation
     server.generation = Generation(store)
-    config_path = os.environ.get('ARTICLE_STUDIO_MODEL_CONFIG', str(ROOT.parents[1] / 'work/private/article-studio-model.json'))
+    config_path = os.environ.get('ARTICLE_STUDIO_MODEL_CONFIG', str(ROOT / 'workspace/private/article-studio-model.json'))
     server.assistant = assistant_module.Assistant(store, content, config_path)
     server.assistant.generation = server.generation
     from scheduled_tasks import ScheduledTasks
     server.schedules = ScheduledTasks(store.workspace, server.assistant, autostart=False)
     store.schedules = server.schedules
+    from clues_heat import recompute_heat
+    server.schedules.heat_recomputer = lambda cancel, deadline: recompute_heat(store.clues,cancel=cancel,deadline=deadline)
+    server.schedules.seed_heat_schedule(store.workspace)
     server.schedules.publisher = store.clues.from_run
+    server.schedules.outsourced_clues = store.clues
     server.schedules.wechat_analyzer = store.wechat_source.analyze_clues
     server.schedules.radar_analyzer = store.wechat_source.analyze_radar
     server.schedules.github_analyzer = store.github.analyze
+    server.schedules.deals_analyzer = store.deals_review.analyze
+    server.schedules.intake_analyzer = store.intake_cards.analyze
+    wire_intake_analysis(server, store)
+    wire_intake_media(store)
+    wire_intake_links(store)
+    server.schedules.intel_analyzer = store.intel.analyze_scheduled
+    seed_intel_schedule(server.schedules, store.workspace)
     server.schedules.start()
     print(f'图文工作台：http://127.0.0.1:{server.server_port}', flush=True)
     print(f'投递目录：{store.inbox}', flush=True)
