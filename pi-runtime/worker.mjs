@@ -79,31 +79,16 @@ function modelFailure(message, seconds) {
   if (message?.stopReason === 'aborted') return `模型请求超时或中断（连续 ${seconds} 秒无响应），请稍后重试。已保存的操作仍保留。`;
   return '模型请求未完成，请检查模型服务后重试。';
 }
-// 被拦工具的用户提示按工具类别给一条可行动示例。只按工具名分类：
-// 参数、HTML、正文、图片和密钥不得进入提示，工具名本身也不写给用户。
-// example 必须能在现网 assistant_policy 下真正拿到对应授权，tests/test_pi_runtime.py 逐条断言。
-const TOOL_POLICY_HINTS=[
-  {tools:['update_text'],example:'把当前作品正文加粗'},
-  {tools:['edit_work'],example:'把当前作品的截图插到第一段之后'},
-  {tools:['generate_media'],example:'生成一张猫咪图片'},
-  {tools:['organize_collection'],example:'把当前作品归档到合成合集'},
-  {tools:['create_card'],example:'生成一张文字卡片'},
-  {tools:['remio_create_note'],example:'记住黄总偏好短句标题'},
-  {tools:['remio_update_note'],example:'更新笔记里的黄总偏好'},
-  {tools:['memos_write'],example:'记住这个偏好并存到 MemOS'},
-];
-const TOOL_POLICY_FALLBACK='请说明要进行的具体修改。';
+// 模型调了本轮没有开放的工具。只按本轮实际开放的名字说话：
+// 不说工具「没登记」——那是全局注册表的事，与本轮开不开放无关（复核 L-6）。
+// 提示里不得出现参数、HTML、正文、图片和密钥，工具名本身也不写给用户。
+const TOOL_POLICY_FALLBACK='本轮没有开放这个工具，所以没有执行这一步。';
 function toolPolicyHint(names){
-  const hit=TOOL_POLICY_HINTS.find(h=>names.some(n=>h.tools.includes(n)));
-  if(!hit)return TOOL_POLICY_FALLBACK;
-  const lead={update_text:'请明确作品和要修改的文字',edit_work:'请明确作品和要调整的结构',
-    generate_media:'要生成图片请直接说清主题和风格',organize_collection:'要归档请点名目标合集',
-    create_card:'要文字封面或信息卡请说明内容',remio_create_note:'要记住偏好请以“记住”开头',
-    remio_update_note:'要更新笔记请以“更新笔记”开头',memos_write:'要写入 MemOS 请明确说存到 MemOS'};
-  const key=hit.tools.find(n=>names.includes(n));
-  const versioned=key==='update_text'||key==='edit_work';
-  return (lead[key]||'请按下面说法重说一次') + '，例如“' + hit.example + '”。'
-    + (versioned ? '改前我会先核对作品版本。' : '');
+  const saved = names && names.savedBeforeStop;
+  const lead = TOOL_POLICY_FALLBACK
+    + (saved ? '' : '作品内容没有因此改变。')
+    + '请确认页面上打开着要改的那一篇作品，再直接说要做什么。';
+  return lead;
 }
 function importHistory(manager, history, model) {
   const imported = new Set(manager.getEntries().filter(e => e.type === 'custom' && e.customType === 'studio-turn').map(e => e.data.id));
@@ -200,7 +185,7 @@ async function run(input) {
         const result = await rpc('tool', { call_id: toolCallId, name: t.function.name, args: params }, signal);
         const baseVersion = params && typeof params.base_version === 'string' ? params.base_version : '';
         const slug = typeof result.slug === 'string' && result.slug ? result.slug : params?.slug;
-        const writeTool = ['edit_work', 'update_text', 'create_card', 'organize_collection'].includes(t.function.name);
+        const writeTool = ['edit_work', 'update_text', 'reflow_markdown', 'create_card', 'organize_collection'].includes(t.function.name);
         if (slug && !workBaseVersions.has(slug)) {
           if (t.function.name === 'read_work' && !result.error && result.version)
             workBaseVersions.set(slug, result.version);
@@ -265,7 +250,7 @@ async function run(input) {
             ...(seen.length>16||blockedToolNames.includes('[truncated]')?['[truncated]']:[])];
           toolViolation = (savedBeforeStop
             ? '被拦的操作未执行；停止前已有修改保存成功，请核对作品新版本。'
-            : '本轮未执行修改。') + toolPolicyHint(blockedToolNames);
+            : '本轮未执行修改。') + toolPolicyHint({ savedBeforeStop, names: blockedToolNames });
           session.agent.abort();
         }
       }

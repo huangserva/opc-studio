@@ -54,6 +54,64 @@ class AlbumError(Exception):
     """合集接口没有返回可用的文章。"""
 
 
+class AlbumStopped(Exception):
+    """节流等待期间/出网前发生取消或到时限：这次请求没有发出。
+
+    kind='cancel'/'deadline'，调用方据此如实记轮次停止原因，不当成请求失败。
+    """
+
+    def __init__(self, message, kind='cancel'):
+        super().__init__(message)
+        self.kind = kind
+
+
+_GATE_STOP_TEXT = {'cancel': '已取消，本次合集请求不再发出',
+                   'deadline': '到达时限，本次合集请求不再发出'}
+
+
+def _gate_stop(cancel, deadline):
+    """取消/截止闸门：返回 '' / 'cancel' / 'deadline'。缺失或信号异常一律当作未停。"""
+    if cancel is not None:
+        checker = getattr(cancel, 'is_set', None)
+        if callable(checker):
+            try:
+                if checker():
+                    return 'cancel'
+            except Exception:  # noqa: BLE001
+                return ''
+        elif callable(cancel):
+            try:
+                if cancel():
+                    return 'cancel'
+            except Exception:  # noqa: BLE001
+                return ''
+    if deadline is not None:
+        try:
+            if time.monotonic() >= deadline:
+                return 'deadline'
+        except TypeError:
+            return ''
+    return ''
+
+
+_GATETIMEOUT_MIN = 0.05
+
+
+def _gate_timeout(deadline, base=40.0):
+    """传给底层 opener 的超时：有截止时压到剩余时间以内，没有就用原值。
+
+    剩余时间不足最小可用超时（<0.05s）时不再硬给 opener 一个超出剩余的超时
+    （B4 · L1），而是直接按截止停止（抛 AlbumStopped(kind='deadline')），
+    这次请求不发出。
+    """
+    if deadline is None:
+        return base
+    remaining = deadline - time.monotonic()
+    if remaining < _GATETIMEOUT_MIN:
+        raise AlbumStopped('到达时限，本次合集请求不再发出', kind='deadline')
+    return min(base, remaining)
+
+
 class PublicThrottle:
     """公开接口的独立节流：与后台闸门无关，保证相邻请求 ≥5 秒并叠加抖动。"""
 
@@ -109,8 +167,13 @@ class PublicClient:
         self.throttle.begin_round()
 
     # ── 合集 ──────────────────────────────────────────────────────────────
-    def album_page(self, identifier, album_id, begin_msgid=None, begin_itemidx=None):
-        """取一页合集。预算耗尽直接停，不发请求。"""
+    def album_page(self, identifier, album_id, begin_msgid=None, begin_itemidx=None,
+                   cancel=None, deadline=None):
+        """取一页合集。预算耗尽直接停，不发请求。
+
+        cancel/deadline 在节流等待**前后各查一次**：等待期间发生的取消/截止，
+        出网前就能拦住，不再发起新请求；单请求超时压到剩余时间以内。
+        """
         if self.throttle.calls >= self.album_budget + self.sogou_budget:
             raise AlbumError('本轮公开接口请求预算已用完')
         params = {'action': 'getalbum', '__biz': identifier, 'album_id': str(album_id),
@@ -118,8 +181,15 @@ class PublicClient:
         if begin_msgid and begin_itemidx not in (None, ''):
             params.update(begin_msgid=begin_msgid, begin_itemidx=begin_itemidx)
         url = f'{ALBUM_HOST}/mp/appmsgalbum?' + urllib.parse.urlencode(params)
+        kind = _gate_stop(cancel, deadline)
+        if kind:
+            raise AlbumStopped(_GATE_STOP_TEXT[kind], kind)
         self.throttle.wait()
-        raw = self.opener(url, self._headers(), 40)
+        # 节流等待可长达数秒：等待结束后、真正出网前必须重查停止信号（B3 · M1）。
+        kind = _gate_stop(cancel, deadline)
+        if kind:
+            raise AlbumStopped(_GATE_STOP_TEXT[kind], kind)
+        raw = self.opener(url, self._headers(), _gate_timeout(deadline))
         text = raw.decode('utf-8', 'replace') if isinstance(raw, bytes) else str(raw)
         try:
             data = json.loads(text)

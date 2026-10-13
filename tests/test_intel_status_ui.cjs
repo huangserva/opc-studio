@@ -47,6 +47,7 @@ async function fixture(options={}){
   else if(url==='/api/intel/jobs/'+(options.jobId||'j'.repeat(32)))data={id:options.jobId||'j'.repeat(32),
     status:options.jobStatus||'partial',status_label:'部分完成',reason:options.jobReason||'截断的原因',
     detail:options.jobDetail||'合集：1 个合集，取到 0 篇；搜狗：已关闭；后台：命中公众号后台限流（200013）（未重试）',
+    outcome:options.jobOutcome,outcome_available:!!options.jobOutcome,
     found:0,added:0,bodies:0,pages:0};
   else if(url==='/api/intel/run')data={id:options.jobId||'j'.repeat(32),status:'running'};
   else if(url==='/api/intel/identify')data=options.identify||{fakeid:BIZ,nickname:'数字生命卡兹克',title:'占位文章',
@@ -170,3 +171,168 @@ test('the interrupted wait time is stated on the page instead of left to guess',
  assert.match(note.textContent,/已中断/);
  assert.match(note.textContent,/不是页面卡住/);
  f.w.close();});
+
+// ── fixes-intel-manual-status：分阶段结果（outcome）的页面契约 ──────────────
+function outcome(over={}){
+ return Object.assign({version:1,list:{state:'complete',found:1},
+  save:{state:'complete',attempted:1,succeeded:1,failed:0,new:1,existing:0,not_attempted:0},
+  body:{state:'not_requested'},summary:'列表 1 篇；保存 1 篇（新增 1 篇）；正文未请求'},over);}
+
+test('an all-save-failed run shows the failure, never a completion',async()=>{
+ const o=outcome({save:{state:'failed',attempted:3,succeeded:0,failed:3,new:0,existing:0,not_attempted:0},
+   summary:'列表 3 篇；保存全部失败（尝试 3 篇）；正文未请求'});
+ const f=await fixture({result:{status:'error',status_label:'失败',outcome_available:true,outcome:o}});
+ const card=f.d.querySelector('#itl-results .itl-result[data-status=error]');
+ assert(card,'全部保存失败要用 error 卡片');
+ assert.match(card.textContent,/保存全部失败/);
+ assert.equal(/已完成/.test(card.querySelector('.itl-result-state').textContent),false,'不能显示已完成');
+ f.w.close();});
+
+test('a partial run is warned and shows the real stage counts',async()=>{
+ const o=outcome({save:{state:'partial',attempted:6,succeeded:5,failed:1,new:2,existing:3,not_attempted:0},
+   summary:'列表 8 篇；保存 5 篇，失败 1 篇，未处理 0 篇；正文未请求'});
+ const f=await fixture({result:{status:'partial',status_label:'部分完成',outcome_available:true,outcome:o}});
+ const state=f.d.querySelector('#itl-results .itl-result[data-status=partial] .itl-result-state');
+ assert.equal(state.dataset.tone,'warn','partial 要与最近结果卡一致地用警示色');
+ assert.match(f.d.querySelector('#itl-results').textContent,/保存 5 篇，失败 1 篇/);
+ f.w.close();});
+
+test('an existing-only run is reported as reuse success, not a failure',async()=>{
+ const o=outcome({save:{state:'complete',attempted:2,succeeded:2,failed:0,new:0,existing:2,not_attempted:0},
+   summary:'列表 2 篇；复用 2 篇，没有新增；正文未请求'});
+ const f=await fixture({result:{status:'done',status_label:'已完成',outcome_available:true,outcome:o}});
+ const box=f.d.querySelector('#itl-results');
+ assert.match(box.textContent,/复用 2 篇，没有新增/);
+ assert.equal(/抓取失败/.test(box.textContent),false,'复用成功不能被说成抓取失败');
+ f.w.close();});
+
+test('a budget-limited body shows the range and the remaining unread',async()=>{
+ const o=outcome({list:{state:'complete',found:10},
+   save:{state:'complete',attempted:10,succeeded:10,failed:0,new:10,existing:0,not_attempted:0},
+   body:{state:'complete',attempted:3,succeeded:3,failed:0,eligible_remaining:7},
+   summary:'列表 10 篇；保存 10 篇（新增 10 篇）；正文 3 篇待确认；另有 7 篇未读'});
+ const f=await fixture({result:{status:'done',status_label:'已完成',outcome_available:true,outcome:o}});
+ assert.match(f.d.querySelector('#itl-results').textContent,/另有 7 篇未读/);
+ f.w.close();});
+
+test('a run that did not request bodies says so instead of implying failure',async()=>{
+ const o=outcome({summary:'列表 1 篇；保存 1 篇（新增 1 篇）；正文未请求'});
+ const f=await fixture({result:{status:'done',status_label:'已完成',outcome_available:true,outcome:o}});
+ const card=f.d.querySelector('#itl-results .itl-result[data-status=done]');
+ assert.match(card.textContent,/正文未请求/);
+ assert.equal(/正文.*失败/.test(card.textContent),false,'未请求正文不能说成正文失败');
+ f.w.close();});
+
+test('a legacy result without outcome falls back and is marked unavailable',async()=>{
+ const f=await fixture({result:{outcome_available:false,outcome:null,headline:'旧任务回执',detail:'旧回执详情'}});
+ const box=f.d.querySelector('#itl-results');
+ assert.match(box.textContent,/分阶段结果不可用/);
+ assert.match(box.textContent,/旧回执详情/);
+ assert.match(box.textContent,/旧任务回执/);
+ f.w.close();});
+
+test('a truly old backend that omits both outcome fields is marked unavailable',async()=>{
+ // 真旧后端：last_result 里既没有 outcome 也没有 outcome_available 两个字段。
+ const f=await fixture({result:{headline:'旧后端回执',detail:'旧回执详情'}});
+ const box=f.d.querySelector('#itl-results');
+ assert.match(box.textContent,/分阶段结果不可用/);
+ assert(box.querySelector('[data-note=stages-unavailable]'),'缺两个字段也要标「分阶段结果不可用」');
+ assert.equal(box.querySelector('[data-note=stages]'),null,'没有 outcome 不能编造阶段摘要');
+ assert.match(box.textContent,/旧回执详情/);
+ assert.match(box.textContent,/旧后端回执/);
+ f.w.close();});
+
+test('the stage summary is escaped and never becomes markup',async()=>{
+ const o=outcome({summary:'<img src=x onerror=alert(1)>'});
+ const f=await fixture({result:{status:'done',status_label:'已完成',outcome_available:true,outcome:o}});
+ const box=f.d.querySelector('#itl-results');
+ assert.equal(box.querySelector('img'),null);
+ assert.equal(box.querySelector('script'),null);
+ assert.match(box.textContent,/onerror/);
+ f.w.close();});
+
+test('the poll receipt matches the refreshed result card for the same job',async()=>{
+ const summary='列表 1 篇；保存 1 篇（新增 1 篇）；正文未请求';
+ const o=outcome({summary});
+ const f=await fixture({jobStatus:'done',jobOutcome:o,
+   result:{status:'done',status_label:'已完成',outcome_available:true,outcome:o}});
+ assert(f.d.querySelector('#itl-results').textContent.includes(summary),'刷新后的卡片用同一份摘要');
+ f.d.querySelector('#itl-run-latest').click();await tick();await f.w.fireTimers();
+ assert(f.d.querySelector('#itl-status').textContent.includes(summary),'轮询结束回执与刷新后一致');
+ f.w.close();});
+
+// ── fixes-intel-lease-b：所有权的安全投影提示 ──────────────────────────────
+test('an unknown ownership state is surfaced without leaking owner fields',async()=>{
+ const f=await fixture({result:{status:'running',status_label:'进行中',ownership_version:9,
+   ownership_state:'unknown',
+   ownership_note:'无法确认这个任务的所有权（锁版本未知），页面不会自动放行新任务；请检查本机锁目录。'}});
+ const box=f.d.querySelector('#itl-results');
+ assert(box.querySelector('[data-note=ownership]'),'未知所有权要单独提示');
+ assert.match(box.textContent,/无法确认这个任务的所有权/);
+ assert.equal(/owner_token/.test(box.textContent),false,'不得泄漏 owner 原信息');
+ f.w.close();});
+
+test('a normal owned result shows no ownership warning',async()=>{
+ const f=await fixture({result:{ownership_version:1,ownership_state:'released',ownership_note:''}});
+ assert.equal(f.d.querySelector('#itl-results [data-note=ownership]'),null,'正常所有权不显示告警');
+ f.w.close();});
+
+// ── fixes-intel-lease-b：发现安全回执只做安全投影 ────────────────────────────
+test('the discovery receipt is projected safely with range counts and no raw payload',async()=>{
+ const f=await fixture({result:{discovery:{version:1,provider:'remio',state:'ok',verified:2,
+   candidates_accepted:3,reads_attempted:2,range_counts:{within:1,unknown:0,outside:1}}}});
+ const box=f.d.querySelector('#itl-results');
+ const note=box.querySelector('[data-note=discovery]');
+ assert(note,'发现回执要单独一行');
+ assert.match(note.textContent,/来源 remio/);
+ assert.match(note.textContent,/状态 ok/);
+ assert.match(note.textContent,/验证 2 篇/);
+ assert.match(note.textContent,/窗口内 1 \/ 未知 0 \/ 窗口外 1/);
+ // 安全投影：绝不出现 chksm / 正文 / 原始异常。
+ assert.equal(/chksm/.test(box.textContent),false,'不得显示 chksm');
+ assert.equal(/正文哨兵/.test(box.textContent),false,'不得显示正文');
+ f.w.close();});
+
+test('an unrecognised discovery version is marked unavailable without guessing counts',async()=>{
+ const f=await fixture({result:{discovery:null,discovery_present:true}});
+ const box=f.d.querySelector('#itl-results');
+ assert(box.querySelector('[data-note=discovery-unavailable]'),'未知版本要单独提示');
+ assert.match(box.textContent,/发现回执不可用（版本不识别）/);
+ assert.equal(box.querySelector('[data-note=discovery]'),null,'未知版本不能假装有计数');
+ f.w.close();});
+
+test('a reserved discovery receipt surfaces the unknown-result note',async()=>{
+ const f=await fixture({result:{discovery:{version:1,provider:'',state:'reserved',verified:0,
+   candidates_accepted:0,reads_attempted:0,range_counts:{within:0,unknown:0,outside:0},
+   stop_note:'已预留尝试，结果未知'}}});
+ const note=f.d.querySelector('#itl-results [data-note=discovery]');
+ assert(note,'reserved 回执也要单独一行');
+ assert.match(note.textContent,/状态 reserved/);
+ assert.match(note.textContent,/已预留尝试，结果未知/);
+ f.w.close();});
+
+test('the discovery button posts an explicit discovery mode and never a blank url',async()=>{
+ const f=await fixture();
+ const button=f.d.querySelector('#itl-run-discovery');
+ assert(button,'页面要有自动发现按钮');
+ button.click();await tick();await tick();await tick();
+ const run=f.calls.find(c=>c.url==='/api/intel/run');
+ assert(run,'点击后要复用 /api/intel/run');
+ assert.equal(run.body.mode,'discovery','必须显式 mode=discovery');
+ assert.equal('url' in run.body,false,'不得靠空 url 触发搜索');
+ assert.match(f.d.querySelector('#itl-status').textContent,/已开始自动发现/);
+ f.w.close();});
+
+// ── fixes-intel-lease-b B4 小修：路线区也要列出发现这一路 ────────────────────
+test('the discovery route line is listed alongside the three fixed routes',async()=>{
+ const f=await fixture({result:{routes:RESULT.routes.concat([
+   {path:'discovery',label:'发现',text:'发现 remio 验证 1 篇，新增 1 篇、复用 0 篇'}])}});
+ const box=f.d.querySelector('#itl-results');
+ const items=[...box.querySelectorAll('.itl-result-routes li')];
+ assert.equal(items.length,4,'三条路线 + 发现都要列出来');
+ const line=items.find(n=>n.dataset.path==='discovery');
+ assert(line,'任务进度的「路线」里要能看到自动发现');
+ assert.equal(line.querySelector('b').textContent,'发现');
+ assert.match(line.textContent,/发现 remio 验证 1 篇/);
+ f.w.close();});
+

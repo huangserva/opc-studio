@@ -76,7 +76,9 @@ class PiIntegrationTests(unittest.TestCase):
         result=self.ask('请查询当前作品')
         self.assertEqual(result['status'],'error')
         self.assertIn('本轮未执行修改',result['answer'])
-        self.assertIn('加粗',result['answer'])
+        # 追加2：改稿类工具打开作品时本来就授权，拦截不再拿示例句教用户重说。
+        self.assertNotIn('请明确作品和要修改的文字',result['answer'])
+        self.assertNotIn('例如“',result['answer'])
         history=json.loads(self.agent.history_path.read_text()) if hasattr(self.agent,'history_path') else self.agent.history
         receipt=history[-1]['runtime_result']
         self.assertEqual(receipt['blocked_tool_names'],['update_text'])
@@ -98,41 +100,31 @@ class PiIntegrationTests(unittest.TestCase):
         receipt=json.loads(self.agent.history_path.read_text())[-1]['runtime_result']
         self.assertEqual(receipt['blocked_tool_names'],['[invalid_tool_name]'])
 
-    # 24d L4：被拦提示按被拦工具类别给可行动示例；示例句必须在现网策略下真能拿到对应授权。
-    def test_blocked_hint_matches_tool_category_and_examples_are_grantable(self):
-        import re as re_module
+    # 追加2（黄总 17:4x「不给 AI 限制，给 AI 帮助」）：改稿类工具打开作品时每轮都授权，
+    # 所以拦截路径只保留给「真正不存在的工具名」，提示里不再有策略拒绝模板，
+    # 也不再拿示例句把用户的话术框死。原 24d L4 的示例句授权断言按新语义整体改写。
+    def test_blocked_path_is_only_for_unknown_tool_names(self):
         from assistant_policy import policy_for
         source=(Path(__file__).resolve().parents[1]/'pi-runtime'/'worker.mjs').read_text()
-        hints=[({value.strip("'\" ") for value in tools.split(',')},example) for tools,example in
-               re_module.findall(r"\{tools:\[([^\]]*)\],example:'([^']+)'\}",source)]
-        self.assertTrue(hints)
-        for tools,example in hints:
-            with self.subTest(example=example):
-                self.assertTrue(set(policy_for(example)['allowed_tools'])&tools,
-                                '示例句在现网策略下拿不到对应授权：%s -> %s' % (example,sorted(policy_for(example)['allowed_tools'])))
-        expected={'update_text':'把当前作品正文加粗','edit_work':'把当前作品的截图插到第一段之后',
-                  'generate_media':'生成一张猫咪图片','organize_collection':'把当前作品归档到合成合集',
-                  'create_card':'生成一张文字卡片','remio_create_note':'记住黄总偏好短句标题',
-                  'remio_update_note':'更新笔记里的黄总偏好',
-                  'memos_write':'记住这个偏好并存到 MemOS'}
-        self.assertEqual({example for _,example in hints},set(expected.values()))
-        for name,example in expected.items():
-            with self.subTest(tool=name):
-                self.agent.new_chat()
-                self.respond=lambda body:{'tool':name,'args':{'html':'PRIVATE_SYNTHETIC_HTML','prompt':'PRIVATE_PROMPT'}}
-                result=self.ask('查一下最近的作品')
-                self.assertEqual(result['status'],'error')
-                self.assertIn('本轮未执行修改',result['answer'])
-                self.assertIn(example,result['answer'])
-                self.assertNotIn('PRIVATE_SYNTHETIC_HTML',result['answer'])
-                self.assertNotIn('PRIVATE_PROMPT',result['answer'])
-                self.assertNotIn(name,result['answer'])
-                self.assertEqual(json.loads(self.agent.history_path.read_text())[-1]['runtime_result']
-                                 ['blocked_tool_names'],[name])
+        self.assertNotIn('TOOL_POLICY_HINTS', source, '改稿/生成/笔记类工具不再按类别给示例句')
+        for retired in ('请明确作品和要修改的文字','请明确作品和要调整的结构','请说明要进行的具体修改'):
+            self.assertNotIn(retired, source, '模板拒绝文案必须删掉：'+retired)
+        # 打开着作品时，黄总这几句都拿得到改稿工具，且不再有任何子句闸门。
+        opened=policy_for('随便问一句', work_open=True)['allowed_tools']
+        for text in ('看一下这个文章，很多地方本来是要加粗的…是 Markdown 格式，我们这边没有做好，要改一改，标题也应该是标题的格式',
+                     '你要通篇看文章，然后处理啊…是要你自己判断啊',
+                     '这段太啰嗦了帮我精简','语气再口语一点','标题改得吸引人些','你自己看着改',
+                     '通篇润色一遍','这样写好吗？','要不要加粗？'):
+            with self.subTest(text=text):
+                granted=policy_for(text, work_open=True)['allowed_tools']
+                self.assertLessEqual(set(opened), set(granted), '改稿工具不该被任何句子收回：'+text)
+                for tool in ('update_text','edit_work','reflow_markdown'):
+                    self.assertIn(tool, granted, text)
+        # 真的不存在的工具名仍然被拦，且提示不含工具名与参数。
         self.agent.new_chat()
         self.respond=lambda body:{'tool':'zzz_not_a_tool','args':{'html':'PRIVATE_SYNTHETIC_HTML'}}
         result=self.ask('查一下最近的作品')
-        self.assertIn('请说明要进行的具体修改',result['answer'])
+        self.assertIn('本轮未执行修改',result['answer'])
         self.assertNotIn('zzz_not_a_tool',result['answer'])
         self.assertNotIn('PRIVATE_SYNTHETIC_HTML',result['answer'])
 
@@ -144,7 +136,8 @@ class PiIntegrationTests(unittest.TestCase):
             if not results:return {'tool':'read_work','args':{'slug':slug}}
             if len(results)==1:return {'tool':'update_text','args':{'slug':slug,'base_version':'v0002',
                 'edits':[{'index':0,'html':'<p><strong>合成文字</strong></p>'}],'summary':'加粗'}}
-            return {'tool':'organize_collection','args':{'name':'不得创建'}}
+            # 追加2：改稿/合集类工具打开作品时都授权，唯一还拦的是不存在的工具名。
+            return {'tool':'zzz_not_a_tool','args':{'name':'不得创建'}}
         self.respond=response
         result=self.ask('请按照图片给当前作品文字加粗',context={'slug':slug,'version':'v0002'})
         self.assertEqual(result['status'],'error')

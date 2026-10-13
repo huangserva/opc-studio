@@ -12,6 +12,7 @@ const listing = {
       {id: 'wechat_msg', label: '微信消息', state: 'connected', note: '只看状态', home: '/clues.html'},
       {id: 'mail', label: '邮件', state: 'connected', note: '只看状态', home: '/knowledge.html'},
       {id: 'github', label: 'GitHub', state: 'connected', note: '只看状态', home: '/github.html'},
+      {id: 'aisa', label: '全网情报雷达 (AIsa)', state: 'connected', note: '取数由 AIsa 网关负责，本页只看状态。', home: '/clues.html'},
     ]},
     {name: '规划中', platforms: [
       {id: 'channels', label: '视频号', state: 'planned', note: '规划中，尚未接通。', home: ''},
@@ -31,6 +32,8 @@ const status = {
       extra: {home: '/knowledge.html', sources: [{id: 'mail', name: '邮箱 · remio'}, {id: 'gmail-demo', name: 'Gmail · demo'}]}},
     {id: 'github', label: 'GitHub', state: 'connected', available: true, detail: '账号 demo · GitHub 来源已接通', count: 1,
       extra: {home: '/github.html', sources: [{id: 'gh-demo', name: 'GitHub · demo/repo'}], tasks: [{enabled: false, running: false}]}},
+    {id: 'aisa', label: '全网情报雷达 (AIsa)', state: 'connected', available: false, detail: '未配置 AISA_API_KEY 环境变量', count: 0,
+      extra: {home: '/clues.html'}},
     {id: 'channels', label: '视频号', state: 'planned', available: false, detail: '规划中，尚未接通。'},
     {id: 'xiaohongshu', label: '小红书', state: 'planned', available: false, detail: '规划中，尚未接通。'},
     {id: 'douyin', label: '抖音', state: 'planned', available: false, detail: '规划中，尚未接通。'},
@@ -117,6 +120,46 @@ test('github shows the same status and a link to the existing page', async () =>
   const link = panel.querySelector('a');
   assert.equal(link.getAttribute('href'), '/github.html');
   assert.equal(page.calls.some(call => call.url === '/api/github/run'), false);
+  page.window.close();
+});
+
+test('AIsa 已登记但缺 Key 时角标是未就绪，不是已接通', async () => {
+  const page = await fixture();
+  const node = page.document.querySelector('#itl-platforms [data-platform="aisa"]');
+  assert.ok(node, 'aisa 卡片');
+  assert.equal(node.closest('.itl-platform-group').querySelector('h2').textContent, '已接通');
+  assert.equal(node.dataset.state, 'connected');
+  assert.equal(node.querySelector('.itl-platform-state').textContent, '未就绪');
+  assert.match(node.querySelector('small').textContent, /未配置 AISA_API_KEY 环境变量/);
+  page.window.close();
+});
+
+test('the AIsa card links to 线索中心 and never offers a scrape button', async () => {
+  const page = await fixture();
+  card(page.document, '全网情报雷达 (AIsa)').click();
+  await tick();
+  const panel = page.document.querySelector('#itl-delegated');
+  assert.equal(panel.hidden, false);
+  assert.match(panel.textContent, /未配置 AISA_API_KEY 环境变量/);
+  assert.match(panel.textContent, /不会代跑/);
+  assert.equal(panel.querySelector('button'), null);
+  assert.deepEqual([...panel.querySelectorAll('a')].map(a => a.getAttribute('href')), ['/clues.html']);
+  assert.equal(page.document.querySelector('#itl-mp').hidden, true);
+  assert.equal(page.calls.some(call => call.method === 'POST'), false);
+  page.window.close();
+});
+
+test('the nine existing platform badges stay exactly as before', async () => {
+  const page = await fixture();
+  const expected = {'公众号': '已接通', '微信消息': '已接通', '邮件': '已接通', 'GitHub': '已接通',
+    '视频号': '规划中', '小红书': '规划中', '抖音': '规划中', '推特': '规划中', '其他': '规划中'};
+  for (const [label, badge] of Object.entries(expected)) {
+    const node = card(page.document, label);
+    assert.ok(node, label);
+    assert.equal(node.querySelector('.itl-platform-state').textContent, badge, label);
+  }
+  const aisa = page.document.querySelector('#itl-platforms [data-platform="aisa"]');
+  assert.equal(aisa.querySelectorAll('button, a').length, 0);
   page.window.close();
 });
 

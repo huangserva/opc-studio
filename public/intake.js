@@ -286,6 +286,58 @@ function recognition(item) {
   if (r.status==='failed') return `<p class="in-recognition">附件识别失败：${esc(recognitionReason(r))}；正文与原始文件已保留，可重试</p>`;
   return `<p class="in-recognition">附件识别结果未确认：${esc(r.status)} 不是已知状态，请刷新或再试一次</p>`;
 }
+// ── 写作入口（方案 A）────────────────────────────────────────────────────────
+// 只带标识进知识库：document / intake / angle / analysis_at。正文、摘要、角度文字、
+// 收藏理由都不进 URL，也不写 localStorage。点击本身不建资料夹、不建底稿、不跑模型。
+const analysisVersion = a => String((a && (a.at || a.fingerprint)) || '');
+function knowledgeViewUrl(item) {
+  return item.knowledge_url || ('/knowledge.html?document=' + encodeURIComponent(item.document_id));
+}
+function knowledgeWriteUrl(item, angleIndex) {
+  const params = new URLSearchParams({ document: String(item.document_id), intake: String(item.id) });
+  if (Number.isInteger(angleIndex) && angleIndex >= 0) {
+    params.set('angle', String(angleIndex));
+    const version = analysisVersion(item.analysis);
+    if (version) params.set('analysis_at', version);
+  }
+  return '/knowledge.html?' + params.toString();
+}
+function storedBody(item) {
+  // 「这篇有正文可写」的口径与 tone() 一致：链接只认确认抓到的正文。
+  if (!item.document_id) return false;
+  return item.kind === 'link' ? (item.meta || {}).fetched === true : true;
+}
+const linkOnly = item => item.kind === 'link' && Boolean(item.document_id) && !storedBody(item);
+function angleEntry(item, index) {
+  // 每个角度旁一个入口；没正文（仅链接收藏）不给写作入口。
+  if (!storedBody(item)) return '';
+  return `<a class="button in-use-angle" href="${esc(knowledgeWriteUrl(item, index))}" title="打开这篇原文，带入这个角度的写作目标；片段要你自己选">用这个角度写</a>`;
+}
+function writingEntry(item) {
+  if (!item.document_id) return '';            // 连正文都没存：不给任何写作入口
+  const verdict = bodyVerdict(item);
+  const openOriginal = item.url ? `<a class="button" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">打开原链接 ↗</a>` : '';
+  if (verdict.kind === 'failed') {
+    // 失败优先：失败与重试在上面，这里只留一个次要入口，不用「已收录」盖住错误。
+    return `<section class="in-writing in-writing-failed"><p>${linkOnly(item) ? '这条链接已收藏，原文正文尚未保存。' : '这篇的正文这次没存好。'}先按上面的原因重试；正文补齐后才能用来整理写作资料。</p>` +
+      `<div class="in-writing-actions"><a class="button in-writing-quiet" href="${esc(knowledgeViewUrl(item))}">${linkOnly(item) ? '查看收藏记录' : '查看已有资料'}</a>${openOriginal}</div></section>`;
+  }
+  if (linkOnly(item)) {
+    return '<section class="in-writing in-writing-linkonly"><p>这条链接已收藏，原文正文尚未保存。补齐资料后可以建立写作底稿。</p>' +
+      `<div class="in-writing-actions"><a class="button" href="${esc(knowledgeViewUrl(item))}">查看收藏记录</a>${openOriginal}</div></section>`;
+  }
+  if (verdict.kind === 'pending' || verdict.kind === 'unconfirmed') return '';
+  if (verdict.kind === 'duplicate') {
+    return '<section class="in-writing in-writing-duplicate"><p>这篇已在知识库，未重复导入。收录后可以用来整理写作资料、参考可写角度，或到卡库确认提示词。</p>' +
+      `<div class="in-writing-actions"><a class="button" href="${esc(knowledgeViewUrl(item))}">查看已有资料</a>` +
+      `<a class="button in-writing-primary" href="${esc(knowledgeWriteUrl(item))}" title="打开这篇原文，自己选片段后再建底稿">用这篇资料写</a>` +
+      `<a class="button" href="${esc(knowledgeWriteUrl(item))}" title="打开这篇原文，选中要引用的片段再保存资料夹">选片段建资料夹</a></div></section>`;
+  }
+  const angles = Array.isArray((item.analysis || {}).angles) ? item.analysis.angles : [];
+  if ((item.analysis || {}).status === 'done' && angles.length) return '';   // 每个角度旁已有「用这个角度写」
+  return '<section class="in-writing"><p>这篇正文已存入知识库，可以用来整理写作资料。</p>' +
+    `<div class="in-writing-actions"><a class="button in-writing-primary" href="${esc(knowledgeWriteUrl(item))}" title="打开这篇原文，自己选片段后再建底稿">用这篇资料写</a></div></section>`;
+}
 function analysis(item) {
   const a = item.analysis || {};
   if (['queued', 'running'].includes(a.status)) {
@@ -305,7 +357,7 @@ function analysis(item) {
     return '<p class="in-analysis in-analysis-wait">还没开始分析<small>点下方“重新分析”会排队一次；模型正忙时如实排队，不重复占用推理服务。</small></p>';
   }
   const points = (a.points || []).length ? `<ul>${a.points.map(point => `<li>${esc(point)}</li>`).join('')}</ul>` : '<p class="in-analysis-none">模型未给出要点</p>';
-  const angles = (a.angles || []).length ? `<ul>${a.angles.map(angle => `<li><strong>${angle.title ? esc(angle.title) : '未命名角度'}</strong>${angle.how ? `<span>${esc(angle.how)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="in-analysis-none">模型未给出可写角度</p>';
+  const angles = (a.angles || []).length ? `<ul>${a.angles.map((angle, index) => `<li><strong>${angle.title ? esc(angle.title) : '未命名角度'}</strong>${angle.how ? `<span>${esc(angle.how)}</span>` : ''}${angleEntry(item, index)}</li>`).join('')}</ul>` : '<p class="in-analysis-none">模型未给出可写角度</p>';
   const related = (a.related || []).length ? `<ul>${a.related.map(entry => `<li><a href="${esc(entry.url)}">${esc(entry.title || '未命名条目')} ↗</a>${entry.excerpt ? `<span>${esc(entry.excerpt)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="in-analysis-none">知识库里没找到相关条目</p>';
   const cards = a.cards ? `<a class="in-analysis-cards" href="/cards.html">已生成 ${Number(a.cards).toLocaleString('zh-CN')} 张候选提示词卡 → 去卡库确认</a>` :
     (a.cards_error ? `<span class="in-analysis-note">提示词卡这一段没完成：${esc(a.cards_error)}；定时提炼会重试</span>` : '');
@@ -331,7 +383,7 @@ function row(item) {
   const reanalyze = analysisReady !== false && item.document_id && !['queued', 'running'].includes((item.analysis || {}).status) ? `<button class="button" data-analyze="${esc(item.id)}">重新分析</button>` : '';
   const remove = `<button class="button in-delete" data-delete="${esc(item.id)}">删除</button>`;
   const check = `<input class="in-check" type="checkbox" data-check="${esc(item.id)}" ${selected.has(item.id) ? 'checked' : ''} aria-label="选择这条回收项">`;
-  return `<article class="in-item in-${esc(item.kind)} in-${tone(item)}" data-id="${esc(item.id)}"><header>${check}<span class="in-time">收到 ${clock(item.received_at)}</span><span class="in-kind">${esc(kinds[item.kind] || item.kind)}</span>${platformBadge(item)}<span class="in-state">${esc(item.state)}</span></header><p class="in-source">${source(item)}</p>${item.reason ? `<p class="in-why">我为什么收它：${esc(item.reason)}</p>` : '<p class="in-why in-why-empty">未填写收藏理由</p>'}<p class="in-detail">${detail(item)}</p>${recognition(item)}${analysis(item)}${retryNote(item)}<footer>${knowledge}${retry}${reanalyze}${remove}</footer></article>`;
+  return `<article class="in-item in-${esc(item.kind)} in-${tone(item)}" data-id="${esc(item.id)}"><header>${check}<span class="in-time">收到 ${clock(item.received_at)}</span><span class="in-kind">${esc(kinds[item.kind] || item.kind)}</span>${platformBadge(item)}<span class="in-state">${esc(item.state)}</span></header><p class="in-source">${source(item)}</p>${item.reason ? `<p class="in-why">我为什么收它：${esc(item.reason)}</p>` : '<p class="in-why in-why-empty">未填写收藏理由</p>'}<p class="in-detail">${detail(item)}</p>${recognition(item)}${analysis(item)}${retryNote(item)}<footer>${knowledge}${retry}${reanalyze}${remove}</footer>${writingEntry(item)}</article>`;
 }
 function render() {
   const visible = shown();

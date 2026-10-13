@@ -112,13 +112,40 @@ function resultCard(sub) {
   const tone = result.active ? '' : ({ done: '', partial: 'warn', busy: 'warn', cooldown: 'warn' }[result.status] || 'bad');
   const routes = (result.routes || []).map(line =>
     `<li data-path="${esc(line.path)}"><b>${esc(line.label)}</b><span>${esc(line.text)}</span></li>`).join('');
+  // 分阶段摘要：后端给了结构化 outcome 就直接显示（空列表成功、复用、预算范围、正文未请求都在里面）。
+  // 旧后端/旧任务没有 outcome：标「不可用」并按 detail/reason 回退，不猜计数。
+  const outcome = result.outcome;
+  // 没有可用的结构化摘要就标「不可用」：新后端确认缺 outcome（outcome_available=false），
+  // 或真正旧后端两个字段都没有（outcome_available 既非 true 也非 false），都走这条回退。
+  const stages = outcome && typeof outcome.summary === 'string' && outcome.summary
+    ? `<p class="itl-result-head" data-note="stages">${esc(outcome.summary)}</p>`
+    : (result.outcome_available !== true
+        ? '<p class="itl-muted" data-note="stages-unavailable">分阶段结果不可用（旧后端或旧任务），以下按完整回执显示，不猜计数。</p>'
+        : '');
+  // 发现安全回执：只做安全投影（provider、状态、计数、范围三态）；未知版本提示不可用。
+  const discovery = result.discovery;
+  const range = (discovery && discovery.range_counts) || {};
+  const discoveryBlock = discovery
+    ? `<p class="itl-muted" data-note="discovery">发现：来源 ${esc(discovery.provider || '未知')}` +
+      ` · 状态 ${esc(discovery.state || '')} · 验证 ${esc(discovery.verified || 0)} 篇` +
+      ` · 候选 ${esc(discovery.candidates_accepted || 0)} 个 · 读取 ${esc(discovery.reads_attempted || 0)} 次` +
+      ` · 范围 窗口内 ${esc(range.within || 0)} / 未知 ${esc(range.unknown || 0)} / 窗口外 ${esc(range.outside || 0)}` +
+      (discovery.stop_note ? ` · ${esc(discovery.stop_note)}` : '') + `</p>`
+    : (result.discovery_present
+        ? '<p class="itl-muted" data-note="discovery-unavailable">发现回执不可用（版本不识别），不猜计数。</p>'
+        : '');
   return `<div class="itl-result" data-status="${esc(result.status)}">` +
     `<header><b>${name}</b>` +
     `<span class="itl-result-state"${tone ? ` data-tone="${tone}"` : ''}>${esc(result.status_label)}</span>` +
     `<span class="itl-muted">${esc(result.mode_label || '')}${result.at_label ? ' · ' + esc(result.at_label) : ''}</span></header>` +
     `<p class="itl-result-head">${esc(result.headline || result.status_label)}</p>` +
+    stages +
+    discoveryBlock +
     (routes ? `<ul class="itl-result-routes">${routes}</ul>` : '') +
     (result.cooldown_label ? `<p class="itl-result-cooldown">冷却：${esc(result.cooldown_label)}</p>` : '') +
+    // 所有权提示：后端只给安全状态与人话，绝不展示 owner token/dev/ino。
+    (result.ownership_state === 'unknown' && result.ownership_note
+      ? `<p class="itl-note" data-note="ownership">${esc(result.ownership_note)}</p>` : '') +
     (result.suggestion ? `<p class="itl-result-next">下一步：${esc(result.suggestion)}</p>` : '') +
     (result.detail ? `<details class="itl-result-detail"><summary>完整回执</summary><p>${esc(result.detail)}</p></details>` : '') +
     '</div>';
@@ -158,11 +185,13 @@ function showRunPanel(account) {
 let busyJob = null;
 function renderBusy() {
   const off = !$('#itl-run-latest') || !active || !!busyJob;
-  const latest = $('#itl-run-latest'), history = $('#itl-run-history');
+  const latest = $('#itl-run-latest'), history = $('#itl-run-history'), discovery = $('#itl-run-discovery');
   if (!latest || !history) return;
   latest.disabled = off; history.disabled = off;
+  if (discovery) discovery.disabled = off;
   latest.textContent = busyJob ? '抓取进行中…' : '抓最新（1 页 ≤20 篇）';
   history.textContent = busyJob ? '抓取进行中…' : '抓历史（≤30 篇）';
+  if (discovery) discovery.textContent = busyJob ? '抓取进行中…' : '自动发现（搜索→合集）';
 }
 
 async function startRun(mode) {
@@ -180,7 +209,9 @@ async function startRun(mode) {
       // 后台接口全局串行，已有任务在跑就不新建；如实说明这是同一个任务。
       say('已有抓取任务在进行中（「' + (job.name || job.fakeid || '') + '」），这次没有新建。');
     } else {
-      say(mode === 'latest' ? '已开始抓最新，请稍候…' : '已开始抓历史（≤30 篇），请稍候…');
+      say(mode === 'latest' ? '已开始抓最新，请稍候…'
+        : mode === 'discovery' ? '已开始自动发现（搜索→合集），请稍候…'
+        : '已开始抓历史（≤30 篇），请稍候…');
     }
     pollJob(job.id);
     return job;
@@ -198,9 +229,11 @@ function pollJob(jobId) {
     try { job = await api('/api/intel/jobs/' + jobId); } catch (error) { clearInterval(polling); pollingJobId = ''; return say('读取任务失败：' + error.message, 'bad'); }
     if (['queued', 'running'].includes(job.status)) { say('抓取中：已用 ' + job.pages + ' 页，新增 ' + job.added + ' 篇…'); return; }
     clearInterval(polling); pollingJobId = '';
-    // 用完整 detail，不只是被截断到 300 字的 reason。
-    say((jobLabels[job.status] || job.status) + ' · ' + (job.detail || job.reason || ''),
-        job.status === 'done' ? '' : 'bad');
+    // 结束回执：优先用结构化 outcome.summary（与刷新后最近结果卡是同一份），
+    // 没有就回退到完整 detail；done 正常、partial 警示、error 坏色。
+    const summary = (job.outcome && job.outcome.summary) || job.detail || job.reason || '';
+    const tone = job.status === 'done' ? '' : (job.status === 'partial' ? 'warn' : 'bad');
+    say((jobLabels[job.status] || job.status) + ' · ' + summary, tone);
     busyJob = null; renderBusy();
     await loadAccounts(); await refreshQuota();
   }, 1500);
@@ -427,6 +460,7 @@ function platformFacts(row) {
   const extra = row.extra || {};
   const lines = [];
   if (row.count != null) lines.push(`计数 ${row.count}`);
+  if (extra.last_synced) lines.push(`缓存最近同步：${extra.last_synced}`);
   const names = (extra.sources || []).map(item => item.name || item.repository || item.account || item.id).filter(Boolean);
   if (names.length) lines.push('来源：' + names.join('、'));
   const clues = (extra.clues || []).filter(item => item.total != null);
@@ -564,6 +598,7 @@ $('#itl-by-link').addEventListener('click', byLink);
 $('#itl-discover-album').addEventListener('click', discoverAlbum);
 $('#itl-run-latest').addEventListener('click', () => startRun('latest'));
 $('#itl-run-history').addEventListener('click', () => startRun('history'));
+$('#itl-run-discovery').addEventListener('click', () => startRun('discovery'));
 $('#itl-run-close').addEventListener('click', () => { $('#itl-run').hidden = true; });
 $('#itl-filter-account').checked = onlyActive;
 $('#itl-filter-account').addEventListener('change', e => { onlyActive = e.target.checked; loadArticles(); });

@@ -1,5 +1,6 @@
 """通用采集模块。夹具在临时目录里，网络套接字封死，不读钥匙串，不打真实平台。"""
 import json
+import os
 import socket
 import tempfile
 import threading
@@ -7,10 +8,10 @@ import unittest
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib import error, request
 
-from collect_adapters import ClueSourceAdapter, build_adapters, clue_totals
+from collect_adapters import (AIsaRadarAdapter, ClueSourceAdapter, build_adapters, clue_totals)
 from collect_core import (Adapter, PlannedAdapter, PlatformQuota, QuotaRegistry, Receipt,
                           Registry, TaskQueue, fingerprint, parse_provenance, provenance)
 from gmail_source import GmailCache
@@ -146,12 +147,16 @@ class AdapterTests(unittest.TestCase):
         self.keys = patch('intel_wechat_mp.KeychainCredentials.load',
                           side_effect=CredentialsMissing('测试不读钥匙串'))
         self.keys.start()
+        # AIsa 只认环境变量：这里显式置空，「未配置」这条不依赖本机有没有真 Key。
+        self.aisa_key = patch.dict(os.environ, {'AISA_API_KEY': ''})
+        self.aisa_key.start()
         self.registry = self.store.collect
 
     def tearDown(self):
         schedules = getattr(self.store, 'schedules', None)
         if schedules is not None:
             schedules.close()
+        self.aisa_key.stop()
         self.keys.stop()
         self.seal.__exit__(None, None, None)
         self.tmp.cleanup()
@@ -162,12 +167,31 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(names, ['已接通', '规划中'])
         connected = [item['label'] for item in listing['sections'][0]['platforms']]
         planned = [item['label'] for item in listing['sections'][1]['platforms']]
-        self.assertEqual(connected, ['公众号', '微信消息', '邮件', 'GitHub'])
+        self.assertEqual(connected, ['公众号', '微信消息', '邮件', 'GitHub', '全网情报雷达 (AIsa)'])
         self.assertEqual(planned, ['视频号', '小红书', '抖音', '推特', '其他'])
         homes = {item['id']: item['home'] for item in listing['sections'][0]['platforms']}
         self.assertEqual(homes['github'], '/github.html')
         self.assertEqual(homes['wechat_msg'], '/clues.html')
+        self.assertEqual(homes['aisa'], '/clues.html')
         self.assertEqual(listing['sections'][1]['platforms'][0]['home'], '')
+
+    def test_existing_platforms_keep_group_and_state_after_aisa(self):
+        """常驻用例：新登记 aisa 不能改动既有 9 个平台的分组、顺序与状态口径。"""
+        listing = self.registry.listing()
+        self.assertEqual([item['id'] for item in listing['sections'][0]['platforms']],
+                         ['wechat_mp', 'wechat_msg', 'mail', 'github', 'aisa'])
+        self.assertEqual([item['id'] for item in listing['sections'][1]['platforms']],
+                         ['channels', 'xiaohongshu', 'douyin', 'twitter', 'other'])
+        rows = self.registry.status()['platforms']
+        self.assertEqual([row['id'] for row in rows],
+                         ['wechat_mp', 'wechat_msg', 'mail', 'github', 'aisa', 'channels',
+                          'xiaohongshu', 'douyin', 'twitter', 'other'])
+        by_id = {row['id']: row for row in rows}
+        for platform in ('wechat_mp', 'wechat_msg', 'mail', 'github'):
+            self.assertEqual(by_id[platform]['state'], 'connected')
+        for platform in ('channels', 'xiaohongshu', 'douyin', 'twitter', 'other'):
+            self.assertEqual(by_id[platform]['state'], 'planned')
+            self.assertFalse(by_id[platform]['available'])
 
     def test_planned_adapter_refuses_to_fetch(self):
         planned = self.registry.adapter('xiaohongshu')
@@ -230,6 +254,63 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(got['extra']['sources'][0]['repository'], 'demo/repo')
         self.assertEqual(got['count'], 1)
         self.assertIn('demo', got['detail'])
+
+    def _github_source(self):
+        config = {'id': 'gh-demo', 'name': 'GitHub · demo/repo', 'kind': 'github',
+                  'repository': 'demo/repo', 'enabled': True}
+        with self.store.knowledge.db() as connection:
+            connection.execute(
+                "INSERT INTO sources(id,config,status,detail) VALUES(?,?,?,?)",
+                ('gh-demo', json.dumps(config), 'ready', '已同步'))
+        return 'gh-demo'
+
+    def _github_doc(self, key, title, body, modified):
+        doc_id = identifier('gh-demo', key)
+        with self.store.knowledge.db() as connection:
+            connection.execute('CREATE TEMP TABLE seen(id TEXT PRIMARY KEY)')
+            self.store.knowledge._write(connection, 'gh-demo', key, 'github', title, body,
+                                        'https://example.test/' + key, modified, [], {})
+        return doc_id
+
+    def _source_row(self, source_id='gh-demo'):
+        adapter = self.registry.adapter('github')
+        return next(item for item in adapter.sources() if item['id'] == source_id)
+
+    def test_knowledge_sources_excludes_trashed_counts_and_latest(self):
+        self._github_source()
+        self._github_doc('a-older', '较旧的一篇', '正文甲', '2026-10-04T00:00:00+00:00')
+        newer = self._github_doc('b-newer', '较新的一篇', '正文乙', '2026-10-06T00:00:00+00:00')
+        row = self._source_row()
+        self.assertEqual(row['count'], 2)
+        self.assertEqual(row['latest'], '2026-10-06T00:00:00+00:00')
+        # 把「最新」那篇移到已删除：来源计数与「最新」都要退回未删的那篇。
+        self.store.knowledge.trash_many(
+            [{'id': newer, 'expected_hash': self.store.knowledge.document(newer)['hash']}], confirm=True)
+        row = self._source_row()
+        self.assertEqual(row['count'], 1)
+        self.assertEqual(row['latest'], '2026-10-04T00:00:00+00:00')
+        # 删除只改检索口径，不改导入状态本身：正文照旧在、来源状态照旧 ready、常规检索不再命中。
+        self.assertTrue(self.store.knowledge.document(newer)['body'])
+        self.assertEqual(row['status'], 'ready')
+        self.assertNotIn(newer, [item['id'] for item in self.store.knowledge.search('正文乙')['results']])
+
+    def test_restore_restores_adapter_counts_without_capture(self):
+        self._github_source()
+        doc_id = self._github_doc('c-one', '唯一一篇', '恢复用正文', '2026-10-05T00:00:00+00:00')
+        self.assertEqual(self._source_row()['count'], 1)
+        before = self.store.knowledge.document(doc_id)
+        self.store.knowledge.trash_many([{'id': doc_id, 'expected_hash': before['hash']}], confirm=True)
+        self.assertEqual(self._source_row()['count'], 0)
+        capture = MagicMock()
+        self.store.knowledge.capture = capture
+        restored = self.store.knowledge.restore_many([doc_id])
+        self.assertEqual(restored['summary']['restored'], 1)
+        # 恢复只是解除隐藏：来源计数回来了，正文与指纹一字未动，也没有触发任何抓取。
+        self.assertEqual(self._source_row()['count'], 1)
+        after = self.store.knowledge.document(doc_id)
+        self.assertEqual((after['body'], after['hash'], after['trashed']),
+                         (before['body'], before['hash'], False))
+        capture.assert_not_called()
 
     def test_mail_status_matches_gmail_cache_and_knowledge_rows(self):
         account = 'demo.user@gmail.com'
@@ -319,7 +400,7 @@ class AdapterTests(unittest.TestCase):
 
         self.registry.register(Boom())
         rows = {row['id']: row for row in self.registry.status()['platforms']}
-        self.assertEqual(len(rows), 9)
+        self.assertEqual(len(rows), 10)
         self.assertIn('RuntimeError', rows['mail']['detail'])
         self.assertFalse(rows['mail']['available'])
         self.assertIn(rows['github']['detail'], ('尚未连接 GitHub',) )
@@ -363,11 +444,14 @@ class RouteTests(unittest.TestCase):
         self.keys = patch('intel_wechat_mp.KeychainCredentials.load',
                           side_effect=CredentialsMissing('测试不读钥匙串'))
         self.keys.start()
+        self.aisa_key = patch.dict(os.environ, {'AISA_API_KEY': ''})
+        self.aisa_key.start()
         self.seal = seal_network(allowed_ports=(self.port,))
         self.blocked = self.seal.__enter__()
 
     def tearDown(self):
         self.seal.__exit__(None, None, None)
+        self.aisa_key.stop()
         self.keys.stop()
         self.server.shutdown()
         self.server.server_close()
@@ -381,12 +465,17 @@ class RouteTests(unittest.TestCase):
         status, listing = self.get('/api/collect/platforms')
         self.assertEqual(status, 200)
         self.assertEqual([section['name'] for section in listing['sections']], ['已接通', '规划中'])
+        self.assertIn('aisa', [item['id'] for item in listing['sections'][0]['platforms']])
         status, body = self.get('/api/collect/status')
         self.assertEqual(status, 200)
-        self.assertEqual(len(body['platforms']), 9)
+        self.assertEqual(len(body['platforms']), 10)
         ids = [row['id'] for row in body['platforms']]
         self.assertEqual(ids[0], 'wechat_mp')
         self.assertIn('xiaohongshu', ids)
+        row = next(row for row in body['platforms'] if row['id'] == 'aisa')
+        self.assertEqual(row['state'], 'connected')
+        self.assertFalse(row['available'])
+        self.assertEqual(row['detail'], '未配置 AISA_API_KEY 环境变量')
         hosts = {address[0] for address in self.blocked if isinstance(address, tuple) and address}
         self.assertFalse(hosts & {'api.github.com', 'mp.weixin.qq.com', 'www.sogou.com'})
 
@@ -411,19 +500,111 @@ class BuildTests(unittest.TestCase):
                 return {'credentials': 'missing', 'subscriptions': 0, 'detail': '无', 'articles': 0,
                         'awaiting': 0, 'cooldown_until': 0, 'rate_strikes': 0, 'busy': False}
 
-        class Stub:
-            intel = Intel()
-            knowledge = None
-            github = None
-            wechat_source = None
-            workspace = Path('.')
+        # workspace 用临时目录：build_adapters 会挂载 AIsa，并在 workspace 下建 aisa/ 缓存，
+        # 不能让它落在仓库根目录（正式数据位置是 store.workspace）。
+        with tempfile.TemporaryDirectory() as temp_name:
+            class Stub:
+                intel = Intel()
+                knowledge = None
+                github = None
+                wechat_source = None
+                workspace = Path(temp_name)
 
-        adapters = build_adapters(Stub())
-        self.assertIsInstance(adapters['wechat_mp'], object)
-        self.assertIsInstance(adapters['mail'], ClueSourceAdapter)
-        self.assertIsInstance(adapters['channels'], PlannedAdapter)
+            adapters = build_adapters(Stub())
+            self.assertIsInstance(adapters['wechat_mp'], object)
+            self.assertIsInstance(adapters['mail'], ClueSourceAdapter)
+            self.assertIsInstance(adapters['channels'], PlannedAdapter)
         self.assertEqual(provenance('mail', 'demo.user@gmail.com', 'aa11'),
                          'collect:mail:demo.user@gmail.com:aa11')
+
+
+class AIsaWiringTests(unittest.TestCase):
+    """AIsa 只登记进平台清单与状态接口：不配真 Key、不采集、零外网。"""
+
+    FAKE_KEY = 'test-placeholder-key'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.seal = seal_network()
+        self.blocked = self.seal.__enter__()
+        self.store = Store(self.tmp.name)
+
+    def tearDown(self):
+        schedules = getattr(self.store, 'schedules', None)
+        if schedules is not None:
+            schedules.close()
+        self.seal.__exit__(None, None, None)
+        self.tmp.cleanup()
+
+    def registry(self, api_key, transport=None):
+        from aisa_source import AIsaSource
+        with patch.dict(os.environ, {'AISA_API_KEY': api_key}):
+            adapters = build_adapters(self.store)
+        if transport is not None:
+            adapters['aisa'] = AIsaRadarAdapter(
+                AIsaSource(store=self.store, api_key=api_key, transport=transport))
+        return Registry(self.store, adapters)
+
+    def aisa_row(self, registry):
+        return next(row for row in registry.status()['platforms'] if row['id'] == 'aisa')
+
+    def tasks(self):
+        schedules = getattr(self.store, 'schedules', None)
+        return [task['id'] for task in schedules.listing()['tasks']] if schedules else []
+
+    def test_missing_key_lists_aisa_as_not_ready(self):
+        registry = self.registry('')
+        entry = next(item for section in registry.listing()['sections']
+                     for item in section['platforms'] if item['id'] == 'aisa')
+        self.assertEqual(entry['state'], 'connected')
+        self.assertEqual(entry['home'], '/clues.html')
+        row = self.aisa_row(registry)
+        self.assertFalse(row['available'])
+        self.assertEqual(row['detail'], '未配置 AISA_API_KEY 环境变量')
+        self.assertEqual(row['extra']['home'], '/clues.html')
+
+    def test_fake_key_reports_ready_and_never_calls_the_gateway(self):
+        calls = []
+
+        def transport(*args, **kwargs):
+            calls.append(args)
+            raise AssertionError('ZERO_EXTERNAL_NETWORK')
+
+        registry = self.registry(self.FAKE_KEY, transport=transport)
+        row = self.aisa_row(registry)
+        self.assertTrue(row['available'])
+        self.assertEqual(row['detail'], 'AIsa 雷达网关就绪')
+        self.assertEqual(calls, [])
+        adapter = registry.adapter('aisa')
+        self.assertEqual(adapter.sources(), [])
+        for action in (adapter.latest('any'), adapter.history('any'), adapter.body('any', {})):
+            self.assertTrue(action['delegated'])
+            self.assertEqual(action['home'], '/clues.html')
+        self.assertEqual(calls, [])
+        payload = json.dumps([registry.listing(), registry.status()], ensure_ascii=False)
+        self.assertNotIn(self.FAKE_KEY, payload)
+
+    def test_wiring_creates_no_task_and_leaves_no_network_trace(self):
+        registry = self.registry(self.FAKE_KEY)
+        before = self.tasks()
+        registry.listing()
+        registry.status()
+        adapter = registry.adapter('aisa')
+        adapter.latest('any')
+        adapter.history('any')
+        adapter.body('any', {})
+        self.assertEqual(before, self.tasks())
+        self.assertFalse([address for address in self.blocked if 'aisa' in str(address).lower()])
+
+    def test_aisa_module_failure_degrades_to_placeholder(self):
+        with patch.dict(os.environ, {'AISA_API_KEY': ''}), \
+                patch('aisa_source.AIsaSource', side_effect=ImportError('模块不可用')):
+            adapters = build_adapters(self.store)
+        self.assertIsInstance(adapters['aisa'], PlannedAdapter)
+        registry = Registry(self.store, adapters)
+        row = self.aisa_row(registry)
+        self.assertFalse(row['available'])
+        self.assertIn('AISA_API_KEY', row['detail'])
 
 
 if __name__ == '__main__':

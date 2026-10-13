@@ -1242,12 +1242,15 @@ class Intake:
 
     @staticmethod
     def _outcome(item, meta):
+        # 失败优先：status=failed 或有 error 就是本次解析没成。
+        # 去重（duplicate）不能盖住失败 —— 「抓取失败但库里已有同篇」如实报 failed，
+        # meta.duplicate、document_id、引用数与去重键一概不动。
+        if item['status'] == 'failed' or item['error']:
+            return 'failed'
         if item['status'] == 'pending':
             return 'pending'
         if meta.get('duplicate'):
             return 'duplicate'
-        if item['error']:
-            return 'failed'
         return 'stored'
 
     def _analysis(self, item, analysis):

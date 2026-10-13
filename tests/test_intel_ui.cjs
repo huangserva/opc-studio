@@ -230,14 +230,19 @@ test('the toggle stays disabled while a pause/resume request is in flight',async
 
 // ── round4 B：抓取进行中禁用按钮，不再连点出并发任务 ──────────────────────
 test('both run buttons are enabled when nothing is running',async()=>{const f=await fixture({busy:false});
- const latest=f.d.querySelector('#itl-run-latest'),history=f.d.querySelector('#itl-run-history');
+ const latest=f.d.querySelector('#itl-run-latest'),history=f.d.querySelector('#itl-run-history'),
+   discovery=f.d.querySelector('#itl-run-discovery');
  assert.equal(latest.disabled,false);assert.equal(history.disabled,false);
- assert.match(latest.textContent,/抓最新/);f.w.close();});
+ assert.ok(discovery,'自动发现按钮要存在');assert.equal(discovery.disabled,false);
+ assert.match(latest.textContent,/抓最新/);assert.match(discovery.textContent,/自动发现/);f.w.close();});
 
 test('a running fetch disables both buttons and says so',async()=>{const f=await fixture({busy:true});
- const latest=f.d.querySelector('#itl-run-latest'),history=f.d.querySelector('#itl-run-history');
+ const latest=f.d.querySelector('#itl-run-latest'),history=f.d.querySelector('#itl-run-history'),
+   discovery=f.d.querySelector('#itl-run-discovery');
  assert.equal(latest.disabled,true);assert.equal(history.disabled,true);
- assert.match(latest.textContent,/抓取进行中/);assert.match(history.textContent,/抓取进行中/);f.w.close();});
+ assert.equal(discovery.disabled,true);
+ assert.match(latest.textContent,/抓取进行中/);assert.match(history.textContent,/抓取进行中/);
+ assert.match(discovery.textContent,/抓取进行中/);f.w.close();});
 
 test('a disabled run button cannot be clicked into a second job',async()=>{const f=await fixture({busy:true});
  f.d.querySelector('#itl-run-latest').click();await tick();await tick();

@@ -167,6 +167,82 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(len(fake.calls), 1)
         self.assertEqual(again['revision'], 2)
 
+    # ── 失败优先：抓取失败时不能被 duplicate 盖住 ─────────────────────────────
+
+    def test_failed_duplicate_reports_failed_but_keeps_document(self):
+        kept = self.store.knowledge.add_reference({'title': '已有收藏', 'url': 'https://example.com/same'})
+        self.fake_fetch(error='联网服务响应超时，请稍后重试')
+        saved = self.intake.receive({'kind': 'link', 'url': 'https://example.com/same'})
+        done = self.intake.resolve(saved['id'])
+        self.assertEqual(done['status'], 'failed')
+        self.assertEqual(done['outcome'], 'failed')
+        self.assertTrue(done['error'])
+        # 去重事实照旧如实带出：正文还是原来那篇，没被覆盖也没多出一篇。
+        self.assertTrue(done['meta']['duplicate'])
+        self.assertEqual(done['document_id'], kept['id'])
+        self.assertEqual(self.store.knowledge.search(kind='external')['total'], 1)
+        self.assertEqual(self.doc(done)['title'], '已有收藏')
+
+    def test_failed_status_without_error_is_failed(self):
+        self.fake_fetch(error='联网服务响应超时，请稍后重试')
+        saved = self.intake.receive({'kind': 'link', 'url': 'https://example.com/noerr'})
+        self.intake.resolve(saved['id'])
+        # 旧库/异常记录可能 status=failed 而 error 为空：按新规则仍然是 failed。
+        with self.intake.db() as connection:
+            connection.execute('UPDATE drops SET error=? WHERE id=?', ('', saved['id']))
+        self.assertEqual(self.intake.detail(saved['id'])['outcome'], 'failed')
+        self.assertEqual(self.intake.resolve(saved['id'])['outcome'], 'failed')
+
+    def test_error_precedes_pending_and_duplicate(self):
+        # pending + error 非空（异常记录）：error 优先，不能报「尚未解析」。
+        self.intake.receive({'kind': 'text', 'text': '一条想法', 'id': 'b' * 32})
+        with self.intake.db() as connection:
+            connection.execute('UPDATE drops SET error=?,meta=? WHERE id=?',
+                               ('上次的报错', json.dumps({'duplicate': True}), 'b' * 32))
+        row = self.intake.detail('b' * 32)
+        self.assertEqual(row['status'], 'pending')
+        self.assertEqual(row['outcome'], 'failed', '机器口径失败优先')
+        # state 是给人看的那一句，_state 仍按自己的 pending 优先规则走，本轮不动它：
+        # 正常 receive 不会产生 pending+error 这一组合，面板读的是 outcome。
+        self.assertEqual(row['state'], '已收下，尚未解析')
+        # resolved + error 非空（异常记录）：error 明确失败，不被 resolved 或 duplicate 盖住。
+        self.intake.receive({'kind': 'text', 'text': '另一条', 'id': 'c' * 32})
+        with self.intake.db() as connection:
+            connection.execute('UPDATE drops SET status=?,error=?,meta=? WHERE id=?',
+                               ('resolved', '入库时的报错', json.dumps({'duplicate': True}), 'c' * 32))
+        row = self.intake.detail('c' * 32)
+        self.assertEqual(row['outcome'], 'failed')
+
+    def test_resolved_duplicate_still_reports_duplicate(self):
+        kept = self.store.knowledge.add_reference({'title': '已有收藏', 'url': 'https://example.com/ok'})
+        self.fake_fetch(pages=['新抓到的正文'])
+        saved = self.intake.receive({'kind': 'link', 'url': 'https://example.com/ok'})
+        done = self.intake.resolve(saved['id'])
+        self.assertEqual(done['status'], 'resolved')
+        self.assertEqual(done['error'], '')
+        self.assertEqual(done['outcome'], 'duplicate', '成功入库的重复不能被新规则误报成失败')
+        self.assertEqual(done['state'], '已存在，未重复导入')
+        self.assertEqual(done['document_id'], kept['id'])
+
+    def test_outcome_is_consistent_in_detail_listing_and_receive_replay(self):
+        kept = self.store.knowledge.add_reference({'title': '已有收藏', 'url': 'https://example.com/one'})
+        self.fake_fetch(error='联网服务响应超时，请稍后重试')
+        payload = {'id': 'd' * 32, 'kind': 'link', 'url': 'https://example.com/one'}
+        received = self.intake.receive(payload)
+        self.assertEqual(received['outcome'], 'pending')
+        done = self.intake.resolve(received['id'])
+        self.assertEqual(done['outcome'], 'failed')
+        # 同一批数据在详情、列表与幂等重投三处口径一致，不是只有 resolve 那一步变了。
+        for row in (self.intake.detail(received['id']),
+                    self.intake.listing()['items'][0],
+                    self.intake.receive(payload)):
+            self.assertEqual(row['outcome'], 'failed')
+            self.assertEqual(row['status'], 'failed')
+            self.assertTrue(row['error'])
+            self.assertTrue(row['meta']['duplicate'])
+            self.assertEqual(row['document_id'], kept['id'])
+        self.assertEqual(self.store.knowledge.search(kind='external')['total'], 1)
+
     # ── 文字 ──────────────────────────────────────────────────────────────────
 
     def test_text_drop_is_stored_verbatim_and_reason_stays_out_of_the_body(self):

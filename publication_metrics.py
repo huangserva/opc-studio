@@ -22,7 +22,7 @@ from publishing.registry import PLATFORMS
 DOMAINS = {'x': ('x.com', 'twitter.com'), 'wechat': ('mp.weixin.qq.com',),
            'douyin': ('douyin.com',), 'xiaohongshu': ('xiaohongshu.com', 'xhslink.com'),
            'channels': ('weixin.qq.com', 'weixinbridge.com')}
-PUBLISHED = {'published_manual', 'published_browser'}
+PUBLISHED = {'published_manual', 'published_browser', 'published_x_api'}
 MAX_CSV = 256000
 SOURCE = 'publication_feedback'
 NOTICE = '用户导入，未向平台校验；指标含义和统计时间窗口不同，不能直接比较。登记时间不是实际发布时间。'

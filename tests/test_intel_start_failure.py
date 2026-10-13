@@ -54,8 +54,12 @@ class IntelStartFailureTests(Round4TestCase):
         self.assertIn('合成库锁', failed['detail'])
         self.assertIn('合成启动失败', failed['reason'])
         self.assertEqual(failed['status'], 'running')
+        self.assertEqual(failed['ownership_version'], 1)
+        # v1 启动失败：所有权已释放，不再进进程内 abandoned 短宽限集合；
+        # 下次检查立即按所有权 CAS 恢复为 interrupted，不必等 60 秒。
+        self.assertNotIn(failed['id'], self.intel._abandoned_ids())
         self.assertIsNone(self.intel.active_job())
-        self.assertIn(failed['id'], self.intel._abandoned_ids())
+        self.assertEqual(self.intel.job(failed['id'])['status'], 'interrupted')
         self.assertIsNone(self.intel.status()['active_job'])
         new = self.intel.run({'fakeid': BIZ, 'mode': 'latest', 'sogou': False})
         self.assertNotEqual(new['id'], failed['id'])
@@ -100,7 +104,10 @@ class IntelStartFailureTests(Round4TestCase):
         self.assertIn('任务线程没有启动，已中断', str(raised.exception))
         self.assertIn('记录也失败', '\n'.join(logs.output))
         self.assertIsNone(self.intel.active_job())
-        self.assertIn(self.intel.jobs(1)[0]['id'], self.intel._abandoned_ids())
+        failed = self.intel.jobs(1)[0]['id']
+        # v1 启动失败不占进程内 abandoned；所有权已释放，active_job 已恢复为 interrupted。
+        self.assertNotIn(failed, self.intel._abandoned_ids())
+        self.assertEqual(self.intel.job(failed)['status'], 'interrupted')
 
     def test_second_run_while_finish_is_blocked(self):
         entered, release = threading.Event(), threading.Event()
@@ -123,17 +130,23 @@ class IntelStartFailureTests(Round4TestCase):
                 runner.start()
                 self.assertTrue(entered.wait(3))
                 failed = self.intel.jobs(1)[0]['id']
+                # 收口被阻塞期间 owner 仍持有 FD：闸门仍占着，不能误放行第二个任务。
+                self.assertIsNotNone(self.intel.active_job())
+                self.assertTrue(self.intel.status()['busy'])
+                with patch('intel_store.threading.Thread.start', original_start):
+                    answer = self.intel.run({'fakeid': BIZ, 'mode': 'latest', 'sogou': False})
+                self.assertTrue(answer.get('reused'))
+                self.assertEqual(answer['id'], failed)
+                release.set()
+                runner.join(5)
+                self.assertFalse(runner.is_alive())
+                # 收口完成后行已 interrupted 且 FD 释放：不再占闸门，下一次受理创建新行。
                 self.assertIsNone(self.intel.active_job())
-                self.assertIsNone(self.intel.status()['active_job'])
-                # 恢复真实 start，第二次受理必须创建新行。
+                self.assertNotIn(failed, self.intel._abandoned_ids())
                 with patch('intel_store.threading.Thread.start', original_start):
                     new = self.intel.run({'fakeid': BIZ, 'mode': 'latest', 'sogou': False})
                 self.assertNotEqual(failed, new['id'])
                 self.assertFalse(new.get('reused', False))
-                release.set()
-                runner.join(5)
-                self.assertFalse(runner.is_alive())
-                self.assertNotIn(failed, self.intel._abandoned_ids())
         finally:
             release.set()
             runner.join(5)
@@ -174,24 +187,35 @@ class IntelStartFailureTests(Round4TestCase):
                 intel_store._PROCESS_WORKERS.pop(key, None)
                 self.intel.workers.pop('abandoned', None)
 
-    def test_status_cleans_abandoned_after_short_grace(self):
-        with failing_intel_start(RuntimeError('启动失败')), \
-                patch.object(self.intel, '_finish_job', side_effect=sqlite3.OperationalError('库锁')), \
-                self.assertLogs('intel_store'):
-            with self.assertRaises(ValueError) as raised:
-                self.intel.run({'fakeid': BIZ, 'mode': 'latest', 'sogou': False})
-        self.assertIn('任务线程没有启动，已中断', str(raised.exception))
-        failed = self.intel.jobs(1)[0]['id']
-        self.assertIsNone(self.intel.active_job())
-        self.assertEqual(self.intel.job(failed)['status'], 'running')
-        self.assertIn(failed, self.intel._abandoned_ids())
+    def test_status_cleans_legacy_abandoned_after_short_grace(self):
+        """legacy（无 owner）行：进程内明确放弃的短宽限仍只认 60 秒，新协议不改变旧语义。
+
+        v1 启动失败已由 test_finish_retry_recovers 覆盖（释放所有权后立即恢复，不等 60 秒）。
+        """
+        job_id = 'a' * 32
+        started = datetime.now(timezone.utc).isoformat()
+        reason = '任务线程没有启动，已中断：合成启动失败'
         with self.intel.db() as connection:
-            connection.execute('UPDATE jobs SET started_at=? WHERE id=?',
-                               ((datetime.now(timezone.utc) - timedelta(seconds=61)).isoformat(), failed))
-        self.assertIsNone(self.intel.status()['active_job'])
-        settled = self.intel.job(failed)
-        self.assertEqual(settled['status'], 'interrupted')
-        self.assertIn('任务线程没有启动，已中断', settled['reason'])
-        self.assertIn('启动失败', settled['reason'])
-        self.assertNotEqual(settled['reason'], intel_store.LIVE_STALE_REASON)
-        self.assertNotIn(failed, self.intel._abandoned_ids())
+            connection.execute(
+                "INSERT INTO jobs(id,fakeid,name,mode,status,reason,started_at) "
+                "VALUES(?,?,?,'latest','running',?,?)", (job_id, BIZ, '测试', reason, started))
+        key = (str(self.intel.path.resolve()), job_id)
+        with intel_store._PROCESS_WORKERS_LOCK:
+            intel_store._PROCESS_ABANDONED.add(key)
+        try:
+            self.assertIsNone(self.intel.active_job())
+            self.assertEqual(self.intel.job(job_id)['status'], 'running')
+            self.assertIn(job_id, self.intel._abandoned_ids())
+            with self.intel.db() as connection:
+                connection.execute('UPDATE jobs SET started_at=? WHERE id=?',
+                                   ((datetime.now(timezone.utc) - timedelta(seconds=61)).isoformat(), job_id))
+            self.assertIsNone(self.intel.status()['active_job'])
+            settled = self.intel.job(job_id)
+            self.assertEqual(settled['status'], 'interrupted')
+            self.assertIn('任务线程没有启动，已中断', settled['reason'])
+            self.assertIn('启动失败', settled['reason'])
+            self.assertNotEqual(settled['reason'], intel_store.LIVE_STALE_REASON)
+            self.assertNotIn(job_id, self.intel._abandoned_ids())
+        finally:
+            with intel_store._PROCESS_WORKERS_LOCK:
+                intel_store._PROCESS_ABANDONED.discard(key)

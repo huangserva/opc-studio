@@ -1,6 +1,20 @@
 """Ordinary X posts and threads → Buffer's official CLI input."""
 from urllib.parse import urlsplit
 import ipaddress
+import re
+
+# 样式积木在 X 上没有对应表达：短推/串文只走纯文本，这里只提示、不阻止发布。
+RICH_FORMAT_LABELS = (('data-color', '颜色'), ('data-hl', '高亮'), ('data-size', '字号'),
+                      ('data-align', '对齐'), ('data-indent', '首行缩进'), ('data-space', '段间距'),
+                      ('<mark', '高亮'), ('<hr', '分隔线'))
+RICH_FORMAT_PATTERN = re.compile('|'.join(part for part, _ in RICH_FORMAT_LABELS))
+
+def unsupported_x_formats(manifest):
+    """返回正文中 X 不支持的格式名列表（按出现顺序去重）。"""
+    htmls = [b.get('html', '') for b in manifest.get('blocks', []) if b.get('kind') == 'text']
+    found = [label for part, label in RICH_FORMAT_LABELS
+             if any(part in h for h in htmls)]
+    return list(dict.fromkeys(found))
 
 def capability(kind):
     return {'adapter':'x.'+kind,'transport':'buffer_cli',
@@ -83,6 +97,9 @@ def prepare(snapshot, options):
                  +('本请求只进入 Buffer 草稿箱，不会公开发布。' if mode=='draft'
                    else '本请求会让 Buffer 立即公开发布到 X。'))
     notes.append('素材 URL 仅做格式检查，实际可访问性和平台限制由 Buffer 校验。')
+    unsupported = unsupported_x_formats(manifest)
+    if unsupported:
+        notes.append('以下格式 X 不支持，将按纯文本发布：' + '、'.join(unsupported))
     payload=None
     if not blocking:
         payload={'channelId':channel,'schedulingType':'automatic','mode':schedule['mode'],

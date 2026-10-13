@@ -19,7 +19,9 @@ module.exports = async function ({test,api,until,base,fs,path,evidence,ROOT,work
   const cancel=await confirm(p,false);assert.equal(posts.length,0);assert.deepEqual((await list()).map(x=>x.id).sort(),[...ids,survivor.id].sort());
   const out=await remove(p);assert.match(out.dialog,/3 条回收项/);assert.match(out.dialog,/文字 2/);assert.match(out.dialog,/链接 1/);assert.match(out.dialog,/移除 3 篇正文/);assert.match(out.status,/已删除 3 条/);assert.deepEqual(out.receipt.deleted.map(x=>x.id).sort(),ids.sort());
   await p.reload();for(const id of ids)assert.equal(await p.locator('[data-check="'+id+'"]').count(),0);assert.equal(await p.locator('[data-id="'+survivor.id+'"] [data-delete]').count(),1);
-  for(const row of [a,b,c]){assert.equal((await p.request.get(base+'/api/knowledge/document/'+row.document_id)).status(),400);const found=(await api('/api/knowledge/search?q='+encodeURIComponent(row===b?'E2E灯塔':row.reason))).results;assert(!found.some(x=>x.id===row.document_id));}
+  // 正文随回收项一并移除后，单条读取按已验收语义返回 404 DOCUMENT_NOT_FOUND（不再走通用 400）；
+  // 除状态码外仍断言结构化 body，避免弱化断言。
+  for(const row of [a,b,c]){const docResp=await p.request.get(base+'/api/knowledge/document/'+row.document_id);assert.equal(docResp.status(),404);const docBody=await docResp.json();assert.equal(docBody.code,'DOCUMENT_NOT_FOUND');assert.match(docBody.error,/不存在/);const found=(await api('/api/knowledge/search?q='+encodeURIComponent(row===b?'E2E灯塔':row.reason))).results;assert(!found.some(x=>x.id===row.document_id));}
   assert.deepEqual((await api('/api/cards')).items.map(x=>x.id).sort(),cards);record('15-取消与删除实际行为',{cancel,cancelDeletePosts:0,...out,ids,remaining:await list()});
   // 补充只读复核所需的隔离实证：共享正文按篇预览，逐条删除后是否仍按篇汇总。
   const sharedA=await link('https://example.com/e2e-batch-shared'),sharedB=await link('https://example.com/e2e-batch-shared');assert.equal(sharedA.document_id,sharedB.document_id);
@@ -27,8 +29,8 @@ module.exports = async function ({test,api,until,base,fs,path,evidence,ROOT,work
   const both=await api('/api/intake/delete-preview',{ids:[sharedA.id,sharedB.id]});assert.equal(both.documents.would_remove,1);
   const sharedReceipt=await api('/api/intake/delete-many',{ids:[sharedA.id,sharedB.id]});assert.equal(sharedReceipt.deleted.length,2);assert.equal(sharedReceipt.summary.documents_removed,1);assert.equal(sharedReceipt.summary.documents_kept,0);
   assert.equal(sharedReceipt.summary.cards_kept,both.cards.cards);assert.equal(sharedReceipt.summary.cards_kept_drops,2);
-  const afterSharedStatus=(await p.request.get(base+'/api/knowledge/document/'+sharedA.document_id)).status();assert.equal(afterSharedStatus,400);
-  record('复核-共享正文汇总',{document_id:sharedA.document_id,one,both,sharedReceipt,afterSharedStatus,
+  const afterSharedResp=await p.request.get(base+'/api/knowledge/document/'+sharedA.document_id);const afterSharedStatus=afterSharedResp.status();assert.equal(afterSharedStatus,404);const afterSharedBody=await afterSharedResp.json();assert.equal(afterSharedBody.code,'DOCUMENT_NOT_FOUND');
+  record('复核-共享正文汇总',{document_id:sharedA.document_id,one,both,sharedReceipt,afterSharedStatus,afterSharedBody,
     duplicateKeptCount:sharedReceipt.summary.documents_kept!==0});
 
  });
@@ -57,7 +59,13 @@ module.exports = async function ({test,api,until,base,fs,path,evidence,ROOT,work
  await test('19-批量删除保留知识优先收藏与提示词卡',async p=>{
   await clear();const url='https://example.com/e2e-batch19',title='E2E19独立收藏灯塔',reader_note='E2E19独立评论逐字保留';const original=await api('/api/knowledge/reference',{url,title,reader_note});const kept=await link(url,true),owned=await text('E2E19回收站自有正文',true);assert.equal(kept.document_id,original.id);
   const cards=(await api('/api/cards')).items.filter(x=>[kept.id,owned.id].includes(x.drop_id));assert(cards.length>0,'必须真实生成卡片，不能跳过来源删除验证');await open(p);await choose(p,[kept.id,owned.id]);const out=await remove(p);assert.match(out.dialog,/移除 1 篇正文/);assert.match(out.dialog,/1 篇不是回收站存的.*保留不删/);await p.reload();assert.equal((await list()).length,0);
-  const retained=await api('/api/knowledge/document/'+original.id);assert.equal(retained.title,title);assert.equal(retained.provenance.reader_note,reader_note);assert.deepEqual(retained,original);assert((await api('/api/knowledge/search?q='+encodeURIComponent(title))).results.some(x=>x.id===original.id));assert(!(await api('/api/knowledge/search?q='+encodeURIComponent(owned.reason))).results.some(x=>x.id===owned.document_id));
+  // reference 回执额外带统一提示码 code:'COLLECTED'（server.py reference_receipt，已验收），
+  // document 接口按原样返回正文、不含该字段。这里显式剥离 code 再比正文，并单独断言回执码，
+  // 不靠弱化 deepEqual 掩盖差异。
+  const retained=await api('/api/knowledge/document/'+original.id);assert.equal(retained.title,title);assert.equal(retained.provenance.reader_note,reader_note);
+  assert.equal(original.code,'COLLECTED');assert.equal(retained.code,undefined);
+  const {code:receiptCode,...originalDoc}=original;assert.deepEqual(retained,originalDoc);
+  assert((await api('/api/knowledge/search?q='+encodeURIComponent(title))).results.some(x=>x.id===original.id));assert(!(await api('/api/knowledge/search?q='+encodeURIComponent(owned.reason))).results.some(x=>x.id===owned.document_id));
   await p.goto(base+'/knowledge.html');await p.locator('#kb-query').fill(title);const searched=p.waitForResponse(r=>new URL(r.url()).pathname==='/api/knowledge/search');await p.locator('#kb-search-form button').click();await searched;await p.locator('[data-document="'+original.id+'"]').waitFor();await p.screenshot({path:path.join(evidence,'19-知识优先检索.png'),fullPage:true});
   await p.goto(base+'/cards.html');for(const card of cards){const row=p.locator('[data-id="'+card.id+'"]');await row.waitFor();assert.match(await row.innerText(),/来源已删除/);assert.equal(await row.locator('a[href*="intake.html"]').count(),0);}record('19-知识优先实际行为',{...out,original,retained,cards});
  });

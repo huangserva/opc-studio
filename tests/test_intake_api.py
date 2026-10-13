@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +14,15 @@ import intake_store
 from tests.intake_dependency_patches import guard_intake_dependencies, patch_intake_dependency
 from knowledge_store import Knowledge
 from server import Handler, Store, ThreadingHTTPServer
+
+
+def _raising(message):
+    """让合成抓取器按调用现造一个异常：只测失败口径，不真联网。"""
+
+    def fetch(args, job):
+        raise ValueError(message)
+
+    return fetch
 
 
 class FakeWeb:
@@ -132,6 +142,78 @@ class IntakeAPITests(unittest.TestCase):
         self.assertIn('图片内容未识别', self.store.knowledge.document(done['document_id'])['body'])
         with self.opener.open(self.base + '/api/intake/' + saved['id'] + '/file') as response:
             self.assertEqual(response.read(), blob)
+
+    # ── 失败优先：HTTP 200 也可能回 failed ───────────────────────────────────
+
+    def test_resolve_failed_duplicate_returns_200_failed(self):
+        kept = self.store.knowledge.add_reference({'title': '已有收藏', 'url': 'https://example.com/dup'})
+        self.fake.fetch = _raising('联网服务响应超时，请稍后重试')
+        saved = self.api('/api/intake/drop', {'kind': 'link', 'url': 'https://example.com/dup'})
+        done = self.api('/api/intake/' + saved['id'] + '/resolve', {})
+        self.assertEqual(done['status'], 'failed')
+        self.assertEqual(done['outcome'], 'failed', '抓取失败且命中同篇时，200 也要回 failed')
+        self.assertTrue(done['error'])
+        self.assertTrue(done['meta']['duplicate'])
+        self.assertEqual(done['document_id'], kept['id'])
+        self.assertEqual(self.api('/api/intake/' + saved['id'])['outcome'], 'failed')
+        self.assertEqual([row['outcome'] for row in self.api('/api/intake')['items']], ['failed'])
+        self.assertEqual(self.store.knowledge.search(kind='external')['total'], 1)
+
+    def test_drop_is_pending_and_replayed_id_keeps_existing_state(self):
+        payload = {'id': 'e' * 32, 'kind': 'text', 'text': '同一条想法'}
+        saved = self.api('/api/intake/drop', payload)
+        self.assertEqual((saved['status'], saved['outcome']), ('pending', 'pending'))
+        self.assertEqual(saved['recognition'], {})
+        done = self.api('/api/intake/' + saved['id'] + '/resolve', {})
+        self.assertEqual((done['status'], done['outcome']), ('resolved', 'stored'))
+        again = self.api('/api/intake/drop', payload)
+        self.assertEqual(again['id'], saved['id'])
+        self.assertEqual((again['status'], again['outcome'], again['revision']), ('resolved', 'stored', done['revision']))
+        self.assertEqual(len(self.api('/api/intake')['items']), 1)
+
+    def test_media_resolve_returns_without_waiting_for_recognition(self):
+        # 识别是后台线程；200 只说明本次请求收尾，不能等识别跑完。
+        gate = threading.Event()
+        released = threading.Event()
+
+        def slow_recognize(path, file_meta):
+            gate.wait(5)
+            released.set()
+            return {'status': 'succeeded', 'text': '识别结果'}
+
+        with unittest.mock.patch('intake_media_recognition.MediaRecognizer.recognize_image',
+                                 side_effect=slow_recognize) as recognizer:
+            blob = self.png()
+            query = urllib.parse.urlencode({'kind': 'image', 'name': 'slow.png'})
+            saved = self.api('/api/intake/drop?' + query, raw=blob)
+            done = self.api('/api/intake/' + saved['id'] + '/resolve', {})
+            self.assertEqual(done['status'], 'resolved')
+            self.assertEqual(done['outcome'], 'stored')
+            self.assertIn(done['recognition']['status'], ('queued', 'running', 'succeeded'))
+            gate.set()
+            worker = self.store._creative_intake.recognition_workers.get(saved['id'])
+            if worker:
+                worker.join(timeout=5)
+            self.assertTrue(released.is_set(), '识别在 200 之后才继续跑完')
+            self.assertTrue(recognizer.called)
+
+    def test_recognition_failure_does_not_turn_filed_body_into_fetch_failure(self):
+        with unittest.mock.patch('intake_media_recognition.MediaRecognizer.recognize_image',
+                                 return_value={'status': 'failed', 'error': '模型没接上'}):
+            blob = self.png()
+            query = urllib.parse.urlencode({'kind': 'image', 'name': 'bad.png'})
+            saved = self.api('/api/intake/drop?' + query, raw=blob)
+            done = self.api('/api/intake/' + saved['id'] + '/resolve', {})
+            worker = self.store._creative_intake.recognition_workers.get(saved['id'])
+            if worker:
+                worker.join(timeout=5)
+            final = self.api('/api/intake/' + saved['id'])
+        self.assertEqual(final['recognition']['status'], 'failed')
+        self.assertEqual(final['status'], 'resolved')
+        self.assertEqual(final['error'], '')
+        self.assertEqual(final['outcome'], 'stored', '附件识别失败不改正文入库 outcome')
+        self.assertEqual(done['outcome'], 'stored')
+        self.assertIn('识别未完成', final['state'])
 
     def test_bad_input_is_refused_with_a_real_reason(self):
         for payload in ({'kind': 'link', 'url': '/Users/example/Downloads/a.png'},

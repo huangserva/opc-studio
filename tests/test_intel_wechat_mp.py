@@ -678,7 +678,7 @@ class RunTests(unittest.TestCase):
 
         intel.client().fetch_article = flaky
         done = intel.wait_for(intel.run({'fakeid': SAMPLE_BIZ, 'mode': 'latest', 'sogou': False, 'backend': True})['id'], timeout=5)
-        self.assertEqual(done['status'], 'done')
+        self.assertEqual(done['status'], 'partial')   # 正文 2 篇尝试 1 成 1 败 → partial（prep §3 行7）
         self.assertEqual(done['bodies'], 1)
         states = sorted(a['body_status'] for a in intel.articles(SAMPLE_BIZ)['articles'])
         self.assertEqual(states, ['awaiting_confirm', 'failed'])

@@ -135,6 +135,26 @@ class CardAPITests(unittest.TestCase):
         self.assertIn('来源资料已不在知识库', body['error'])
         self.assertEqual(self.api('/api/cards/%s' % self.card_id)[1]['source_state'], 'missing')
 
+    def test_trashed_reference_remains_readable_and_verified(self):
+        detail = self.cards.detail(self.card_id)
+        document_id = detail['refs'][0]['document_id']
+        document = self.store.knowledge.document(document_id)
+        self.store.knowledge.trash_many(
+            [{'id': document_id, 'expected_hash': document['hash']}], confirm=True)
+        # 软删除不等于来源消失：正文照旧在、指纹没变，历史引用仍标 verified，不是 missing。
+        code, listing = self.api('/api/cards')
+        self.assertEqual(code, 200)
+        card = listing['items'][0]
+        self.assertEqual(card['source_state'], 'verified')
+        self.assertTrue(card['refs'][0]['excerpt'])
+        self.assertTrue(self.store.knowledge.document(document_id)['trashed'])
+        # 已删正文退出常规检索，但按编号仍读得到原文，历史引用可以照常核对。
+        self.assertNotIn(document_id, [row['id'] for row in self.store.knowledge.search('码头')['results']])
+        self.assertTrue(self.store.knowledge.document(document_id)['body'])
+        # 确认后仍能取到这张卡，不被软删除挡下。
+        self.api('/api/cards/%s/confirm' % self.card_id, {})
+        self.assertEqual(self.cards.prompt_card(self.card_id)['source_state'], 'verified')
+
     def test_kind_view_delete_and_cleanup_round_trip(self):
         code, listing = self.api('/api/cards?kind=text&view=source')
         self.assertEqual(code, 200)

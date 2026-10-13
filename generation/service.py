@@ -24,7 +24,7 @@ from .references import References
 from .image_references import normalize_image_references
 from .video_options import normalize_references
 from .inventory import model_selection, enrich_inventory
-from .media_http import MediaApi, MediaApiError, MediaApiUnknown, MODEL_IDS
+from .media_http import MediaApi, MediaApiError, MediaApiUnknown, MODEL_IDS, safe_upstream_text
 
 ROOT = Path(__file__).parent
 ACTIVE = {'connecting', 'queued', 'running', 'downloading', 'reconnecting'}
@@ -485,8 +485,9 @@ class Generation:
         phase, label = EVENT_PROGRESS.get(event.get('type'), (None, None))
         if not phase:
             if event.get('type') == 'poll_error':
-                self.update(job_id, connection_warning='服务器进度查询暂时异常：'
-                                + str((event.get('data') or {}).get('error', ''))[:200])
+                raw_error = str((event.get('data') or {}).get('error', ''))
+                safe_error = safe_upstream_text(raw_error, cap=200) or '详情未返回可显示说明'
+                self.update(job_id, connection_warning='服务器进度查询暂时异常：' + safe_error)
             return
         previous = self.jobs[job_id].get('progress') or {}
         progress = {'phase': phase, 'label': label, 'observed_at': now(),
@@ -566,15 +567,19 @@ class Generation:
                 if state == 'downloading':
                     return self.finish(job_id, remote_job, api)
                 if state == 'error':
-                    raise ValueError(str(remote_job.get('error') or remote_job.get('uncertain_reason')
-                                         or '生成失败')[:1600])
+                    raw = str(remote_job.get('error') or remote_job.get('uncertain_reason')
+                              or '生成失败')
+                    reason = safe_upstream_text(raw, cap=200) or '生成失败'
+                    raise ValueError(reason)
                 if state == 'cancelled':
                     self.update(job_id, status='cancelled', error=None)
                     return
                 if state == 'uncertain':
+                    raw_reason = str(remote_job.get('uncertain_reason') or '')
+                    safe_reason = safe_upstream_text(raw_reason, cap=200) or '服务器未返回可显示的状态说明'
                     self.update(job_id, status='uncertain',
                                 connection_warning='服务器任务状态无法确定：'
-                                + str(remote_job.get('uncertain_reason') or '')
+                                + safe_reason
                                 + '；请勿重复提交，可稍后核实同一任务')
                     return
                 if state:
@@ -589,8 +594,22 @@ class Generation:
             self.update(job_id, status='cancelled', error=None,
                         connection_warning='任务尚未提交到媒体服务，已在工作台停止；服务器未收到生成请求')
         except MediaApiUnknown as exc:
+            # The anti-resubmit sentence is the part carrying business meaning: truncate the
+            # transport detail, never the tail. A word-boundary cut can still land inside a
+            # tag (no space before it), so any dangling "<…" is removed before we append the
+            # tail — no half tag ever reaches the card.
+            tail = '；服务器任务可能仍在运行，请勿重复提交'
+            detail = ' '.join(str(exc).split())
+            if len(detail) > 600:
+                cut = detail[:600]
+                space = cut.rfind(' ')
+                if space > 0:
+                    cut = cut[:space]            # never cut mid-token: no half words, no half tags
+                if cut.rfind('<') > cut.rfind('>'):
+                    cut = cut[:cut.rfind('<')]   # drop a dangling "<…" left by the word cut
+                detail = cut.rstrip() + '…'
             self.update(job_id, status='uncertain',
-                        connection_warning=str(exc)[:600] + '；服务器任务可能仍在运行，请勿重复提交')
+                        connection_warning=(detail or '媒体服务未返回可显示的状态说明') + tail)
         except Exception as exc:
             self.update(job_id, status='error', error=str(exc)[:2000])
         finally:

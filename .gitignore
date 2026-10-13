@@ -68,3 +68,12 @@ htmlcov/
 /定时任务说明.md
 /导航重构说明.md
 /启动内容工作台.command
+
+# 内部协作台账（含指令原话、终端/任务标识），只留本机
+/PROJECT-COLLABORATION.md
+
+# 第 13 轮：本机实测脚本、抓取缓存与个人分析资料
+/scratch/
+/scratch_*.json
+/aisa/
+/推特博主分析/

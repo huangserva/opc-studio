@@ -1,0 +1,19 @@
+{
+  "code": 0,
+  "data": {
+    "inspirations": [
+      {
+        "title": "多模态 Agent 工作流拆解",
+        "topic_id": "topic_8899",
+        "heat_score": 9876,
+        "view_count": 45210
+      },
+      {
+        "title": "本地大模型部署避坑指南",
+        "topic_id": "topic_9001",
+        "heat_score": 7654,
+        "view_count": 30120
+      }
+    ]
+  }
+}

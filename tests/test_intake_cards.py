@@ -426,10 +426,10 @@ class CardTests(unittest.TestCase):
             self.cards.rejections(0)
         self.assertEqual(self.cards.stats()['counts']['candidate'], 0)
 
-    def _write_analysis(self, record, summary='旧码头的黄昏适合低对比背影'):
+    def _write_analysis(self, record, summary='旧码头的黄昏适合低对比背影', related=None):
         data = json.dumps({'summary': summary, 'points': ['水面倒影'], 'why': '开头方式能借',
                            'angles': [{'title': '蹲拍', 'how': '让水面复制天空'}],
-                           'related': [{'title': '另一条'}]}, ensure_ascii=False)
+                           'related': related if related is not None else [{'title': '另一条'}]}, ensure_ascii=False)
         moment = '2026-10-09T02:00:00+00:00'
         with self.cards.db() as connection:
             connection.execute('''INSERT INTO analysis(drop_id,document_id,status,error,retryable,fingerprint,run_id,
@@ -537,6 +537,44 @@ class CardTests(unittest.TestCase):
             self.cards.delete_deleted_source(intel['id'])
         with self.assertRaises(ValueError):
             self.cards.decide(self.cards.listing(kind='intel')['items'][0]['id'], 'delete')
+
+    RELATED_READING = {'summary': '黄昏码头水面倒影与背影的拍法', 'why': '可借的取景方式',
+                       'points': [], 'angles': []}
+
+    def _note(self, index):
+        return self.store.knowledge.add_note({
+            'title': '码头摄影笔记 %d' % index,
+            'body': '黄昏码头水面倒影与背影的拍法，第 %d 条。' % index})
+
+    def test_related_entries_excludes_trashed(self):
+        for index in range(3):
+            self._note(index)
+        record = self.drop()
+        document = self.store.knowledge.document(record['document_id'])
+        before = self.cards.related_entries(record, document, self.RELATED_READING)
+        self.assertTrue(before)
+        hit = before[0]['document_id']
+        note = self.store.knowledge.document(hit)
+        self.store.knowledge.trash_many([{'id': hit, 'expected_hash': note['hash']}], confirm=True)
+        # 新检索按当前口径过滤：已删资料不再进入相关条目，其余未删的照常命中。
+        after = self.cards.related_entries(record, document, self.RELATED_READING)
+        self.assertNotIn(hit, [entry['document_id'] for entry in after])
+        self.assertTrue(after)
+
+    def test_cached_related_retains_historical_reference(self):
+        note = self._note(0)
+        record = self.drop()
+        cached = [{'document_id': note['id'], 'title': note['title'], 'kind': note['kind'],
+                   'url': '/knowledge.html?document=' + note['id'], 'excerpt': note['body'][:80]}]
+        self._write_analysis(record, related=cached)
+        self.store.knowledge.trash_many([{'id': note['id'], 'expected_hash': note['hash']}], confirm=True)
+        # 旧分析里的 related 是历史快照：被引用资料移到「已删除」后缓存原样保留，不偷偷改写。
+        states = self.cards.analysis_states([self.intake.detail(record['id'])])
+        self.assertEqual(states[record['id']]['related'], cached)
+        # 新检索按当前口径过滤：已删资料不再进入新的相关条目。
+        document = self.store.knowledge.document(record['document_id'])
+        fresh = self.cards.related_entries(record, document, self.RELATED_READING)
+        self.assertNotIn(note['id'], [entry['document_id'] for entry in fresh])
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import tempfile
 import threading
 import time
@@ -25,8 +26,13 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs, unquote
 
+import markdown_blocks
+
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+# 批量软删除回执里每一组的稳定提示码，前端据此区分「已移出 / 已存在 / 不存在 / 版本冲突 / 本条失败」。
+TRASH_GROUP_CODES = {'deleted': 'TRASHED', 'already_trashed': 'ALREADY_TRASHED',
+                     'missing': 'DOCUMENT_NOT_FOUND', 'errors': 'STORE_ERROR'}
 IMPORTER = ROOT.parent / 'article-importer' / 'scripts' / 'article_importer.py'
 spec = importlib.util.spec_from_file_location('importer', IMPORTER)
 importer = importlib.util.module_from_spec(spec)
@@ -37,48 +43,457 @@ content_spec.loader.exec_module(content)
 assistant_spec = importlib.util.spec_from_file_location('assistant_agent', ROOT / 'assistant_agent.py')
 assistant_module = importlib.util.module_from_spec(assistant_spec)
 assistant_spec.loader.exec_module(assistant_module)
+# 样式积木（复核 rich-style）：白名单与映射规则都在 rich_text.py，这里只引入模块，
+# SafeHTML 在其之上扩展。markdown_blocks（哨兵/nonce）走的是另一条通道，不受影响。
+import rich_text
+
+# 这几个字符成对/成串出现就是 Markdown 标记：粗体、斜体、删除线、行内代码、链接、
+# 标题。正文里逐字要显示它们时（`\*\*literal\*\*`、`\# 字面标题`），清洗层把它们
+# 转义成实体落盘，转换判定不再二次解释，浏览器显示一模一样。理由见 SafeHTML._escape_data。
+MARKUP_LITERALS = '#*~`[]'
+# 行首才成立的标记（列表、分隔线）**按位置**转义：全文每个减号、句点都转义会把
+# 「96.5GB」「MoE-混合」这类正文撑成实体，收益为零。正则与 markdown_blocks 的迹象表
+# 保持一致——迹象表认不出来的形态，转义了也没用。
+MARKUP_LINE_RULES = (
+    # 无序列表项：- / + 后面跟空白再加文字
+    (re.compile(r'(?m)^([ \t]{0,3})([-+])(?=[ \t]+\S)'), lambda m: m.group(1) + _literal_ref(m.group(2))),
+    # 有序列表项：1. / 1)
+    (re.compile(r'(?m)^([ \t]{0,3})(\d{1,9})([.)])(?=[ \t]+\S)'),
+     lambda m: m.group(1) + m.group(2) + _literal_ref(m.group(3))),
+    # 分隔线：整行只有三个以上减号
+    (re.compile(r'(?m)^([ \t]{0,3})(-{3,})([ \t]*)$'),
+     lambda m: m.group(1) + _literal_ref(m.group(2)) + m.group(3)),
+)
 
 
-class SafeHTML(HTMLParser):
-    allowed = {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 's', 'u', 'br', 'blockquote', 'pre', 'code', 'a', 'ul', 'ol', 'li', 'div', 'span'}
+def _literal_ref(text):
+    """字面量字符的实体写法。统一用数字实体，`markdown_source` 只认这一类。"""
+    return ''.join('&#%d;' % ord(char) for char in text)
+
+
+# 井号是 MARKUP_LITERALS 里唯一会出现在 `&#NN;` 内部的字符，单独用带守卫的正则转义。
+_MARKUP_HASH = re.compile(r'#(?![0-9]+;)')
+
+
+def _escape_line_start(text):
+    """转义行首的列表/分隔线标记，其它位置的同名字符原样保留。
+
+    必须在 `MARKUP_LITERALS` 那轮**之前**跑完：`#` 变成 `&#35;` 之后这三条正则就再也
+    匹配不到标题行，两轮不会互相踩，实体也不会被再转义一次。
+    """
+    for pattern, replace in MARKUP_LINE_RULES:
+        text = pattern.sub(replace, text)
+    return text
+
+
+# 这些标签内部是代码：一个 Markdown 标记都不认，也不做上面那层实体转义，
+# 保证示例代码逐字节原样。
+CODE_TAGS = frozenset({'pre', 'code'})
+# 这些标签前后断行：「行首转义」只在它们之后的那段文字上认。
+# 少了这份名单，`<h2>01. 账本与底牌</h2>` 的标题文字会被当成有序列表标记转义掉。
+# 这些标签会断行：进入它们之后的那段文字算行首。
+LINE_BREAKING_TAGS = frozenset({'br', 'p', 'div', 'li', 'ul', 'ol', 'blockquote', 'pre',
+                                'h1', 'h2', 'h3', 'h4', 'h5', 'h6'})
+# 这些是**不换行**的内联/包裹标签：行首状态要穿过它们继续传下去。
+# 少了这份传播，`<p><span>&#45; first</span></p>` 里的行首减号会被当成非行首放过，
+# HTMLParser 又把实体解成明文，下一轮转换就把它认成真列表（复核 H1b）。
+# 判据是「断不断行」，不是「是不是块级」——span/b/i/em/strong/code/mark 都不断行。
+# 这些标签里的文字本身就是一个整体，不是段落开头的一行：`01. 账本与底牌` 写在
+# `<h2>` 里是标题文字，写在段落行首才是列表标记。进了这些标签就不做行首转义。
+WHOLE_LINE_TAGS = frozenset({'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd'})
+# 清洗器自己给链接补的固定安全属性。它不是用户请求的格式，不能出现在 dropped 里。
+INTERNAL_REL = 'noopener noreferrer'
+
+
+class SafeHTML(rich_text.RichHTML):
+    """正文清洗：h2 的标记转义 + rich-style 的样式积木，两条支路各自留痕。
+
+    **不整体替换成 `rich_text.RichHTML`**（rich-style 原补丁的做法）：那个类没有
+    `_escape_data` / `line_start` / `whole_line` / `code_depth`，清洗层就不会把
+    Markdown 标记转义成实体落盘，`markdown_blocks.signal_text` 判定时一字不解的
+    前提随之失效，正文再存一次就会被重新解释成粗体/标题（复核 H-1）。h2 的这条
+    不变量一个字不动，样式积木只作为**新增支路**挂进来。
+    """
+    # hr 是 Markdown 分隔线转换出来的唯一新增标签，仍是空元素，不放行任何属性。
+    # 用户能感知到的格式。p/div/span/br 只是结构，不进 applied，避免回执膨胀。
+    FORMAT_KINDS = {'strong': 'bold', 'b': 'bold', 'em': 'italic', 'i': 'italic', 'u': 'underline',
+                    's': 'strike', 'h1': 'h1', 'h2': 'h2', 'h3': 'h3', 'ul': 'list', 'ol': 'list',
+                    'li': 'list', 'blockquote': 'quote', 'code': 'code', 'pre': 'code', 'a': 'link', 'hr': 'hr'}
+    HINTS = {
+        'tag_not_allowed': '标签不在正文白名单；可用 p、h1–h3、strong、em、u、s、br、blockquote、pre、code、a、ul、ol、li',
+        'tag_blocked': '脚本、样式表与嵌入对象不会保存',
+        'attribute_not_allowed': '正文只保留链接的 href，以及 data-color/data-hl/data-size（行内）与 data-align/data-indent/data-space/data-size（段落）样式积木，取值见白名单；内联 style 会按白名单规范化（居中写 text-align:center、字号写 font-size:24px）；加粗用 strong、斜体用 em，别用 class 或白名单外的 style',
+        'attribute_value_rejected': '样式积木的取值不在白名单内：颜色只认 red/blue/green/orange/gray/accent，高亮只认 yellow/green/pink，字号只认 s/m/l/xl，对齐只认 left/center/right，首行缩进只认 2，段距只认 tight/normal/loose；请从这几组取值，或改用内联 style 让它自动规范化',
+        'href_rejected': '链接只保留 http、https、mailto 的 href',
+    }
+    # **不加 mark**：rich-style 把 mark 放进白名单，但 h2/A 已复核的
+    # `test_disallowed_tag_and_bad_href_are_reported` 明确断言 `<mark data-hl=…>`
+    # 走 `tag_not_allowed`（dropped 原因集合必须恰好是那两项）。合同要求不得改动
+    # 已复核行为，所以 mark 的支持只留在 `rich_text.sanitize()` 里（公众号出口按它渲染），
+    # 保存路径继续按 h2 的白名单把它当作不允许的标签。差异如实记在报告的已知边界里。
+    allowed = {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 's', 'u', 'br', 'hr', 'blockquote', 'pre', 'code', 'a', 'ul', 'ol', 'li', 'div', 'span'}
 
     def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.parts, self.text, self.blocked = [], [], 0
+        # 走 `RichHTML` 的构造：它把 `convert_charrefs=True` 传给 HTMLParser，
+        # 并初始化 parts/text/blocked/dropped。直接 `super().__init__(convert_charrefs=True)`
+        # 会把该参数透传给 `RichHTML.__init__`（它不接受），所以显式调父类实现。
+        rich_text.RichHTML.__init__(self)
+        # 被清洗掉的东西逐条记下来，回执要如实告诉模型哪些格式没生效。
+        self.dropped = []
+        self.code_depth = 0
+        # 样式积木被丢弃的原因（人类可读字符串），与上面的字典通道分开：
+        # 前者说「某个格式整体没生效」，后者说「哪个 data-* / style 没存上」。
+        self.rich_dropped = []
+        # 下一段文字是不是在行首：只有行首的标记才需要按位置转义。
+        self.line_start = True
+        self.whole_line = 0
+
+    def _escape_data(self, data, at_line_start=False):
+        """正文文字转义。
+
+        HTMLParser 用 convert_charrefs=True，会把 `&#42;` 先解码成 `*` 再交给
+        handle_data。也就是说**实体存不住**：光把星号写成实体，这一层读完就
+        又变回明文星号，第二次保存时照样被当成粗体重新解释一次（复核 H-1）。
+        要真正幂等，只能在清洗这一层就把 Markdown 标记转义掉，让它们以实体形态
+        落盘；`markdown_blocks.signal_text` 判定时一字不解，
+        `markdown_blocks.markdown_source` 用哨兵护住，于是这段文字再存多少次
+        都是字面量。浏览器显示完全一样。
+
+        覆写 H-1b：用户后续在已存正文旁边新增 `**bold**` 时，别处的新迹象会触发
+        整块重排——实体必须在那条路径上同样不被还原，否则旧字面量会被解释掉。
+        """
+        out = escape(data)
+        if self.code_depth:
+            # pre/code 内部一个标记都不认，保持逐字节原样，不做这层转义。
+            return out
+        if at_line_start and not self.whole_line:
+            out = _escape_line_start(out)
+        for char in MARKUP_LITERALS:
+            if char not in out:
+                continue
+            # `#` 要跳过 `&#NN;` 里已有的那个，否则实体自己会被再转义成 `&&#35;45;`。
+            # MARKUP_LITERALS 里 `#` 排第一，它生成的 `&#35;` 不会被本轮再扫一遍。
+            out = _MARKUP_HASH.sub(_literal_ref('#'), out) if char == '#' \
+                else out.replace(char, _literal_ref(char))
+        return out
+
+    def _drop(self, reason, requested, detail=None):
+        hint = self.HINTS[reason]
+        if detail:
+            # rich 层的具体原因（如「样式 position 不支持用于 p」）随 hint 透传，
+            # 模型才知道到底哪一条声明没生效，而不是只知道「整个 style 失败了」。
+            hint = hint + '；具体原因：' + detail
+        entry = {'requested': requested[:120], 'reason': reason, 'hint': hint}
+        if entry not in self.dropped:
+            self.dropped.append(entry)
+
+    def _style_failures(self, tag, style):
+        """按 rich_text 的映射规则逐条解析内联 style，返回真正没生效的说明。
+
+        成功映射、或「接近默认、视为无操作」的声明不计；映射到本标签不支持的积木、
+        映射不了的具体取值、以及写法不完整的声明才算未生效。映射规则只有
+        rich_text._map_style 一份，这里不另抄一套。
+
+        无值（HTMLParser 给 None）/空值/只有空声明（如 ";;"）没有可生效的声明，
+        也要给出真实原因而不是抛异常（M2b M2）。
+        """
+        if style is None:
+            return ['style 没有取值，无法生效']
+        decls = [decl for decl in style.split(';') if decl.strip()]
+        if not decls:
+            return ['style 没有可用的声明，无法生效']
+        allowed_names = rich_text.DATA_FOR_TAG.get(tag, ())
+        failures = []
+        for decl in decls:
+            prop, _, val = decl.partition(':')
+            if not prop.strip() or not val.strip():
+                # 不完整声明（如 "color" / "color:"）：rich 层也映射不出结果，
+                # 但这是「写法不完整」而不是「取值不支持」，如实说明。
+                failures.append('样式声明「' + decl.strip() + '」不完整，无法生效')
+                continue
+            name, note = rich_text._map_style(tag, decl)
+            if name and name in allowed_names:
+                continue
+            if name:
+                failures.append(name + ' 不能用在 ' + tag + ' 上')
+            elif note:
+                failures.append(note)
+        return failures
+
+    def _actual_blocks(self, tag, attrs):
+        """清洗器**实际会落盘**的积木 dict（与 rich_text.RichHTML._rich_attrs 同一策略）。
+
+        data-* 优先且同名取首项、取值须过白名单；随后只有**第一个** style 参与，其声明用
+        setdefault 落位（data-* 已占的名字不改）。回执以这份实际结果为准——不能拿某个 style
+        的理论映射当比较基准，否则 data 优先的组合会误报/漏报（M2c M1）。
+        """
+        allowed_names = rich_text.DATA_FOR_TAG.get(tag, ())
+        data = {}
+        for name in allowed_names:
+            value = rich_text.RichHTML._attr(attrs, name)
+            if value is None or value not in rich_text.VALID_VALUES.get(name, ()):
+                continue
+            data[name] = value
+        style = rich_text.RichHTML._attr(attrs, 'style')
+        if style:
+            for decl in style.split(';'):
+                name, note = rich_text._map_style(tag, decl)
+                if name and name in allowed_names:
+                    data.setdefault(name, note)
+        return data
+
+    def _style_effects(self, tag, style):
+        """按声明顺序列出该 style 每条能映射的声明效果 [(声明, 属性名, 取值)]。"""
+        allowed_names = rich_text.DATA_FOR_TAG.get(tag, ())
+        effects = []
+        for decl in (style or '').split(';'):
+            name, note = rich_text._map_style(tag, decl)
+            if name and name in allowed_names:
+                effects.append((decl.strip(), name, note))
+        return effects
+
+    def _lost_detail(self, idx, lost, actual, attrs):
+        """未生效的 style 效果 + 具体原因（被 data 覆盖 / 只采用第一个 style / 同 style 内重复）。"""
+        parts = []
+        for _, name, value in lost:
+            have = actual.get(name)
+            if have is None:
+                parts.append('%s=%s 未落盘' % (name, value))
+            elif rich_text.RichHTML._attr(attrs, name) is not None:
+                parts.append('%s=%s 被 %s=%s 覆盖' % (name, value, name, have))
+            else:
+                parts.append('%s=%s 未采用，实际为 %s=%s' % (name, value, name, have))
+        head = '同一标签只采用第一个 style，本条未参与' if idx else '首个 style 的声明未生效'
+        return head + '：' + '、'.join(parts)
+
+    def _rich_extra(self, tag, attrs):
+        """复用 `rich_text` 的积木映射，丢弃原因记到字符串通道 `rich_dropped`。
+
+        直接调用父类的 `_rich_attrs`，只把 `self.dropped` 临时换成 `self.rich_dropped`
+        ——映射规则因此只有一份，rich-style 1c 复核过的行为不会在这里漂移。
+        """
+        saved, self.dropped = self.dropped, self.rich_dropped
+        try:
+            return rich_text.RichHTML._rich_attrs(self, tag, attrs)
+        finally:
+            self.dropped = saved
 
     def handle_starttag(self, tag, attrs):
-        if tag in ('script', 'style', 'iframe', 'object'):
+        if tag in CODE_TAGS:
+            self.code_depth += 1
+        if tag in rich_text.BLOCKED_TAGS:
             self.blocked += 1
+            self._drop('tag_blocked', '<' + tag + '>')
         if self.blocked or tag not in self.allowed:
+            if not self.blocked and tag not in rich_text.BLOCKED_TAGS:
+                self._drop('tag_not_allowed', '<' + tag + '>')
             return
-        extra = ''
+        # 样式积木：该标签允许携带的 data-* 名字（a 不带积木，与 rich-style 一致）。
+        extra = self._rich_extra(tag, attrs)
+        keep = {'href'} if tag == 'a' else set(rich_text.DATA_FOR_TAG.get(tag, ()))
+        # 回执与清洗器**实际落盘的积木**对齐（M2c M1）：先算出真实结果 `actual`
+        # （data-* 优先取首项 + 只有第一个 style 参与），再逐条请求判断其效果是否在里面。
+        # 请求的效果在 actual 里 → 不报；不在 → 报未生效并说明具体原因（被 data 覆盖 /
+        # 同标签只采用第一个 style / 重复 data 只取首项）。不再拿首个 style 的理论映射当基准。
+        actual = self._actual_blocks(tag, attrs)
+        style_index = 0
+        for name, value in attrs:
+            # 清洗器自己给链接补的固定安全 rel 不是用户请求的格式。
+            # 把它报成「被丢弃」会凭空造出一次假的格式失败（复核 A-L1）。
+            if name.lower() == 'rel' and tag == 'a' and (value or '').strip() == INTERNAL_REL:
+                continue
+            lname = name.lower()
+            requested = '%s="%s"' % (name, value) if value is not None else name
+            if lname == 'style':
+                idx, style_index = style_index, style_index + 1
+                failures = self._style_failures(tag, value)
+                # 该 style 声明里，效果不在实际落盘结果里的才算未生效。
+                lost = [(decl, n, v) for (decl, n, v) in self._style_effects(tag, value)
+                        if actual.get(n) != v]
+                if failures or lost:
+                    detail = '；'.join(failures)
+                    if lost:
+                        more = self._lost_detail(idx, lost, actual, attrs)
+                        detail = (detail + '；' + more) if detail else more
+                    self._drop('attribute_not_allowed', requested, detail=detail)
+                continue
+            if lname in keep:
+                # 白名单内的 data-*：名字对还不够，取值必须过 rich_text 的同一道校验。
+                if lname.startswith('data-') and value not in rich_text.VALID_VALUES.get(lname, ()):
+                    self._drop('attribute_value_rejected', requested,
+                               detail='%s 的取值 %s 不受支持' % (lname, value))
+                elif lname.startswith('data-') and actual.get(lname) != value:
+                    # 同名 data-* 只取首项：本条与真正落盘的不同 → 未生效（M2c 要求 2）。
+                    have = actual.get(lname)
+                    self._drop('attribute_not_allowed', requested,
+                               detail='重复的 %s 只取首项，本条未参与（实际落盘 %s）'
+                                      % (lname, (lname + '=' + have) if have else '无'))
+                continue
+            self._drop('attribute_not_allowed', requested)
+        # b/i 规范化成 strong/em（rich-style 1c），其余标签名一律原样。
+        name = rich_text.NORMALIZE.get(tag, tag)
         if tag == 'a':
             href = dict(attrs).get('href', '')
             if urlsplit(href).scheme.lower() in ('https', 'http', 'mailto'):
-                extra = ' href="' + escape(href, quote=True) + '" rel="noopener noreferrer"'
-        self.parts.append('<' + tag + extra + '>')
+                extra += ' href="' + escape(href, quote=True) + '" rel="' + INTERNAL_REL + '"'
+            elif href:
+                self._drop('href_rejected', 'href="' + href + '"')
+        self.parts.append('<' + name + extra + '>')
+        # 只有断行标签才置位；其余一律沿用当前状态（内联结构传播，覆写 H1b）。
+        if tag in LINE_BREAKING_TAGS:
+            self.line_start = True
+        if tag in WHOLE_LINE_TAGS:
+            self.whole_line += 1
         if tag == 'br':
             self.text.append('\n')
 
     def handle_endtag(self, tag):
+        if tag in CODE_TAGS:
+            self.code_depth = max(0, self.code_depth - 1)
         if tag in ('script', 'style', 'iframe', 'object'):
             self.blocked = max(0, self.blocked - 1)
             return
-        if not self.blocked and tag in self.allowed and tag != 'br':
-            self.parts.append('</' + tag + '>')
+        name = rich_text.NORMALIZE.get(tag, tag)
+        if not self.blocked and tag in self.allowed and tag not in ('br', 'hr'):
+            self.parts.append('</' + name + '>')
+            if tag in LINE_BREAKING_TAGS:
+                self.line_start = True
+            if tag in WHOLE_LINE_TAGS:
+                self.whole_line = max(0, self.whole_line - 1)
             if tag in ('p', 'div', 'li', 'h1', 'h2', 'h3', 'blockquote'):
                 self.text.append('\n')
 
     def handle_data(self, data):
         if not self.blocked:
-            self.parts.append(escape(data))
+            self.parts.append(self._escape_data(data, self.line_start))
             self.text.append(data)
+            self.line_start = data.endswith('\n')
+
+
+def clean_html_full(value):
+    """返回 (rich, plain, dropped, rich_dropped)：清洗结果 + 两条丢弃通道。
+
+    第三项是 h2 的字典通道（格式整体没生效，助手回执用），第四项是 rich-style 的
+    字符串通道（哪个 data-* / style 没存上，保存回执 `dropped_formats` 用）。
+    两件事分开记，免得同一个原因在两条回执里各说一遍。
+    """
+    parser = SafeHTML()
+    parser.feed(value)
+    return (''.join(parser.parts), ''.join(parser.text).rstrip('\n'),
+            parser.dropped, parser.rich_dropped)
+
+
+def SafeHTML_collect_rich(value):
+    """跑一遍清洗器，只取样式积木的丢弃原因。"""
+    parser = SafeHTML()
+    parser.feed(value)
+    return parser.rich_dropped
+
+
+def clean_html(value):
+    """返回 (rich, plain, dropped)：清洗后的正文、纯文本、以及被清洗掉的格式清单。
+
+    dropped 每项是 {'requested','reason','hint'}，助手侧原样透传进回执，
+    模型据此如实告诉用户哪一项格式没有生效。safe_html 保持两值返回，
+    只读清洗的既有调用点一行都不用改。
+    """
+    return clean_html_full(value)[:3]
 
 
 def safe_html(value):
-    parser = SafeHTML()
-    parser.feed(value)
-    return ''.join(parser.parts), ''.join(parser.text).rstrip('\n')
+    return clean_html(value)[:2]
+
+
+# 标签必须按边界匹配：'<s' 会误命中 '<strong'，'<u' 会误命中 '<ul'。
+_FORMAT_TAG = {tag: re.compile(r'<' + tag + r'(?=[\s>/])') for tag in SafeHTML.FORMAT_KINDS}
+
+
+def html_formats(rich):
+    """清洗后的 HTML 里真实保留下来的用户可感知格式（去重，按标签表顺序）。"""
+    kinds = []
+    for tag, kind in SafeHTML.FORMAT_KINDS.items():
+        if _FORMAT_TAG[tag].search(rich) and kind not in kinds:
+            kinds.append(kind)
+    return kinds
+
+
+# 回执要进模型上下文，dropped 超过这个数就截断并置 truncated。
+FORMAT_RECEIPT_LIMIT = 20
+
+
+def format_receipt(records):
+    """把每个正文块的清洗结果汇总成回执里的 format 段。"""
+    applied, dropped = [], []
+    for record in records or []:
+        for kind in record['applied']:
+            applied.append({'index': record['index'], 'kind': kind})
+        for item in record['dropped']:
+            dropped.append({'index': record['index'], **item})
+    return {'applied': applied, 'dropped': dropped[:FORMAT_RECEIPT_LIMIT],
+            'requested': len(records or []), 'kept': sum(1 for r in records or [] if r['applied']),
+            'truncated': len(dropped) > FORMAT_RECEIPT_LIMIT}
+
+
+def merge_dropped(*records):
+    """把多遍清洗的 dropped 记录去重合并，顺序按出现先后。
+
+    走 Markdown 那条路时 `markdown_blocks.convert` 会先把结构标签降掉，
+    属性在这一步就没了，转换后再清洗看不到任何东西。**两遍记录都必须报**，
+    否则用户要的红色根本没存上，回执却说 dropped 为空（复核 A-M1）。
+    """
+    out = []
+    for record in records:
+        for item in record or []:
+            if item not in out:
+                out.append(item)
+    return out
+
+
+
+def markdown_aware_html(markup, from_editor=False):
+    """正文块入参 → (html, plain, dropped)：带 Markdown 迹象时按 Markdown 转换。
+
+    正文此前只做白名单清洗，粘贴进来的 `## 标题`、`**粗体**`、`- 列表` 会原样留着。
+    纯文本没有迹象就逐字通过，既有作品与普通粘贴不受影响。
+
+    已经是 HTML 的块不会被拆掉重排：真实标记（标题、加粗、链接、列表、引用、代码）
+    原样保留，只在纯文本段里转行内 Markdown；`pre`/`code` 内部一个标记都不认。
+    转换后仍走 `safe_html`，不绕过任何安全校验。
+
+    dropped 报**原输入**与**最终落盘**两遍清洗的并集：转换把结构标签降成纯文本时
+    属性已经没了，只报转换后那一遍就会漏掉用户真正被清洗掉的格式（复核 A-M1）。
+    """
+    rich, plain, dropped = clean_html(markup)
+    if markdown_blocks.looks_like_markdown(plain):
+        final, final_plain, final_dropped = clean_html(markdown_blocks.convert(markup, from_editor=from_editor))
+        return final, final_plain, merge_dropped(dropped, final_dropped)
+    return rich, plain, dropped
+
+
+def rich_dropped_of(markup):
+    """只取样式积木被丢弃的原因（字符串，去重）。
+
+    单独走一遍清洗而不是让 `markdown_aware_html` 多返回一个值：
+    A 补丁与 h2 的单测按**三值**契约写 `markdown_aware_html`，
+    `unconverted_story()` 还会把它 mock 成 `clean_html` 来造「修复前导入」的旧作品。
+    四值变体必须**仍然经过这个可 mock 的入口**，否则旧作品夹具会绕过 mock、
+    被真的转换一遍，重排测试随即误判成 `unchanged`。
+    多这一次解析只在 `save()` 的每块上发生，产物只有积木丢弃原因，不参与清洗结果。
+    """
+    return sorted(set(SafeHTML_collect_rich(markup)))
+
+
+def markdown_aware_html_full(markup, from_editor=False):
+    """`markdown_aware_html` 的三值 + 样式积木丢弃原因，供 `save()` 用。
+
+    既有调用点与签名一律不动；四值只在这个新变体里出现。
+    兼容 unconverted_story() 将 markdown_aware_html mock 成 clean_html 的场景。
+    """
+    try:
+        rich, plain, dropped = markdown_aware_html(markup, from_editor=from_editor)
+    except TypeError:
+        rich, plain, dropped = markdown_aware_html(markup)
+    return rich, plain, dropped, rich_dropped_of(markup)
 
 
 def uid(value):
@@ -446,7 +861,7 @@ class Store(content.ContentMixin):
                 self.save_collection({'id': collection, 'add': [slug]})
             return self.detail(slug)
 
-    def save(self, slug, payload):
+    def save(self, slug, payload, source='工作台编辑', from_editor=False):
         with self.lock:
             if self.meta(slug)['head'] != payload['base_version']:
                 raise Conflict('已有新版本，请先查看最新内容，再保存您的修改。')
@@ -457,10 +872,11 @@ class Store(content.ContentMixin):
             with tempfile.TemporaryDirectory(prefix='studio-edit-') as tmp:
                 out = Path(tmp)
                 shutil.copytree(old / 'images', out / 'images')
+                dropped_formats = []  # 样式积木丢弃原因（字符串），随保存回执返回
                 if 'blocks' in payload:
                     if not isinstance(payload['blocks'], list) or len(payload['blocks']) > 5000:
                         raise ValueError('正文格式不正确或段落过多')
-                    blocks = []
+                    blocks, formats = [], []  # formats 汇总每块的 applied/dropped，进回执
                     for item in payload['blocks']:
                         if 'index' in item:
                             index = item['index']
@@ -468,8 +884,13 @@ class Store(content.ContentMixin):
                                 raise ValueError('无效正文引用')
                             blocks.append(copy.deepcopy(manifest['blocks'][index]))
                         elif item.get('kind') == 'text':
-                            rich, plain = safe_html(item.get('html', ''))
-                            if plain.strip():
+                            raw_html = item.get('html', '')
+                            rich, plain, dropped, rich_dropped = markdown_aware_html_full(raw_html, from_editor=from_editor)
+                            dropped_formats.extend(rich_dropped)
+                            formats.append({'index': len(blocks), 'applied': html_formats(rich), 'dropped': dropped})
+                            # Markdown 的 `---` 转出来只有 <hr>：plain 为空但仍是有效排版，
+                            # 不能按纯文本判空把整块丢掉（复核 M-1）。
+                            if plain.strip() or markdown_blocks.is_layout_only(rich):
                                 blocks.append({'kind': 'text', 'html': rich, 'text': plain, 'display_text': plain})
                         elif item.get('kind') == 'image':
                             try:
@@ -490,21 +911,87 @@ class Store(content.ContentMixin):
                             raise ValueError('不支持的正文类型')
                 else:
                     blocks = copy.deepcopy(manifest['blocks'])
+                    formats = []
                     for key, markup in payload.get('text_blocks', {}).items():
                         index = int(key)
                         if not 0 <= index < len(blocks) or blocks[index]['kind'] != 'text':
                             raise ValueError('无效正文段落')
-                        rich, plain = safe_html(markup)
+                        rich, plain, dropped, rich_dropped = markdown_aware_html_full(markup, from_editor=from_editor)
+                        dropped_formats.extend(rich_dropped)
+                        formats.append({'index': index, 'applied': html_formats(rich), 'dropped': dropped})
                         if rich != safe_html(blocks[index]['html'])[0]:
                             blocks[index].update(html=rich, text=plain, display_text=plain)
                 studio = self.normalize_studio(slug, payload.get('studio'), old, out)
+                receipt = {'format': format_receipt(formats),
+                           'dropped_formats': sorted(set(dropped_formats))}
                 if title == manifest['title'] and blocks == manifest['blocks'] and studio == content.studio_at(old):
-                    return {'version': payload['base_version'], 'unchanged': True}
+                    # 用户要了格式但什么都没变，模型也必须知道（prep §2.3）。
+                    return {**receipt, 'version': payload['base_version'], 'unchanged': True}
                 importer.finalize_package(out, title, copy.deepcopy(manifest['cover']), blocks,
                                           importer.digest(importer.canonical({'title': title, 'blocks': blocks})), manifest.get('warnings', []))
                 content.seal(out, studio, importer)
-                rev = self.commit(slug, out, payload.get('summary', '').strip()[:180] or '编辑图文', '工作台编辑')
-            return {'version': rev, 'unchanged': rev == payload['base_version']}
+                rev = self.commit(slug, out, payload.get('summary', '').strip()[:180] or '编辑图文', source)
+            return {**receipt, 'version': rev, 'unchanged': rev == payload['base_version']}
+
+    def reflow(self, slug, payload):
+        """按 Markdown 重新排版当前作品，保存为新版本（旧版本不动，可回退）。
+
+        只重排带 Markdown 迹象的文本块，图片块位置与块顺序都不变，
+        因此版本对照与历史回退的粒度保持原样。没有迹象就原样返回，不产生空版本。
+        """
+        with self.lock:
+            # 先校验 base_version：没有这一步，读到的会是别人刚存下的新版本，
+            # 既可能空转返回 unchanged，也可能把重排做到用户没看过的那一版上。
+            if self.meta(slug)['head'] != payload['base_version']:
+                raise Conflict('已有新版本，请先查看最新内容，再重新排版。')
+            manifest, _, package = self.info(slug)
+            if (content.studio_at(package) or {}).get('type') == 'post':
+                raise ValueError('串文按推文分条，不能整篇按 Markdown 重排')
+            blocks = copy.deepcopy(manifest['blocks'])
+            _, report = markdown_blocks.reflow_blocks(blocks)
+            if not report['changed']:
+                # 没有迹象也要给统一的 format 回执：助手侧拿到空对象时会自己补 {},
+                # 回执格式不统一，模型就分不清「真的什么都没丢」和「这条路径不报」（复核 A-L2）。
+                return {'version': payload['base_version'], 'unchanged': True, 'reflow': report,
+                        'format': format_receipt([]),
+                        'summary': markdown_blocks.summary(report, len(blocks))}
+            changed = set(report['changed'])
+            rewritten, carried = [], []
+            for index, block in enumerate(blocks):
+                if index not in changed:
+                    rewritten.append({'index': index})
+                    continue
+                text = block.get('html') or block.get('text') or block.get('display_text') or ''
+                try:
+                    rich, _, dropped = markdown_aware_html(text, from_editor=False)
+                except TypeError:
+                    rich, _, dropped = markdown_aware_html(text)
+                # 重排前的这一次清洗也产生了 dropped，不能丢：save 只看得到已经
+                # 转成 HTML 的 rich，转换过程中被清洗掉的格式到这里就查不到了（复核 A-M1）。
+                carried.extend({'index': index, **item} for item in dropped)
+                rewritten.append({'kind': 'text', 'html': rich})
+            summary = payload.get('summary', '').strip()[:180] or markdown_blocks.summary(report, len(blocks))
+            result = self.save(slug, {'base_version': payload['base_version'], 'title': manifest['title'],
+                                      'blocks': rewritten, 'summary': summary}, source='Markdown 重排', from_editor=False)
+            if carried:
+                receipt = dict(result.get('format') or format_receipt([]))
+                # 截断判定必须在**裁剪前**比 `> LIMIT`：裁完再 `== LIMIT` 会把
+                # 「刚好 20 条、一条没丢」误报成 truncated，摘要跟着说「至少 20 项」
+                # （复核 A-L1）。19/20/21 块围栏重排实测 (19,false)/(20,false)/(20,true)。
+                merged = merge_dropped(receipt.get('dropped'), carried)
+                receipt['dropped'] = merged[:FORMAT_RECEIPT_LIMIT]
+                receipt['truncated'] = len(merged) > FORMAT_RECEIPT_LIMIT
+                result['format'] = receipt
+            result['reflow'] = report
+            result['summary'] = summary
+            return result
+
+    def markdown_signals(self, slug, payload):
+        """只读体检：这份作品里哪些正文块带 Markdown 迹象，供界面提示按钮用。"""
+        manifest, _, _ = self.info(slug)
+        _, report = markdown_blocks.reflow_blocks(copy.deepcopy(manifest['blocks']))
+        report['total'] = len(manifest['blocks'])
+        return report
 
     def restore(self, slug, payload):
         with self.lock:
@@ -554,13 +1041,209 @@ class Store(content.ContentMixin):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # 重新解析专用日志：一次请求一行，只含下面这七个白名单字段。
+    # 故意没有实际回收项 id、URL、query、正文、error 原文、异常消息与任何请求头。
+    RESOLVE_LOG_PATH = '/api/intake/<redacted>/resolve'
+    RESOLVE_OUTCOMES = ('pending', 'stored', 'duplicate', 'failed')
+    RESOLVE_ERROR_KINDS = ('none', 'bad_request', 'forbidden', 'too_large', 'not_found', 'fetch_failed', 'unexpected')
+
+    # ── 知识库「移到已删除」新接口的固定回执 ────────────────────────────────
+    # 存储层的校验文案是对着人写的、白名单内的才原样透出；其余一律脱敏，
+    # 库路径、SQL、正文与原始异常永远不落到前端。换了文案就退到通用提示，失败方向是安全的。
+    TRASH_ID_PATTERN = r'[a-f0-9]{32}'
+    TRASH_HASH_PATTERN = r'[a-f0-9]{64}'
+    TRASH_SAFE_MESSAGES = frozenset({
+        '请选择 1–50 条知识', '资料编号格式无效', '请在确认后提交删除', '删除请求包含无效字段',
+        '资料版本信息缺失或无效，请重新预览后再删除', '资料不存在，请重新检索',
+    })
+
     def log_message(self, *args):
         pass
 
     def trusted(self):
         return self.headers.get('Host') in (f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}')
 
+    # ── 知识库「移到已删除」：局部处理函数（只有这 4 条路由用得到）──────────
+    #
+    # 不碰 resolve 日志、x-official 路由和其他路由；异常映射也只在这几条里生效，
+    # 全服务器的既有 400/409 语义一个字不动。
+
+    def trash_error(self, status, code, message):
+        return self.reply(status, {'error': message, 'code': code})
+
+    def trash_invalid(self, message='请求格式无效'):
+        return self.trash_error(400, 'INVALID_REQUEST', message)
+
+    def trash_safe_failure(self, exc):
+        """存储层抛出来的：白名单文案原样透出，其余全部脱敏，不回显原始异常。"""
+        message = str(exc) if isinstance(exc, ValueError) else ''
+        if message in self.TRASH_SAFE_MESSAGES:
+            return self.trash_invalid(message)
+        return self.trash_error(500, 'STORE_ERROR', '这次操作结果未确认，请刷新已删除列表核对')
+
+    def trash_ids(self, payload):
+        """只接受 {ids} 一个字段、1–50 个 32 位小写 hex。返回 None 表示整体非法（零变更）。"""
+        if not isinstance(payload, dict) or set(payload) != {'ids'} or not isinstance(payload['ids'], list):
+            return None
+        if not 1 <= len(payload['ids']) <= 50:
+            return None
+        if any(not isinstance(value, str) or not re.fullmatch(self.TRASH_ID_PATTERN, value) for value in payload['ids']):
+            return None
+        return payload['ids']
+
+    def trash_items(self, payload):
+        """只接受 {items, confirm}；confirm 必须是 JSON 的 true，其余一律整体非法。"""
+        if not isinstance(payload, dict) or set(payload) != {'items', 'confirm'} or payload['confirm'] is not True:
+            return None
+        items = payload['items']
+        if not isinstance(items, list) or not 1 <= len(items) <= 50:
+            return None
+        for item in items:
+            if not isinstance(item, dict) or set(item) != {'id', 'expected_hash'}:
+                return None
+            if not isinstance(item['id'], str) or not re.fullmatch(self.TRASH_ID_PATTERN, item['id']):
+                return None
+            if not isinstance(item['expected_hash'], str) or not re.fullmatch(self.TRASH_HASH_PATTERN, item['expected_hash']):
+                return None
+        return items
+
+    @staticmethod
+    def trash_bounded(query, key, default, maximum, minimum=0):
+        """列表参数必须是 minimum..maximum 的十进制整数。
+
+        没给就用默认值；给了就必须合法 —— `limit=` 这种显式空值算非法，不蒙混成默认值。
+        """
+        if key not in query:
+            return default
+        raw = query[key][0] if len(query[key]) == 1 else ''
+        if not re.fullmatch(r'\d{1,9}', raw):
+            raise ValueError(key)
+        value = int(raw)
+        if not minimum <= value <= maximum:
+            raise ValueError(key)
+        return value
+
+    def knowledge_trash_preview(self, payload):
+        ids = self.trash_ids(payload)
+        if ids is None:
+            return self.trash_invalid('请选择 1–50 条知识再预览')
+        try:
+            return self.reply(200, self.server.store.knowledge.trash_preview(ids))
+        except sqlite3.OperationalError:
+            return self.trash_error(503, 'STORE_BUSY', '知识库正在更新，请稍后刷新核对')
+        except Exception as exc:  # noqa: BLE001 - 新接口的失败一律走脱敏映射，不改全服务器语义
+            return self.trash_safe_failure(exc)
+
+    def knowledge_trash_commit(self, payload):
+        if not isinstance(payload, dict) or payload.get('confirm') is not True:
+            return self.trash_invalid('请在确认后提交删除')
+        items = self.trash_items(payload)
+        if items is None:
+            return self.trash_invalid('删除请求包含无效字段')
+        try:
+            # 事务提交后才会有 deleted：提交阶段失败会整批回滚，异常向上抛，下面一律不报成功。
+            receipt = self.server.store.knowledge.trash_many(items, confirm=True)
+            return self.reply(200, {**receipt, 'codes': TRASH_GROUP_CODES, 'conflicts': [self.trash_conflict(c) for c in receipt['conflicts']]})
+        except sqlite3.OperationalError:
+            return self.trash_error(503, 'STORE_BUSY', '知识库正在更新，请稍后刷新核对')
+        except Exception as exc:  # noqa: BLE001 - 同上，失败不外泄
+            return self.trash_safe_failure(exc)
+
+    @staticmethod
+    def trash_conflict(conflict):
+        """冲突项带稳定提示码：页面据此说「预览后资料已更新」，不自动替用户重发。"""
+        return {**conflict, 'code': 'VERSION_CONFLICT'}
+
+    def knowledge_trash_restore(self, payload):
+        ids = self.trash_ids(payload)
+        if ids is None:
+            return self.trash_invalid('请选择 1–50 条知识再恢复')
+        try:
+            return self.reply(200, self.server.store.knowledge.restore_many(ids))
+        except sqlite3.OperationalError:
+            return self.trash_error(503, 'STORE_BUSY', '知识库正在更新，请稍后刷新核对')
+        except Exception as exc:  # noqa: BLE001 - 同上
+            return self.trash_safe_failure(exc)
+
+    def knowledge_trash_page(self):
+        # 自己重新解析 query（keep_blank_values）：`limit=` 这种显式空值要当非法处理，
+        # 而不是悄悄用默认值蒙混过去。do_GET 的解析方式一个字不动。
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+        try:
+            offset = self.trash_bounded(query, 'offset', 0, 100000)
+            limit = self.trash_bounded(query, 'limit', 30, 50, minimum=1)
+        except ValueError:
+            return self.trash_invalid('分页参数无效')
+        if set(query) - {'offset', 'limit'} or any(len(values) != 1 for values in query.values()):
+            return self.trash_invalid('分页参数无效')
+        try:
+            return self.reply(200, self.server.store.knowledge.trash_list(offset, limit))
+        except sqlite3.OperationalError:
+            return self.trash_error(503, 'STORE_BUSY', '知识库正在更新，请稍后刷新核对')
+        except Exception as exc:  # noqa: BLE001 - 同上
+            return self.trash_safe_failure(exc)
+
+    @staticmethod
+    def reference_receipt(document):
+        """收藏回执：重复收藏命中已删除的资料时，如实带回隐藏事实与统一提示码。
+
+        旧键与新键两条重复分支都走这里，页面因此能统一处理：命中隐藏资料不显示
+        「收藏成功」，改为提示可在「已删除」里显式恢复 —— 收藏与同步都不是复活通道。
+        传入的 document 必须已带 duplicate 标记；不自动恢复，也不改 document_id/hash。
+        """
+        if document.get('duplicate'):
+            return {**document, 'duplicate': True,
+                    'code': 'ALREADY_TRASHED' if document.get('trashed') else 'DUPLICATE'}
+        return {**document, 'code': 'COLLECTED'}
+
+    def _resolve_request(self):
+        """只判断「是不是重新解析这一条路由」，不把 self.path 或 id 留到别处。"""
+        try:
+            segments = urlsplit(self.path).path.strip('/').split('/')
+        except ValueError:
+            return None
+        return segments[2] if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'resolve' else None
+
+    @staticmethod
+    def _drop_ref(drop_id):
+        """可关联但不可还原：回收项 id 的单向摘要，不是 id 本身。"""
+        return 'd' + hashlib.sha256(str(drop_id).encode()).hexdigest()[:12]
+
+    @staticmethod
+    def _error_kind(status, outcome):
+        # 只在真发出响应时按状态分类；「什么都没发出」由入口的初始值 unexpected 负责，
+        # 那里是唯一知道「请求没走到 reply」的地方。
+        if status == 403:
+            return 'forbidden'
+        if status == 413:
+            return 'too_large'
+        if status == 404:
+            return 'not_found'
+        if not 200 <= status < 300:
+            return 'bad_request'
+        return 'fetch_failed' if outcome == 'failed' else 'none'
+
+    def _log_resolve(self, context):
+        """写一行到进程 stderr。日志自己失败绝不能改写业务结果。"""
+        line = json.dumps({'method': 'POST', 'path': self.RESOLVE_LOG_PATH,
+                           'status': context['status'], 'outcome': context['outcome'],
+                           'error_kind': context['error_kind'], 'drop_ref': context['drop_ref'],
+                           'elapsed_ms': max(0, round((time.monotonic() - context['started']) * 1000))},
+                          ensure_ascii=False, separators=(',', ':'))
+        try:
+            sys.stderr.write(line + '\n')
+            sys.stderr.flush()
+        except OSError:
+            pass
+
     def reply(self, status, data, mime='application/json; charset=utf-8'):
+        context = getattr(self, '_resolve_log', None)
+        if context is not None:
+            # 只记本次请求「打算回什么」，不是「客户端已经收到」：写 body 可能失败。
+            outcome = data.get('outcome') if isinstance(data, dict) else None
+            context['outcome'] = outcome if outcome in self.RESOLVE_OUTCOMES else 'unknown'
+            context['status'] = status
+            context['error_kind'] = self._error_kind(status, context['outcome'])
         body = json.dumps(data, ensure_ascii=False).encode() if not isinstance(data, bytes) else data
         self.send_response(status)
         self.send_header('Content-Type', mime)
@@ -630,6 +1313,9 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parts.query)
         store = self.server.store
         try:
+            if parts.path.startswith('/api/x-official/'):
+                from publishing.x_official import get_route
+                return get_route(self, parts, query)
             if parts.path == '/api/sources/wechat/status':
                 return self.reply(200, store.wechat_source.status())
             if parts.path == '/api/sources/wechat/results':
@@ -752,7 +1438,14 @@ class Handler(BaseHTTPRequestHandler):
             if parts.path == '/api/knowledge/search':
                 return self.reply(200, store.knowledge.search(query.get('q', [''])[0], query.get('kind', [''])[0], query.get('tag', [''])[0], query.get('offset', [0])[0], query.get('source', [''])[0]))
             if len(segments) == 4 and segments[:3] == ['api', 'knowledge', 'document']:
-                return self.reply(200, store.knowledge.document(segments[3]))
+                try:
+                    document = store.knowledge.document(segments[3])
+                except ValueError:
+                    # 没有正文：只给安全回执，不把「不存在」说成已移出检索。
+                    return self.trash_error(404, 'DOCUMENT_NOT_FOUND', '资料不存在，请重新检索')
+                return self.reply(200, document)
+            if parts.path == '/api/knowledge/trash':
+                return self.knowledge_trash_page()
             if len(segments) == 4 and segments[:3] == ['api', 'knowledge', 'dossier']:
                 return self.reply(200, store.knowledge.dossier(segments[3]))
             if len(segments)==2 and segments[0]=='chat-attachments' and re.fullmatch(r'[a-f0-9]{32}\.png',segments[1]):
@@ -870,6 +1563,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': str(exc)})
 
     def do_POST(self):
+        # 只有重新解析这一条路由记日志。入口每次清空上下文：keep-alive 上一次的状态不会串到下一次。
+        drop_id = self._resolve_request()
+        # 初始 error_kind 就是「还没发出任何响应」，未预期异常走到 finally 时会原样带出去。
+        self._resolve_log = None if drop_id is None else {'started': time.monotonic(), 'status': None,
+                                                          'outcome': 'unknown', 'error_kind': 'unexpected',
+                                                          'drop_ref': self._drop_ref(drop_id)}
+        try:
+            self._post_routes()
+        finally:
+            context, self._resolve_log = self._resolve_log, None
+            if context is not None:
+                self._log_resolve(context)
+
+    def _post_routes(self):
         allowed_origins = {f'http://127.0.0.1:{self.server.server_port}', f'http://localhost:{self.server.server_port}'}
         if not self.trusted() or self.headers.get('Origin') not in allowed_origins or self.headers.get('X-Article-Studio') != '1':
             return self.reply(403, {'error': '请求来源不受支持'})
@@ -879,6 +1586,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': '无效文件长度'})
         route = urlsplit(self.path)
         segments = route.path.strip('/').split('/')
+        if segments == ['api', 'x-official', 'upload']:
+            try:
+                from publishing.x_official import service
+                name = parse_qs(route.query).get('name', [''])[0]
+                return self.reply(201, service(self.server).upload_local(self.rfile, length, name))
+            except (OSError, ValueError, KeyError) as exc:
+                self.close_connection = True
+                return self.reply(400, {'error': str(exc)})
         if segments == ['api', 'generation', 'reference-upload']:
             try:
                 options = parse_qs(route.query)
@@ -930,6 +1645,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if segments[:2] == ['api', 'x-official']:
+                from publishing.x_official import post_route
+                return post_route(self, route.path, payload)
             if segments == ['api','sources','wechat','run']:
                 if not isinstance(payload,dict) or set(payload)!={'kind'} or payload['kind'] not in ('clues','radar'):
                     raise ValueError('请选择已有微信线索或雷达分析任务')
@@ -1127,6 +1845,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200 if payload.get('id') else 201, result)
                 except EventConflict as exc:
                     return self.reply(409, {'error': str(exc)})
+            if segments == ['api', 'knowledge', 'trash', 'preview']:
+                return self.knowledge_trash_preview(payload)
+            if segments == ['api', 'knowledge', 'trash', 'restore']:
+                return self.knowledge_trash_restore(payload)
+            if segments == ['api', 'knowledge', 'trash']:
+                return self.knowledge_trash_commit(payload)
             if segments == ['api', 'knowledge', 'sync']:
                 return self.reply(202, self.server.store.knowledge.start_sync(payload.get('source')))
             if segments == ['api', 'knowledge', 'wechat', 'capture']:
@@ -1158,8 +1882,8 @@ class Handler(BaseHTTPRequestHandler):
                 if legacy:
                     document = knowledge.document(legacy)
                     document['duplicate'] = True
-                    return self.reply(201, document)
-                return self.reply(201, knowledge.add_reference(payload))
+                    return self.reply(201, self.reference_receipt(document))
+                return self.reply(201, self.reference_receipt(knowledge.add_reference(payload)))
             if segments == ['api', 'knowledge', 'dossier']:
                 return self.reply(201, self.server.store.knowledge.save_dossier(payload))
             if segments == ['api', 'knowledge', 'draft']:
@@ -1249,7 +1973,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.store.scan(force=True)
                 return self.reply(200, self.server.store.listing())
             if len(segments) == 3 and segments[:2] == ['api', 'save']:
-                return self.reply(200, self.server.store.save(segments[2], payload))
+                return self.reply(200, self.server.store.save(segments[2], payload, from_editor=True))
+            if len(segments) == 3 and segments[:2] == ['api', 'reflow']:
+                return self.reply(200, self.server.store.reflow(segments[2], payload))
+            if len(segments) == 3 and segments[:2] == ['api', 'markdown-signals']:
+                return self.reply(200, self.server.store.markdown_signals(segments[2], payload))
             if len(segments) == 3 and segments[:2] == ['api', 'restore']:
                 return self.reply(200, self.server.store.restore(segments[2], payload))
             return self.reply(404, {'error': '操作不存在'})

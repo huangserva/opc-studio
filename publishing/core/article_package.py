@@ -31,6 +31,26 @@ NS = {
 W, R = NS['w'], NS['r']
 MARKER = re.compile(r'⟦XARTICLE_IMAGE_\d+⟧')
 
+# 样式积木在离线预览 article.html 里的展示样式；色板/段距/hr/mark 与 style.css 同值（L1），
+# 段距用相对单位 em，随字号缩放，与作品页计算样式一致。
+RICH_PREVIEW_CSS = (
+    '[data-color=red]{color:#d63031}[data-color=blue]{color:#2f6fe4}'
+    '[data-color=green]{color:#1e8e4f}[data-color=orange]{color:#d97a1a}'
+    '[data-color=gray]{color:#7c8396}[data-color=accent]{color:#4263eb}'
+    # 高亮只给底色：mark 要 color:inherit 沿用父级颜色，但 [data-hl] 与 [data-color]
+    # 是同优先级的独立积木，写在一起会让黄底盖掉红字（第 13 轮验收 M2）。
+    'mark{background:#fff3ad;color:inherit;padding:0 2px;border-radius:3px}'
+    '[data-hl=yellow]{background:#fff3ad;padding:0 2px;border-radius:3px}'
+    '[data-hl=green]{background:#d3f2d9;padding:0 2px;border-radius:3px}'
+    '[data-hl=pink]{background:#ffd9e2;padding:0 2px;border-radius:3px}'
+    '[data-size=s]{font-size:14px}[data-size=m]{font-size:16px}'
+    '[data-size=l]{font-size:20px}[data-size=xl]{font-size:26px}'
+    '[data-align=left]{text-align:left}[data-align=center]{text-align:center}'
+    '[data-align=right]{text-align:right}[data-indent="2"]{text-indent:2em}'
+    '[data-space=tight]{margin:.4em 0}[data-space=normal]{margin:.9em 0}'
+    '[data-space=loose]{margin:1.6em 0}hr{border:none;border-top:2px solid #dfe4ee;margin:30px 0}'
+)
+
 
 
 
@@ -453,7 +473,7 @@ def finalize_package(out, title, cover, blocks, source_hash, warnings, source_te
     paste = ''.join(b['html'] if b['kind'] == 'text' else '<p>' + b['marker'] + '</p>' for b in blocks)
     body_html = ''.join(b['html'] if b['kind'] == 'text' else '<p><img src="' + html.escape(b['file'], quote=True) + '" alt=""></p>' for b in blocks)
     cover_html = '<img src="' + html.escape(cover['file'], quote=True) + '" alt="封面">' if cover else ''
-    preview = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>' + html.escape(title) + '</title><style>body{max-width:900px;margin:40px auto;padding:24px;font:20px/1.8 system-ui}img{max-width:100%}blockquote{background:#f3f5f7;padding:16px}h1{line-height:1.4}</style><h1>' + html.escape(title) + '</h1>' + cover_html + body_html + '</html>'
+    preview = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>' + html.escape(title) + '</title><style>body{max-width:900px;margin:40px auto;padding:24px;font:16px/1.8 system-ui}img{max-width:100%}blockquote{background:#f3f5f7;padding:16px}h1{line-height:1.4}' + RICH_PREVIEW_CSS + '</style><h1>' + html.escape(title) + '</h1>' + cover_html + body_html + '</html>'
     files = {'paste-body.html': paste, 'article.html': preview,
              'body-text.txt': '\n'.join(b.get('display_text', b.get('text', '')) for b in blocks if b['kind'] == 'text')}
     for name, data in files.items():

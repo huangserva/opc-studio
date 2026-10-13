@@ -6,7 +6,14 @@
 node tests/e2e/run.cjs
 ```
 
-前提：合同指定的 `../article-importer/.venv/bin/python` 可导入工作台依赖、Node 可运行项目 `pi-runtime/`、本机已有 Chrome。Playwright 优先读取本目录安装包，也支持 `E2E_PLAYWRIGHT_PATH`；当前宿主已有 Codex runtime 的 Playwright 时可直接复用。缺依赖会明确失败，不会在运行时联网安装。
+前提（离线执行，全部需预先具备，运行时不会联网安装）：合同指定的 `../article-importer/.venv/bin/python` 可导入工作台依赖，其中 Pillow 可能来自该解释器的 user site（`site.getusersitepackages()`）；Node 可运行项目 `pi-runtime/`；本机已安装 Chrome，且已装好 Playwright（优先读本目录安装包，也支持 `E2E_PLAYWRIGHT_PATH`，当前宿主已有 Codex runtime 的 Playwright 时可直接复用）。副本若缺少 `pi-runtime/node_modules`，可设 `ARTICLE_STUDIO_PI_MODULES` 指向正式仓库的 `pi-runtime/node_modules`（只作只读符号链接来源）。缺依赖会明确失败。
+
+套件会继承调用者的环境变量，跑之前请勿带正式服务的 `ARTICLE_STUDIO_*` 配置（例如 `ARTICLE_STUDIO_MODEL_CONFIG`、`ARTICLE_STUDIO_PI_MODULES` 之外的正式部署项），以免干扰隔离夹具。
+
+环境变量用法：
+- `E2E_ONLY=27,28`：只跑指定用例（逗号分隔，支持前缀，如 `E2E_ONLY=01` 匹配 `01-*`）；不设则跑全部。
+- `E2E_SUITE_TIMEOUT_MS=20000`：整套总预算毫秒数；非法或非正值回退默认 900000（15 分钟）。
+- `E2E_BROWSER=chromium`、`E2E_HEADED=1`：见下。
 
 在其他宿主准备依赖（单独执行，不属于离线测试运行）：
 
@@ -54,7 +61,7 @@ npm install --prefix tests/e2e
 
 14. 组合图片实际格式：真实 Chrome 表单分别收下“链接 + 无后缀 PNG（noext）”和“文字 + 名为 fake.jpg 的 PNG”。回读真实 `/api/intake/{id}/file`，核对 `Content-Type=image/png`、原图 SHA256 和页面内解码 `naturalWidth>0`。列表没有内建图片预览，测试在本条 DOM 内插入明确标识的 `<img>` 探针，直接读取产品文件接口，不拦截或伪造图片响应。保存两条的响应类型、哈希、解码事件、截图。`fixes-a2-report.md` 不存在时仅记 `known_defect_reproduction`；报告存在时自动开启严格断言，任一类型、字节或解码不符都失败。收下、解析、分析或文件回读初始化失败始终失败。
 
-整套有 300 秒总超时。超时会关掉浏览器、用同一套清理停掉临时进程、删掉临时 workspace，并以失败退出，避免留下无头 Chrome。
+整套默认 900 秒总超时（可用 `E2E_SUITE_TIMEOUT_MS` 覆盖，见上）。超时会关掉浏览器、停掉临时进程、删掉临时 workspace，并以失败退出，避免留下无头 Chrome。模型服务的关闭有 3 秒上限，并会先强制销毁套件自己持有的连接（`closeAllConnections`）；模型响应未结束也不会卡住清理，`cleanup` 里如实记录 `modelServerClosed` / `modelServerTimedOut`，不谎报已停止。
 
 15–19（`batch_delete.cjs`，真实隔离服务与 Chrome，不模拟删除接口）：
 
@@ -67,3 +74,9 @@ npm install --prefix tests/e2e
 每例保存截图及实际行为 JSON。断言失败保留为失败，不跳过或放宽。测试只清理临时工作区回收项，不访问8766/3000，不重启生产或调用外网、真实模型。
 
 27/28：`E2E_ONLY=27,28 node tests/e2e/run.cjs` 定向验证平台角标/慢额度、汇总查询失败。启动器只对临时fixture进程设置E2E_STATUS_SUMMARY=1；server_fixture直接运行默认关闭。注入另需临时工作区status-summary-control.json逐用例启用，01–26未启用。仅替换外部状态/额度读取和汇总查询异常，页面、API、删除及状态缓存走产品真实代码；不访问生产服务。
+
+29（`knowledge_trash.cjs` `e6266fc93176`，自带服务与浏览器的独立联调套件）：以子进程登记进 `run.cjs`，作为整套第 29 例（`E2E_ONLY=29` 可单独跑）。真实 Chrome 跑知识库软删除全路径：勾选→预览→取消（零写入）→确认移到已删除→列表/检索/计数不再出现→重复收藏命中已删除不复活并提示→已删除列表分页→界面恢复→历史引用 `document/<id>` 仍可读并带「已移出常规检索」标记→版本冲突单项提示→375/1280 宽排版→后端停掉页面不卡忙态。该套件自带独立端口与临时 workspace，与整套同时运行互不干扰，但耗时会叠加；登记时按整套剩余预算封顶，超时按进程组终止，避免残留 Chrome/服务。
+
+29 的兜底归属（返修 c）：归属由父进程持有，不靠清单自洽。第 29 例的 temp 由 `run.cjs` 在启动子套件前 `mkdtemp` 预建并持有（空目录，workspace/home 由子套件在里面建），路径经 `E2E_TRASH_TEMP` 传给 `knowledge_trash.cjs`；父套件同时持有本轮 runId、子套件 PID 与其 spawn 时刻的 lstart。超时兜底先过 `manifestOwnership` 归属门：清单 runId/temp/tempReal 必须等于父持有值，suitePid 必须等于本轮子套件 PID（其还活着时 lstart 还得与父记录一致）；不过门就停止全部清单兜底（不杀、不删）并记录原因。过门后再核服务身份：按 `serviceArgv` 逐段精确比对命令行（脚本 + `--workspace` 本轮 workspace + `--port` 端口，不用 includes），可执行段必须是存在的 python 解释器，端口不得是 8766/3000/18766，lstart 与登记一致，kill 前再复核一次；目录兜底只接受父持有的那个目录，不传 ownership 的旧调用一律拒删；最后父套件无条件回收自己 mkdtemp 的目录。`E2E_TRASH_SELFTEST=1 node tests/e2e/run.cjs` 跑 13 项归属自测（含复审给出的 sameNameForeign、wrongRunDirectory 两个反例与一个真实泄漏子套件的正控），不创建父套件临时目录、也不留空的证据目录。
+
+30（`content_markdown.cjs` `0a89406d0725`，自带服务与浏览器的独立联调套件）：以子进程登记进 `run.cjs`，作为整套第 30 例（`E2E_ONLY=30` 可单独跑），接入规范与 29 相同：本轮 runId 经 `E2E_CM_RUN_ID` 传入、身份清单经 `E2E_CM_MANIFEST` 落盘；预算按整套剩余额度封顶（可用 `E2E_CM_BUDGET_MS` 单独压低），超时按进程组终止；子套件收到 SIGTERM 就地自回收（detached 服务、浏览器、临时目录）并落盘结果；父套件兜底回收前核对 runId/服务启动时刻/fixture/workspace/temp 全部身份一致，temp 前缀限定 `studio-markdown-e2e-`，核对不过拒杀拒删，不按端口/名称误杀他人。（返修 c 后：`manifestServiceFallback`/`manifestTempFallback` 都要求父套件持有的预期值，而第 30 例还没传 `E2E_CM_TEMP`，所以上述两条清单兜底会如实拒杀拒删并记录原因（fail closed）；#30 在 markdown 新底座上重做时应照 29 让父套件预建 temp 并传下去，届时兜底自动恢复。）真实 Chrome 跑正文 Markdown 全路径：修复前导入的作品正文保留 `##` 标题、`**` 粗体、`-` 列表字面量（截图）→编辑态点「按 Markdown 重新排版」生成新版本且旧版本保留可回退（截图）→创作助手按黄总原话（Markdown 格式没做好要改一改、通篇要你自己判断）自行调用 reflow_markdown 改稿出新版本，回执说明旧版本可回退（截图）→「这段太啰嗦了帮我精简」经 update_text 出新版本、旧版本仍在（截图）→版本记录列出旧版本且回看仍是原文。

@@ -281,14 +281,14 @@ class BufferImageTests(unittest.TestCase):
     def test_upload_rechecks_the_real_file_size(self):
         package = Path(self.temp.name) / 'pkg'
         (package / 'images').mkdir(parents=True)
-        (package / 'images' / 'big.png').write_bytes(b'x' * (5 * 1024 * 1024 + 1))
+        (package / 'images' / 'big.png').write_bytes(b'x' * (20 * 1024 * 1024 + 1))
         manifest = {'blocks': [{'kind': 'text', 'html': '<p>t</p>'}, {'kind': 'image', 'id': 'media-001'}],
                     'body_media': [{'id': 'media-001', 'file': 'images/big.png', 'bytes': 10}]}
         media = self.store._buffer_media(package, manifest)
         self.assertEqual(media['problems'], [])          # the manifest understates the size
         with self.assertRaises(ValueError) as caught:
             self.store._buffer_upload('slug-x', 'v0001', package, media)
-        self.assertIn('5 MB', str(caught.exception))
+        self.assertIn('20 MB', str(caught.exception))
         self.assertEqual(host.methods(self.host, 'PUT'), [])
 
     # --- 4. pre-flight checks -------------------------------------------------
@@ -323,12 +323,16 @@ class BufferImageTests(unittest.TestCase):
         self.assertEqual(alone['problems'], [])
 
     def test_format_and_size_limits_name_the_file(self):
-        media = self.checker([[('a.tiff', 10), ('b.png', 6 * 1024 * 1024)]])
+        media = self.checker([[('a.tiff', 10), ('b.png', 21 * 1024 * 1024)]])
         joined = '；'.join(media['problems'])
         self.assertIn('a.tiff', joined)
         self.assertIn('不支持的图片格式', joined)
         self.assertIn('b.png', joined)
-        self.assertIn('6.0 MB', joined)
+        self.assertIn('21.0 MB', joined)
+
+    def test_images_over_five_mb_up_to_twenty_mb_are_allowed_locally(self):
+        media = self.checker([[('a.png', 6 * 1024 * 1024), ('b.png', 20 * 1024 * 1024)]])
+        self.assertEqual(media['problems'], [])
 
     def test_missing_local_file_is_reported(self):
         media = self.checker([[('a.png', 10)]], unlink=('a.png',))

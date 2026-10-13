@@ -130,7 +130,10 @@ class PlatformLinkTests(unittest.TestCase):
         self.assertNotEqual(first['id'], again['id'])
         self.assertEqual(first['document_id'], again['document_id'])
         self.assertTrue(again['meta']['duplicate'])
-        self.assertEqual(again['outcome'], 'duplicate')
+        # 抓取失败 + 库里已有同篇：失败优先，去重事实照旧如实带出，不能被 duplicate 盖住。
+        self.assertEqual(again['status'], 'failed')
+        self.assertTrue(again['error'])
+        self.assertEqual(again['outcome'], 'failed')
         self.assertEqual(self.store.knowledge.search(kind='external')['total'], 1)
 
     def test_the_same_note_from_another_link_form_files_one_document(self):
@@ -154,7 +157,10 @@ class PlatformLinkTests(unittest.TestCase):
         again = self.drop(XHS_URL)
         self.assertEqual(again['document_id'], XHS_LEGACY_ID)
         self.assertTrue(again['meta']['duplicate'])
-        self.assertEqual(again['outcome'], 'duplicate')
+        # 本次抓取失败（fake_fetch(error=REMIO_DOWN)），失败优先于「已存在」。
+        self.assertEqual(again['status'], 'failed')
+        self.assertTrue(again['error'])
+        self.assertEqual(again['outcome'], 'failed')
         self.assertEqual(self.store.knowledge.search(kind='external')['total'], 1)
         # 回收项上仍然记到了平台与作品编号，只是正文归到旧那篇。
         self.assertEqual(again['meta']['source_item_id'], XHS_NOTE)
@@ -204,7 +210,10 @@ class PlatformLinkTests(unittest.TestCase):
         again = self.drop(DOUYIN_SLASH)
         self.assertEqual(first['document_id'], again['document_id'])
         self.assertTrue(again['meta']['duplicate'])
-        self.assertEqual(again['outcome'], 'duplicate')
+        # 抓取失败 + 命中同篇：仍报 failed，去重键本身没被破坏。
+        self.assertEqual(again['status'], 'failed')
+        self.assertTrue(again['error'])
+        self.assertEqual(again['outcome'], 'failed')
         self.assertEqual(self.store.knowledge.search(kind='external')['total'], 1)
         self.assertEqual(self.doc(again)['provenance']['canonical_url'],
                          'https://www.douyin.com/video/7412345678901234567')

@@ -19,7 +19,7 @@ from intel_public import (ALBUM_REQUEST_BUDGET, PUBLIC_MIN_INTERVAL, SOGOU_REQUE
                           AlbumError, PublicClient, PublicThrottle, SogouBlocked,
                           discover_album_ids)
 from intel_store import LIVE_STALE_REASON, STALE_JOB_SECONDS, Intel
-from intel_wechat_mp import article_url, parse_article
+from intel_wechat_mp import MAX_BODIES_PER_RUN, RateLimited, article_url, parse_article
 from knowledge_store import Knowledge
 from server import Store
 
@@ -501,18 +501,181 @@ class LinklessArticleTests(StoreTestCase):
         self.assertEqual(self.intel.articles(BIZ)['total'], 1)
 
 
+class OutcomeStageTests(StoreTestCase):
+    """prep §2/§3：保存与正文两段的真实计数，以及异常中止的未处理数。"""
+
+    def _two_album_items(self):
+        self.public.album_page = lambda *a, **k: {
+            'title': '占位合集', 'article_count': 2, 'nickname': NAME, 'continue_flag': False,
+            'items': [{'title': '正文甲', 'link': 'https://mp.weixin.qq.com/s/BODY000001',
+                       'published_at': 3, 'msgid': '1', 'itemidx': '1', 'source': 'album'},
+                      {'title': '正文乙', 'link': 'https://mp.weixin.qq.com/s/BODY000002',
+                       'published_at': 2, 'msgid': '2', 'itemidx': '1', 'source': 'album'}]}
+
+    def test_body_partial_failure_reports_partial(self):
+        self.seed_album()
+        self._two_album_items()
+        calls = {'n': 0}
+        original = self.article_client.fetch_article
+
+        def flaky(url):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise ValueError('正文页异常')
+            return original(url)
+
+        self.article_client.fetch_article = flaky
+        done = self.go(bodies=3)
+        self.assertEqual(done['status'], 'partial')
+        body = done['outcome']['body']
+        self.assertEqual(body['state'], 'partial')
+        self.assertEqual(body['attempted'], 2)
+        self.assertEqual(body['succeeded'], 1)
+        self.assertEqual(body['failed'], 1)
+
+    def test_history_probe_and_body_share_budget(self):
+        """抓历史时探测读取与正文共用文章页总预算：effective=MAX_BODIES_PER_RUN-探测。"""
+        link = f'https://mp.weixin.qq.com/s?__biz={BIZ}&mid=123&chksm=fixture'
+        with self.intel.db() as c:
+            c.execute("INSERT INTO link_index(link,fakeid,status,resolved_at) VALUES(?,?,?,?)",
+                      (link, BIZ, 'resolved', '2026'))
+        done = self.go(bodies=3)
+        self.assertIn('探测读取 1 篇', done['detail'])
+        self.assertEqual(done['outcome']['body']['effective_budget'], MAX_BODIES_PER_RUN - 1)
+        self.assertEqual(done['outcome']['body']['requested_budget'], 3)
+
+    def test_zero_body_budget_is_not_requested(self):
+        self.seed_album()
+        done = self.go(bodies=0)
+        self.assertEqual(done['outcome']['body']['state'], 'not_requested')
+        self.assertEqual(done['outcome']['body']['requested_budget'], 0)
+        self.assertEqual(self.article_client.bodies, [])
+
+    def test_missing_link_placeholder_is_saved_not_failed(self):
+        """无链接的搜狗条目存成占位，是保存成功，不算保存失败。"""
+        self.public.hits = [{'account': NAME, 'title': '只有标题', 'published_at': 1, 'sogou_link': 'x'}]
+        done = self.go(sogou=True)
+        save = done['outcome']['save']
+        self.assertEqual(save['failed'], 0)
+        self.assertEqual(save['succeeded'], 1)
+        self.assertEqual(save['new'], 1)
+        row = next(r for r in self.intel.articles(BIZ)['articles'] if r['title'] == '只有标题')
+        self.assertEqual(row['link_ok'], 0)
+        self.assertEqual(done['status'], 'done')
+
+    def test_unexpected_abort_counts_not_attempted(self):
+        """首条保存抛未预期异常：记录 attempted/not_attempted，已提交成果保留，终态 error。"""
+        self.seed_album()
+        self.public.album_page = lambda *a, **k: {
+            'title': '占位合集', 'article_count': 3, 'nickname': NAME, 'continue_flag': False,
+            'items': [{'title': f'中止{i}', 'link': f'https://mp.weixin.qq.com/s/ABORT0000{i}',
+                       'published_at': 3 - i, 'msgid': str(i), 'itemidx': '1', 'source': 'album'}
+                      for i in range(1, 4)]}
+
+        def boom(*a, **k):
+            raise RuntimeError('落库炸了')
+
+        self.intel._upsert_article = boom
+        done = self.go()
+        self.assertEqual(done['status'], 'error')
+        save = done['outcome']['save']
+        self.assertEqual(save['succeeded'], 0)
+        self.assertEqual(save['attempted'], 1)
+        self.assertEqual(save['not_attempted'], 2)
+        self.assertEqual(done['outcome']['list']['state'], 'complete')
+
+    def _three_album_items(self):
+        self.public.album_page = lambda *a, **k: {
+            'title': '占位合集', 'article_count': 3, 'nickname': NAME, 'continue_flag': False,
+            'items': [{'title': f'条目{i}', 'link': f'https://mp.weixin.qq.com/s/SAVE0000{i}',
+                       'published_at': 3 - i, 'msgid': str(i), 'itemidx': '1', 'source': 'album'}
+                      for i in range(1, 4)]}
+
+    def test_second_save_runtime_error_counts_failure_and_body_not_started(self):
+        """M2 探针3：第二条保存抛 RuntimeError → 记一次 failed（attempted=succeeded+failed），
+        正文未开始，不能冒充「无需读取」或「完成」。"""
+        self.seed_album()
+        self._three_album_items()
+        original = self.intel._upsert_article
+        calls = {'n': 0}
+
+        def flaky(identifier, item, job_id, connection=None):
+            calls['n'] += 1
+            if calls['n'] == 2:
+                raise RuntimeError('第二条炸了')
+            return original(identifier, item, job_id, connection)
+
+        self.intel._upsert_article = flaky
+        done = self.go(bodies=3)
+        self.assertEqual(done['status'], 'partial')
+        save = done['outcome']['save']
+        self.assertEqual(save['attempted'], 2)
+        self.assertEqual(save['succeeded'], 1)
+        self.assertEqual(save['failed'], 1, '未预期的保存异常也要记一次 failed')
+        self.assertEqual(save['not_attempted'], 1)
+        self.assertEqual(save['attempted'], save['succeeded'] + save['failed'])
+        self.assertEqual(done['outcome']['list']['selected'],
+                         save['attempted'] + save['not_attempted'])
+        body = done['outcome']['body']
+        self.assertEqual(body['state'], 'not_started')
+        self.assertNotIn('正文无需读取', done['outcome']['summary'])
+        self.assertNotIn('待确认', done['outcome']['summary'])
+        self.assertIn('正文未开始', done['outcome']['summary'])
+        self.assertEqual(self.intel.articles(BIZ)['total'], 1, '已提交的第一条要保留')
+
+    def test_body_rate_limit_reports_remaining_range(self):
+        """M3 探针4：正文首条限流停止后，仍要统计剩余可读未读（不能因 break 记 0），
+        停止的这次尝试规范地计入失败；外网失败不算预算跳过。"""
+        self.seed_album()
+        self._three_album_items()
+        self.article_client.fetch_article = lambda url: (_ for _ in ()).throw(
+            RateLimited('正文页限流（200013）', until=0))
+        done = self.go(bodies=3)
+        self.assertEqual(done['status'], 'partial')
+        body = done['outcome']['body']
+        self.assertEqual(body['state'], 'failed')
+        self.assertEqual(body['attempted'], 1)
+        self.assertEqual(body['succeeded'], 0)
+        self.assertEqual(body['failed'], 1)
+        self.assertTrue(body['stopped'])
+        self.assertEqual(body['eligible_remaining'], 2, '限流后仍要统计剩余可读未读')
+        self.assertEqual(body['skipped_budget'], 0, '外网失败不算预算跳过')
+        self.assertIn('另有 2 篇未读', done['outcome']['summary'])
+        self.assertNotIn('正文无需读取', done['outcome']['summary'])
+
+    def test_body_budget_skip_is_recorded_in_skipped_budget(self):
+        """M3 探针5：正常预算 bodies=1、3 条可读 pending → 选 1 篇，另 2 篇记预算内未选中。"""
+        self.seed_album()
+        self._three_album_items()
+        done = self.go(bodies=1)
+        self.assertEqual(done['status'], 'done')
+        body = done['outcome']['body']
+        self.assertEqual(body['state'], 'complete')
+        self.assertEqual(body['attempted'], 1)
+        self.assertEqual(body['succeeded'], 1)
+        self.assertEqual(body['skipped_budget'], 2, '预算内未选中的条目要记 skipped_budget')
+        self.assertEqual(body['eligible_remaining'], 2)
+        self.assertIn('另有 2 篇未读', done['outcome']['summary'])
+
+
 class UnexpectedErrorTests(StoreTestCase):
     def test_worker_never_leaves_a_job_stuck_in_running(self):
-        """工作线程里的意外异常绝不能让任务永远停在 running。"""
+        """工作线程里的意外异常绝不能让任务永远停在 running。
+
+        合集请求抛未预期异常、整轮中止、没有任何一路查询成功：按 prep §3 行1，
+        列表阶段 failed → 终态 error（不再只允许 done/partial），且不挂 active。
+        """
 
         def boom(*a, **k):
             raise RuntimeError('合成故障')
         self.public.album_page = boom
         self.seed_album()
         done = self.go()
-        self.assertIn(done['status'], ('done', 'partial'))
+        self.assertEqual(done['status'], 'error')
+        self.assertEqual(done['outcome']['list']['state'], 'failed')
         self.assertIn('未预期', done['detail'])
         self.assertNotIn(done['status'], ('running', 'queued'))
+        self.assertIsNone(self.intel.active_job())
 
     def test_a_failed_finish_marks_the_job_error_and_releases_the_worker(self):
         original = self.intel._finish_job
@@ -529,13 +692,17 @@ class UnexpectedErrorTests(StoreTestCase):
         self.assertNotIn(done['id'], self.intel.workers)
 
     def test_a_detail_write_failure_keeps_the_finished_status(self):
-        def boom(job_id, detail):
+        """主回执（status/detail/outcome/counts）已同事务原子落库；
+        事后的辅助详情补写失败不能把终态改成 error（prep §6 要求改的旧断言）。"""
+        def boom(job_id, detail, **kwargs):
             raise sqlite3.OperationalError('合成详情失败')
 
         self.intel._write_job_detail = boom
         done = self.go()
         self.assertIn(done['status'], ('done', 'partial'))
         self.assertNotEqual(done['status'], 'error')
+        self.assertTrue(done['detail'], '主回执应已原子写入，不依赖辅助补写')
+        self.assertIsNotNone(done['outcome'])
         self.assertNotIn(done['id'], self.intel.workers)
 
     def test_a_live_process_interrupts_only_expired_running_jobs(self):

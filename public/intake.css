@@ -99,3 +99,15 @@
 .in-batch .in-batch-delete{margin-left:auto;color:#a85c4c;border-color:#e7d3cc;background:#fffafa}
 .in-batch .in-batch-delete:disabled{opacity:.45;cursor:not-allowed}
 .in-item .in-check{width:16px;height:16px;accent-color:#4263eb;cursor:pointer}
+/* 写作入口（方案 A）：只给去处，不自动建资料夹/底稿；失败行不用「已收录」盖住错误 */
+.in-writing{margin:13px 0 0;padding:11px 13px;border:1px solid #dfe5f1;border-left:3px solid #8fbfa4;border-radius:10px;background:#fbfdfb}
+.in-writing p{font-size:12px;line-height:1.8;color:#4c5c7c;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.in-writing-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:9px}
+.in-writing-actions .button{font-size:11px;padding:5px 11px}
+.in-writing-primary{color:#2f6b4f;border-color:#c3ddcb;background:#f4fbf6}
+.in-writing-quiet{color:#8795ae}
+.in-writing-duplicate{border-left-color:#d9bd85;background:#fffdf7}
+.in-writing-linkonly{border-left-color:#a9c6d8;background:#fafdff}
+.in-writing-failed{border-left-color:#d39184;background:#fffbfa}
+.in-writing-failed p{color:#a85c4c}
+.in-analysis-block li .in-use-angle{display:inline-block;margin-top:5px;font-size:11px;padding:4px 10px}

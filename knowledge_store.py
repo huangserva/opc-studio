@@ -33,6 +33,18 @@ def safe_url(value):
     return value if value.startswith('/?article=') or urlsplit(value).scheme in ('http', 'https') else ''
 
 
+# 退出正常检索的统一口径：手动移到「已删除」的正文仍在 documents 里（历史引用照常读原文），
+# 但常规检索、分页计数和来源统计一律不数它。过滤条件只有这一份，别处不要另写一套。
+NOT_TRASHED = 'NOT EXISTS(SELECT 1 FROM document_trash t WHERE t.document_id=d.id)'
+# 跨库引用统计：只数有现成批量接口、且读得到的那几类。作品/线索/事项没有批量接口，
+# 一律留在 unknown 里如实写「未统计」，不为了好看的 0 去全盘扫描。
+# 元组：键、unknown 标签、库文件名、表名、refs JSON 列（无则 None）。提示词卡额外从 refs 里数引用。
+CROSS_REFERENCE_TABLES = (('recycle_drops', '回收项', 'intake.db', 'drops', None),
+                         ('prompt_cards', '提示词卡', 'cards.db', 'cards', 'refs'))
+UNKNOWN_REFERENCE_LABELS = ('作品与底稿引用', '线索与事项证据')
+TRASH_LIMIT = 50
+
+
 class Knowledge:
     def __init__(self, store, sources=None):
         self.store = store
@@ -68,6 +80,8 @@ class Knowledge:
                 CREATE TRIGGER IF NOT EXISTS document_delete AFTER DELETE ON documents BEGIN INSERT INTO document_fts(document_fts,rowid,title,body) VALUES('delete',old.rowid,old.title,old.body); END;
                 CREATE TRIGGER IF NOT EXISTS document_update AFTER UPDATE ON documents BEGIN INSERT INTO document_fts(document_fts,rowid,title,body) VALUES('delete',old.rowid,old.title,old.body); INSERT INTO document_fts(rowid,title,body) VALUES(new.rowid,new.title,new.body); END;
                 CREATE TABLE IF NOT EXISTS dossiers(id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, modified TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT '');
+                CREATE TABLE IF NOT EXISTS document_trash(document_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL, deleted_hash TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '');
+                CREATE INDEX IF NOT EXISTS document_trash_recent ON document_trash(deleted_at DESC, document_id);
             ''')
             if 'purpose' not in {r['name'] for r in c.execute('PRAGMA table_info(dossiers)')}:
                 c.execute("ALTER TABLE dossiers ADD COLUMN purpose TEXT NOT NULL DEFAULT ''")
@@ -111,10 +125,11 @@ class Knowledge:
 
     def status(self):
         with self.db() as c:
-            rows = c.execute('SELECT s.*,COUNT(d.id) count,MAX(d.modified) latest FROM sources s LEFT JOIN documents d ON d.source=s.id GROUP BY s.id ORDER BY s.rowid').fetchall()
+            rows = c.execute('SELECT s.*,COUNT(d.id) count,MAX(d.modified) latest FROM sources s LEFT JOIN documents d ON d.source=s.id AND ' + NOT_TRASHED + ' GROUP BY s.id ORDER BY s.rowid').fetchall()
             sources = [{**json.loads(r['config']), **{k: r[k] for k in ('status', 'detail', 'synced_at', 'count', 'latest')}} for r in rows]
             dossiers = [dict(r) for r in c.execute('SELECT id,title,modified FROM dossiers ORDER BY modified DESC')]
-            total = c.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
+            # total 是「还能被检索到多少」，与左侧来源计数同一口径；已删除的正文只出现在已删除视图里。
+            total = c.execute('SELECT COUNT(*) FROM documents d WHERE ' + NOT_TRASHED).fetchone()[0]
         for source in sources:
             if source.get('id') == 'wechat' and source.get('backend') == 'collector':
                 source['capture'] = self.capture.status()
@@ -410,6 +425,7 @@ class Knowledge:
                 conditions.append("(d.title LIKE ? ESCAPE '\\' OR d.body LIKE ? ESCAPE '\\')")
                 pattern = '%' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
                 args += [pattern, pattern]
+        conditions.append(NOT_TRASHED)
         if kind:
             conditions.append('d.kind=?')
             args.append(kind)
@@ -439,13 +455,21 @@ class Knowledge:
         return {'results': results, 'total': total, 'offset': offset, 'next_offset': offset + 30 if offset + 30 < total else None}
 
     def document(self, doc_id):
+        """单条正文照旧可读 —— 已有回收项、资料夹、卡片、线索都靠它读原文。
+
+        软删除只加两个只读事实（trashed / deleted_at），不改 hash、不改正文、不改出处：
+        旧引用因此不会因为用户把知识移到「已删除」就断掉。
+        """
         with self.db() as c:
             row = c.execute('SELECT * FROM documents WHERE id=?', (doc_id,)).fetchone()
+            trash = c.execute('SELECT deleted_at FROM document_trash WHERE document_id=?', (doc_id,)).fetchone()
         if not row:
             raise ValueError('资料不存在，请重新检索')
         item = dict(row)
         item['tags'] = json.loads(item['tags'])
         item['provenance'] = json.loads(item['provenance'])
+        item['trashed'] = bool(trash)
+        item['deleted_at'] = trash['deleted_at'] if trash else ''
         return item
 
     def delete_document(self, doc_id, keep_if_referenced_by=None, require_intake_channel=''):
@@ -517,6 +541,257 @@ class Knowledge:
             return {**base, 'referenced': referenced, 'channel': current['channel'] or '',
                     'reason': '知识库已收回归属或改由其他入口登记（出处已不是回收站渠道），未删'}
         return {**base, 'referenced': referenced, 'reason': '还有 %d 行引用这篇正文，未删' % referenced}
+
+    # ── 手动移到「已删除」（可恢复软删除）────────────────────────────────────
+    #
+    # 这一段只写 document_trash 一张独立的标记表，永远不删 documents 行，也不调用
+    # document_removed_hook：正文还在，原文件/remio 笔记、回收项、提示词卡、作品和
+    # 已保存证据都不动。真正的硬删除仍是 delete_document（回收项自动清理走那条路）。
+    TRASH_SEMANTICS = ('移到已删除后：这篇不再出现在常规检索和来源计数里，原文件与 remio 笔记不动；'
+                       '回收项、提示词卡、作品与已保存证据都保留，历史引用仍可打开原文。'
+                       '预览里的引用计数：提示词卡按「引用该文档的卡片数」计，同一张卡的主资料引用与 '
+                       'refs 证据引用指向同一篇时只算一张。'
+                       '可在「已删除」里恢复；这不是彻底抹除，文本仍留在本机。')
+
+    @staticmethod
+    def _document_ids(ids):
+        """数量与编号格式在这里一次挡住；整体非法直接抛错，调用方不留半个改动。"""
+        if not isinstance(ids, list) or not 1 <= len(ids) <= TRASH_LIMIT:
+            raise ValueError('请选择 1–%d 条知识' % TRASH_LIMIT)
+        if any(not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{32}', value) for value in ids):
+            raise ValueError('资料编号格式无效')
+        return list(dict.fromkeys(ids))
+
+    def _cross_reference_counts(self, filename, table, wanted, refs_column=None):
+        """数一处跨库引用（回收项 / 提示词卡）。读不到就是读不到：返回 None，不拿 0 冒充没有。"""
+        path = self.store.workspace / 'inspiration' / filename
+        if not path.is_file():
+            return None
+        try:
+            connection = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
+            try:
+                if refs_column:
+                    return self._card_reference_counts(connection, table, refs_column, wanted)
+                marks = ','.join('?' * len(wanted))
+                rows = connection.execute('SELECT document_id,COUNT(*) n FROM "%s" WHERE document_id IN (%s) GROUP BY document_id'
+                                          % (table, marks), wanted).fetchall()
+            finally:
+                connection.close()
+        except (sqlite3.Error, OSError):
+            return None
+        return {row[0]: row[1] for row in rows}
+
+    def _card_reference_counts(self, connection, table, refs_column, wanted):
+        """提示词卡：主资料列与 refs JSON 里的 document_id 都算，单位是「引用该文档的卡片数」。
+
+        同一张卡既在主资料列又出现在 refs 里指向同一篇时只算一张（按 rowid 去重）。
+        refs 是坏 JSON、不是数组、或数组里不是带 document_id 的对象时，整类返回 None ——
+        读不懂的引用不能静默当 0。
+        """
+        def broken(where):
+            return connection.execute('SELECT COUNT(*) FROM "%s" AS t WHERE %s' % (table, where)).fetchone()[0]
+        if broken('t.%s IS NULL OR json_valid(t.%s)=0' % (refs_column, refs_column)):
+            return None
+        if broken("json_type(t.%s)<>'array'" % refs_column):
+            return None
+        if connection.execute('SELECT COUNT(*) FROM "%s" AS t,json_each(t.%s) AS item'
+                              " WHERE json_type(item.value)<>'object' OR json_extract(item.value,'$.document_id') IS NULL"
+                              % (table, refs_column)).fetchone()[0]:
+            return None
+        marks = ','.join('?' * len(wanted))
+        rows = connection.execute(
+            'SELECT doc,COUNT(DISTINCT card) n FROM ('
+            ' SELECT t.rowid card,t.document_id doc FROM "%s" AS t WHERE t.document_id IN (%s)'
+            ' UNION'
+            ' SELECT t.rowid card,json_extract(item.value,\'$.document_id\') doc'
+            ' FROM "%s" AS t,json_each(t.%s) AS item WHERE json_extract(item.value,\'$.document_id\') IN (%s)'
+            ') GROUP BY doc' % (table, marks, table, refs_column, marks),
+            list(wanted) + list(wanted)).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def _dossier_reference_counts(self, c, wanted):
+        """资料夹里存的是独立快照，删正文不动它；这里只数「快照里还留着几处原文定位」。"""
+        try:
+            marks = ','.join('?' * len(wanted))
+            rows = c.execute("SELECT json_extract(item.value,'$.id') AS doc,COUNT(*) n FROM dossiers,json_each(dossiers.content) item"
+                             " WHERE json_extract(item.value,'$.id') IN (%s) GROUP BY doc" % marks, wanted).fetchall()
+        except sqlite3.Error:
+            return None
+        return {row['doc']: row['n'] for row in rows}
+
+    def trash_references(self, doc_ids):
+        """每篇已知引用分类计数；数不了的那类给 None，并在 unknown 里点名说没统计。
+
+        只数能证实的（回收项、资料夹快照、提示词卡）。作品/线索/事项没有现成批量接口，
+        如实留在 unknown 里 —— 不能因为数不到就显示 0，也不能合计成「只有 N 处在用」。
+        """
+        wanted = [doc for doc in dict.fromkeys(doc_ids) if isinstance(doc, str) and re.fullmatch(r'[a-f0-9]{32}', doc or '')]
+        if not wanted:
+            return {}
+        counted, unknown = {}, list(UNKNOWN_REFERENCE_LABELS)
+        for key, label, filename, table, refs_column in CROSS_REFERENCE_TABLES:
+            counts = self._cross_reference_counts(filename, table, wanted, refs_column)
+            counted[key] = counts
+            if counts is None:
+                # 缺库 / 坏库 / 缺表 / 读不懂的 refs：这一类没统计到，如实点名，不能显示 0。
+                unknown.append(label)
+        with self.db() as c:
+            dossiers = self._dossier_reference_counts(c, wanted)
+        counted['dossier_snapshots'] = dossiers
+        if dossiers is None:
+            unknown.append('资料夹快照')
+        return {doc: {'counted': {key: (counts.get(doc, 0) if counts is not None else None)
+                                  for key, counts in counted.items()},
+                      'unknown': list(unknown),
+                      'units': {'prompt_cards': '引用该文档的卡片数'}} for doc in wanted}
+
+    def trash_preview(self, ids):
+        """只读预览：这些知识能不能删、删了会怎样。不写任何东西，也不构成授权。"""
+        wanted = self._document_ids(ids)
+        references = self.trash_references(wanted)
+        marks = ','.join('?' * len(wanted))
+        with self.db() as c:
+            rows = {row['id']: row for row in c.execute(
+                'SELECT id,title,source,hash FROM documents WHERE id IN (' + marks + ')', wanted)}
+            trashed = {row['document_id']: row for row in c.execute(
+                'SELECT document_id,deleted_at,deleted_hash FROM document_trash WHERE document_id IN (' + marks + ')', wanted)}
+        items = []
+        for doc in wanted:
+            row, mark = rows.get(doc), trashed.get(doc)
+            if row:
+                status, label, deleted_at = 'ready', '可移到已删除', ''
+                title, digest, source = row['title'], row['hash'], row['source']
+                if mark:
+                    # 正文还在但已被移到已删除：如实报「已在已删除中」，并给出删除当时的指纹。
+                    status, label, deleted_at = 'trashed', '已在已删除中', mark['deleted_at']
+                    digest = mark['deleted_hash']
+            elif mark:
+                status, label, deleted_at = 'trashed', '已在已删除中（正文已不在索引）', mark['deleted_at']
+                title, digest, source = '', mark['deleted_hash'], ''
+            else:
+                status, label, deleted_at = 'missing', '知识库里没有这条', ''
+                title, digest, source = '', '', ''
+            items.append({'id': doc, 'title': title or '', 'hash': digest or '', 'source': source or '',
+                          'status': status, 'status_label': label, 'deleted_at': deleted_at,
+                          'references': references.get(doc, {'counted': {}, 'unknown': list(UNKNOWN_REFERENCE_LABELS),
+                                                             'units': {'prompt_cards': '引用该文档的卡片数'}})})
+        return {'schema': 'knowledge-trash-preview/v1', 'items': items,
+                'summary': {'requested': len(items),
+                            'ready': sum(1 for i in items if i['status'] == 'ready'),
+                            'already_trashed': sum(1 for i in items if i['status'] == 'trashed'),
+                            'missing': sum(1 for i in items if i['status'] == 'missing')},
+                'semantics': self.TRASH_SEMANTICS}
+
+    def trash_many(self, items, confirm=False):
+        """把选中的知识移到「已删除」：一个事务里重核存在与 hash，再写标记。
+
+        confirm 与 expected_hash 都必须由请求带上来 —— 预览不是授权令牌，写入前一律重核。
+        单条也走这个接口；重复点击同一个编号幂等（已在已删除里 → already_trashed）。
+        """
+        if confirm is not True:
+            raise ValueError('请在确认后提交删除')
+        if not isinstance(items, list) or not 1 <= len(items) <= TRASH_LIMIT:
+            raise ValueError('请选择 1–%d 条知识' % TRASH_LIMIT)
+        for item in items:
+            if not isinstance(item, dict) or set(item) - {'id', 'expected_hash'} or set(item) != {'id', 'expected_hash'}:
+                raise ValueError('删除请求包含无效字段')
+            if not isinstance(item['id'], str) or not re.fullmatch(r'[a-f0-9]{32}', item['id']):
+                raise ValueError('资料编号格式无效')
+            if not isinstance(item['expected_hash'], str) or not re.fullmatch(r'[a-f0-9]{64}', item['expected_hash']):
+                raise ValueError('资料版本信息缺失或无效，请重新预览后再删除')
+        marks = ','.join('?' * len(items))
+        current = {}
+        deleted, already, missing, conflicts, errors = [], [], [], [], []
+        with self.db() as c:
+            # 显式写锁：与同步共用同一条 SQLite 写锁纪律，删除和同步不会互相插进半途。
+            c.execute('BEGIN IMMEDIATE')
+            for row in c.execute('SELECT id,title,source,hash FROM documents WHERE id IN (' + marks + ') AND NOT EXISTS(SELECT 1 FROM document_trash t WHERE t.document_id=documents.id)',
+                                 [item['id'] for item in items]):
+                current[row['id']] = row
+            trashed = {row['document_id']: row for row in c.execute(
+                'SELECT document_id,deleted_at,deleted_hash,title,source FROM document_trash WHERE document_id IN (' + marks + ')',
+                [item['id'] for item in items])}
+            stamp = now()
+            in_batch = set()
+            for item in items:
+                doc, expected = item['id'], item['expected_hash']
+                if doc in trashed:
+                    # 已在已删除里，或同一请求里重复提交：幂等，不重复写。
+                    mark = trashed[doc]
+                    already.append({'id': doc, 'title': mark['title'], 'source': mark['source'], 'deleted_at': mark['deleted_at'],
+                                    'reason': '同一请求里重复提交' if doc in in_batch else '已在已删除中'})
+                    continue
+                row = current.get(doc)
+                if not row:
+                    # 正文已经不在索引里就别造一个没有意义的已删除记录。
+                    missing.append({'id': doc, 'reason': '知识库里没有这条，可能已被其他入口删掉'})
+                    continue
+                if row['hash'] != expected:
+                    conflicts.append({'id': doc, 'title': row['title'], 'expected_hash': expected,
+                                      'current_hash': row['hash'], 'reason': '预览之后正文已更新，请重新预览'})
+                    continue
+                try:
+                    c.execute('INSERT INTO document_trash(document_id,deleted_at,deleted_hash,title,source) VALUES(?,?,?,?,?)',
+                              (doc, stamp, row['hash'], row['title'], row['source']))
+                except sqlite3.Error:
+                    errors.append({'id': doc, 'reason': '这一条没有写成功，其余条目照常处理'})
+                    continue
+                deleted.append({'id': doc, 'title': row['title'], 'source': row['source'], 'hash': row['hash'], 'deleted_at': stamp})
+                in_batch.add(doc)
+                trashed[doc] = {'deleted_at': stamp, 'deleted_hash': row['hash'], 'title': row['title'], 'source': row['source']}
+        # 走到这里事务已提交：报告里写 deleted 的每一条都真的在已删除表里。
+        return {'schema': 'knowledge-trash/v1', 'deleted': deleted, 'already_trashed': already,
+                'missing': missing, 'conflicts': conflicts, 'errors': errors,
+                'summary': {'requested': len(items), 'deleted': len(deleted), 'already_trashed': len(already),
+                            'missing': len(missing), 'conflicts': len(conflicts), 'errors': len(errors)}}
+
+    def trash_list(self, offset=0, limit=30):
+        """已删除列表：有界分页，并把「来源已不在索引」如实标出来。只读本机库，不读原来源。"""
+        offset = max(0, min(int(offset), 100000))
+        limit = max(1, min(int(limit), TRASH_LIMIT))
+        with self.db() as c:
+            total = c.execute('SELECT COUNT(*) FROM document_trash').fetchone()[0]
+            rows = c.execute('SELECT t.document_id,t.deleted_at,t.deleted_hash,t.title,t.source,d.hash AS current_hash'
+                             ' FROM document_trash t LEFT JOIN documents d ON d.id=t.document_id'
+                             ' ORDER BY t.deleted_at DESC,t.document_id LIMIT ? OFFSET ?', (limit, offset)).fetchall()
+        items = []
+        for row in rows:
+            available = row['current_hash'] is not None
+            items.append({'id': row['document_id'], 'title': row['title'] or '', 'source': row['source'] or '',
+                          'deleted_at': row['deleted_at'], 'hash': row['deleted_hash'] or '',
+                          'body_available': available,
+                          'content_changed': bool(available and row['current_hash'] != row['deleted_hash']),
+                          'status': 'trashed' if available else 'source_gone',
+                          'status_label': '已移出检索' if available else '来源已不在索引，解除隐藏后等待该来源同步'})
+        return {'results': items, 'total': total, 'offset': offset, 'limit': limit,
+                'next_offset': offset + limit if offset + limit < total else None,
+                'semantics': self.TRASH_SEMANTICS}
+
+    def restore_many(self, ids):
+        """解除隐藏：只删 document_trash 里的标记，正文、hash、出处一字不改。幂等。"""
+        wanted = self._document_ids(ids)
+        marks = ','.join('?' * len(wanted))
+        restored, unhidden, not_found = [], [], []
+        with self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            trashed = {row['document_id']: row for row in c.execute('SELECT document_id,deleted_hash FROM document_trash WHERE document_id IN (' + marks + ')', wanted)}
+            rows = {row['id']: row for row in c.execute('SELECT id,title,source,hash FROM documents WHERE id IN (' + marks + ')', wanted)}
+            for doc in wanted:
+                if doc not in trashed:
+                    not_found.append({'id': doc, 'reason': '这条不在已删除里，可能已经恢复过'})
+                    continue
+                c.execute('DELETE FROM document_trash WHERE document_id=?', (doc,))
+                row = rows.get(doc)
+                if row:
+                    restored.append({'id': doc, 'title': row['title'], 'source': row['source'], 'hash': row['hash'],
+                                     'content_changed': row['hash'] != trashed[doc]['deleted_hash']})
+                else:
+                    # 来源已被完整同步清掉：解除抑制成功，但没有正文可恢复，不能谎报已恢复。
+                    unhidden.append({'id': doc, 'title': '', 'source': '',
+                                     'note': '来源已不在索引，解除隐藏后等待该来源同步'})
+        return {'schema': 'knowledge-restore/v1', 'restored': restored, 'unhidden': unhidden, 'not_found': not_found,
+                'summary': {'requested': len(wanted), 'restored': len(restored), 'unhidden': len(unhidden),
+                            'not_found': len(not_found)}}
 
     def document_provenance_facts(self, document_ids):
         """按编号取删除判断要用的出处字段（一次查完，不给每行单独进库）。

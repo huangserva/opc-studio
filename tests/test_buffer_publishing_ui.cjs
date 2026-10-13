@@ -37,7 +37,7 @@ function fixture({ platform = 'x', type = 'post', check = CHECK, rejectCheck = n
       return check;
     }
     if (path.startsWith('/api/buffer/submit/')) {
-      if (deferSubmit) return new Promise(resolve => { resolveSubmit = () => resolve({ record: { message: 'Buffer 已接收该帖子' }, outcome: 'submitted' }); });
+      if (deferSubmit) return new Promise(resolve => { resolveSubmit = () => resolve({ record: { message: 'Buffer 已接收该帖子',kind:'buffer_draft' }, outcome: 'submitted' }); });
       return { record: { message: 'Buffer 已接收该帖子', kind: 'buffer_draft' }, outcome: 'submitted', retryable: false };
     }
     if (path.startsWith('/api/buffer/status/')) {
@@ -271,7 +271,7 @@ test('a refused submit shows the full backend reason inside the open dialog', as
     // The reason must not depend on the out-of-dialog toast, which a native modal
     // keeps behind its backdrop and out of reach.
     assert.equal(f.messages.length, 0);
-    assert.equal(f.w.document.querySelector('#buffer-result').textContent, '');
+    assert.match(f.w.document.querySelector('#buffer-result').textContent, /发送未确认/);
     assert.equal(f.submitCalls().length, 1);
   } finally { f.close(); }
 });
@@ -369,4 +369,61 @@ test('re-checking the channel re-reads it instead of trusting the cached panel',
     await tick();
     assert.equal(f.calls.filter(call => call.path.startsWith('/api/buffer/channels/')).length, 2);
   } finally { f.close(); }
+});
+
+test('sending immediately shows waiting state in the modal and locks repeat clicks',async()=>{
+ const f=fixture({deferSubmit:true});
+ try{
+  await f.mount();f.w.document.querySelector('#buffer-draft').click();
+  const box=f.dialog().querySelector('input');box.checked=true;box.onchange();
+  const go=f.dialog().querySelector('[data-go]');go.click();await tick();
+  assert.equal(go.textContent,'正在发送…');
+  const progress=f.dialog().querySelector('.buffer-dialog-progress');assert.equal(progress.hidden,false);assert.match(progress.textContent,/已等待.*请勿重复/);
+  const cancel=new f.w.Event('cancel',{cancelable:true});f.dialog().dispatchEvent(cancel);assert.equal(cancel.defaultPrevented,true);
+  assert.equal(f.submitCalls().length,1);f.finishSubmit();await tick();await tick();
+  assert.match(f.w.document.querySelector('#buffer-result').textContent,/尚未发布/);
+ }finally{f.close();}
+});
+
+test('draft status automatically becomes published, exposes X link, then stops polling',async()=>{
+ const f=fixture(),scheduled=new Map();let serial=0,reads=0;
+ try{
+  Object.defineProperty(f.w.document,'hidden',{value:false,configurable:true});
+  f.w.setTimeout=(callback,delay)=>{const id=++serial;scheduled.set(id,{callback,delay});return id;};
+  f.w.clearTimeout=id=>scheduled.delete(id);
+  const draft={id:'record',kind:'buffer_draft',buffer_status:'draft',version:'v0003',post_id:'stored-post',account:'servasyy_ai'};
+  f.w.state.article.deliveries=[draft];const api=f.w.api;
+  f.w.api=async(path,payload)=>{
+   if(!path.startsWith('/api/buffer/status/'))return api(path,payload);
+   reads++;const record=reads===1?draft:{...draft,kind:'buffer_published',buffer_status:'sent',url:'https://x.com/servasyy_ai/status/123',observed_at:'2026-10-11'};
+   f.w.state.article.deliveries=[record];return {record,outcome:'ok'};
+  };
+  await f.mount();assert.equal(reads,1);
+  const timer=[...scheduled.values()][0];assert.equal(timer.delay,180000);
+  await timer.callback();assert.equal(reads,2);assert.equal(scheduled.size,0);
+  assert.match(f.w.document.querySelector('#buffer-result').textContent,/已发布到 X/);
+  const links=[...f.w.document.querySelectorAll('#buffer-result a')];assert.ok(links.some(a=>a.href==='https://x.com/servasyy_ai/status/123'));
+  assert.match(f.w.document.querySelector('#buffer-auto-status').textContent,/停止自动核对/);assert.equal(f.submitCalls().length,0);
+ }finally{f.close();}
+});
+
+test('background tabs do not poll and discarded panels release their timers',async()=>{
+ const f=fixture(),scheduled=new Map();let serial=0;
+ try{
+  f.w.setTimeout=(callback,delay)=>{const id=++serial;scheduled.set(id,{callback,delay});return id;};f.w.clearTimeout=id=>scheduled.delete(id);
+  f.w.state.article.deliveries=[{kind:'buffer_draft',buffer_status:'draft',version:'v0003',post_id:'post'}];
+  await f.mount();const before=f.calls.filter(c=>c.path.startsWith('/api/buffer/status/')).length;
+  await [...scheduled.values()][0].callback();assert.equal(f.calls.filter(c=>c.path.startsWith('/api/buffer/status/')).length,before);
+  f.w.document.querySelector('.buffer-publishing').remove();await tick();assert.equal(scheduled.size,0);
+ }finally{f.close();}
+});
+
+test('record labels separate drafts, scheduled, failed and sent-without-link; links escape content',()=>{
+ const f=fixture();try{
+  assert.match(f.w.bufferRecordState({kind:'buffer_draft',buffer_status:'scheduled'}).label,/已安排发布/);
+  assert.match(f.w.bufferRecordState({kind:'buffer_draft',buffer_status:'failed'}).label,/发布失败/);
+  assert.match(f.w.bufferRecordState({kind:'buffer_draft',buffer_status:'sent'}).label,/链接待确认/);
+  const text=f.w.bufferRecordMarkup({kind:'buffer_draft',version:'v1',message:'<script>bad</script>',buffer_url:'javascript:alert(1)'});
+  assert.ok(!text.includes('<script>'));assert.ok(text.includes('https://publish.buffer.com/'));assert.ok(!text.includes('javascript:'));
+ }finally{f.close();}
 });

@@ -69,6 +69,27 @@ class NullPublic:
         raise AssertionError('测试不该访问搜狗')
 
 
+class _UnavailableDiscovery:
+    """阶段 B：测试用发现来源，明确不可用，零真实请求。"""
+
+    name = 'unavailable'
+
+    def capabilities(self):
+        return {'provider': self.name, 'installed': False, 'available': False}
+
+    def search(self, query, count, freshness, cancel=None, deadline=None):
+        from intel_link_discovery import ProviderUnavailable
+        raise ProviderUnavailable('发现来源不可用（测试）', provider=self.name)
+
+
+def _no_reader(link):
+    raise AssertionError('测试不该读正文')
+
+
+def fake_discovery(store):
+    return {'provider': _UnavailableDiscovery(), 'reader': _no_reader}
+
+
 class RecommenderTestCase(unittest.TestCase):
     """搭一个带只读 intake.db / knowledge.db 的工作区。"""
 
@@ -320,7 +341,15 @@ class ListingTests(RecommenderTestCase):
 
 
 class DailyLatestTests(RecommenderTestCase):
-    """二期 B：每轮对已订阅号各抓最新 1 页。"""
+    """二期 B：每轮对已订阅号各抓最新 1 页。
+
+    阶段 B 起定时顺序为「发现 → 合集 → 必要后台」；这里注入不可用发现来源，
+    保证只走后台那一路（零真实请求）。
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.intel.discovery_factory = fake_discovery
 
     def client(self, pages=None, errors=None):
         state = {'calls': []}
@@ -378,16 +407,18 @@ class DailyLatestTests(RecommenderTestCase):
         self.assertEqual(len(self.store.creative_intake.listing(80)['items']), before)
         self.assertEqual(self.store.knowledge.search('A0')['total'], 0)
 
-    def test_cooldown_skips_the_whole_round_and_sends_nothing(self):
+    def test_cooldown_only_blocks_backend_and_still_runs_the_public_path(self):
+        # 阶段 B 新语义：冷却/凭证只挡后台那一路，公开路径（发现/合集）仍按纪律执行。
+        # 旧语义是「冷却整轮跳过、accounts=0」；新语义是「后台被挡、账号照常处理」。
         self.intel.subscribe({'fakeid': BIZ, 'name': '一号'})
         client = self.client({BIZ: self.page('A', 2)})
         client.quota.settings.set(BackendQuota.K_COOLDOWN, repr(__import__('time').time() + 7200))
         self.intel._client = client
         receipt = self.intel.daily_latest(run_id='r' * 32)
         self.assertEqual(receipt['state'], 'cooldown')
-        self.assertEqual(receipt['accounts'], 0)
-        self.assertIn('整轮跳过', receipt['detail'])
-        self.assertEqual(self.calls, [])
+        self.assertEqual(receipt['accounts'], 1)
+        self.assertIn('后台', receipt['detail'])
+        self.assertEqual(self.calls, [])   # 后台一次都没发
 
     def test_rate_limit_stops_the_round_without_retry(self):
         self.intel.subscribe({'fakeid': OTHER, 'name': '二号'})

@@ -54,7 +54,10 @@ class GenerationProgressTests(unittest.TestCase):
             self.assertEqual(client.calls,['api0001']*3)
             self.assertEqual(saved['status'],'error');self.assertIsNotNone(saved['backend_checked_at'])
             self.assertIsNotNone(saved['finished_at']);self.assertIsNone(saved['connection_warning'])
-            self.assertIn('test failure',saved['error'])
+            # review-media-error-text-e 规则 2：英文为主的上游文本不再附带，只给固定中文文案
+            self.assertIn('生成失败',saved['error'])
+            self.assertNotIn('test failure',saved['error'])
+            self.assertNotIn('execution_error',saved['error'])
 
 
 if __name__=='__main__':unittest.main()

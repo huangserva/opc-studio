@@ -428,6 +428,17 @@ class BufferPublishingTests(unittest.TestCase):
         self.assertEqual(record['buffer_status'], 'draft')
         self.assertIsNone(record['url'])
 
+    def test_buffer_publish_error_is_a_failed_record_with_details(self):
+        slug, version = self.thread()
+        self.steps({'stdout':channels('servasyy_ai')},{'stdout':created(),'returncode':0},
+                   {'stdout':json.dumps({'id':POST_ID,'status':'failed','error':{'message':'Image too large'}}),'returncode':0})
+        self.submit(slug,version,'draft')
+        record=self.store.buffer_refresh(slug,{'version':version,'platform':'x'})['record']
+        self.assertEqual(record['kind'],'buffer_failed')
+        self.assertEqual(record['error_message'],'Image too large')
+        self.assertIn('Image too large',record['message'])
+        self.assertIsNotNone(record['observed_at'])
+
     def test_refresh_failure_does_not_change_the_record_kind(self):
         slug, version = self.thread()
         self.steps({'stdout': channels('servasyy_ai')}, {'stdout': created(), 'returncode': 0},

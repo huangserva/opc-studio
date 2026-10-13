@@ -24,6 +24,8 @@ async function fixture({bindings=[binding],snapshots=[],onRequest,url='http://12
     if(result?.httpError)return {ok:false,status:result.httpError,json:async()=>({error:result.error})};
     return {ok:true,status:200,json:async()=>copy(result)};
   };
+  // Shared X panel is covered by the real-browser integration test.
+  w.mountXOfficialPanel=async()=>({readPost(){}});
   w.eval(fs.readFileSync('public/feedback.js','utf8'));await flush();
   return {w,d,calls,model,close:()=>w.close()};
 }

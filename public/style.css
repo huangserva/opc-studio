@@ -74,3 +74,33 @@ img.history-cover{object-fit:contain;background:#fff}@media(max-width:600px){#co
 
 .buffer-dialog-error{margin:16px 0 6px;padding:13px 15px;border:1px solid #e0a79f;border-radius:9px;background:#fff2ef;color:#8f372c;font-size:13px;line-height:1.85;white-space:pre-wrap;overflow-wrap:anywhere}
 .buffer-images-summary{margin:8px 0 2px;font-size:12px;color:#5f6c85;line-height:1.7}.buffer-tweet-images{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 6px}.buffer-tweet-images figure{margin:0;width:104px}.buffer-tweet-images img{width:104px;height:78px;object-fit:cover;border:1px solid #dfe5f0;border-radius:7px;background:#eef1f7}.buffer-tweet-images figcaption{font-size:10px;color:#8b96ab;line-height:1.5;word-break:break-all;margin-top:3px}.buffer-tweet-count{display:block;font-size:11px;color:#5f6c85}
+
+.buffer-dialog-progress{margin:16px 0;padding:14px;border:1px solid #bac7ff;border-radius:9px;background:#eef2ff;color:#354fa0;font-size:14px;line-height:1.8}.buffer-state{display:block;margin-bottom:8px;font-size:15px}.buffer-state-success{color:#28774b}.buffer-state-error,.buffer-state-warning{color:#a34332}.buffer-state-pending{color:#405ac2}.buffer-record-links{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.buffer-record-links .button{font-size:12px;text-decoration:none}.buffer-publishing #buffer-auto-status{display:block;margin-top:8px;color:#77839b;line-height:1.8}.delivery-entry details{margin-top:8px;font-size:12px}.delivery-entry code{overflow-wrap:anywhere}
+
+/* 样式积木（rich_text.py 的 data-* 取值），作品页与版本对比共用同一套色板。 */
+#paper [data-color=red],#comparison [data-color=red]{color:#d63031}
+#paper [data-color=blue],#comparison [data-color=blue]{color:#2f6fe4}
+#paper [data-color=green],#comparison [data-color=green]{color:#1e8e4f}
+#paper [data-color=orange],#comparison [data-color=orange]{color:#d97a1a}
+#paper [data-color=gray],#comparison [data-color=gray]{color:#7c8396}
+#paper [data-color=accent],#comparison [data-color=accent]{color:#4263eb}
+/* 高亮只给底色，绝不写 color：`mark` 要 color:inherit 才能沿用父级颜色，
+   但 [data-hl] 积木与 [data-color] 是同优先级、同元素可叠加的两件事——
+   写在同一选择器里会让黄底盖掉红字（第 13 轮验收 M2）。mark 单独一条，
+   原行为一字不变。 */
+mark{background:#fff3ad;color:inherit;padding:0 2px;border-radius:3px}
+#paper [data-hl=yellow],#comparison [data-hl=yellow]{background:#fff3ad;padding:0 2px;border-radius:3px}
+#paper [data-hl=green],#comparison [data-hl=green]{background:#d3f2d9;padding:0 2px;border-radius:3px}
+#paper [data-hl=pink],#comparison [data-hl=pink]{background:#ffd9e2;padding:0 2px;border-radius:3px}
+#paper [data-size=s],#comparison [data-size=s]{font-size:14px}
+#paper [data-size=m],#comparison [data-size=m]{font-size:16px}
+#paper [data-size=l],#comparison [data-size=l]{font-size:20px}
+#paper [data-size=xl],#comparison [data-size=xl]{font-size:26px}
+#paper [data-align=left],#comparison [data-align=left]{text-align:left}
+#paper [data-align=center],#comparison [data-align=center]{text-align:center}
+#paper [data-align=right],#comparison [data-align=right]{text-align:right}
+#paper [data-indent="2"],#comparison [data-indent="2"]{text-indent:2em}
+#paper [data-space=tight],#comparison [data-space=tight]{margin:.4em 0}
+#paper [data-space=normal],#comparison [data-space=normal]{margin:.9em 0}
+#paper [data-space=loose],#comparison [data-space=loose]{margin:1.6em 0}
+#paper .article-body hr,#comparison hr{border:none;border-top:2px solid #dfe4ee;margin:30px 0}

@@ -23,7 +23,8 @@ DEFAULT_CONFIG_PATH = '~/Library/Application Support/ArticleStudio/r2-media.json
 DEFAULT_PREFIX = 'article-studio/x'
 REGION = 'auto'
 SERVICE = 's3'
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# Workbench intake/hosting cap requested by user; downstream Buffer/X limits still apply.
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_IMAGES_PER_POST = 4
 # One fixed, self-naming client identity for every request this module makes.
 USER_AGENT = 'ArticleStudio/1.0 (+r2-media)'

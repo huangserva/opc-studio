@@ -15,7 +15,7 @@ BUFFER_HELD_KINDS = ('buffer_in_progress', 'buffer_unknown', 'buffer_draft',
                      'buffer_submitted', 'buffer_published')
 BUFFER_TRACKED_KINDS = BUFFER_HELD_KINDS + ('buffer_failed',)
 BUFFER_STATUS_KINDS = ('buffer_in_progress', 'buffer_unknown', 'buffer_draft',
-                       'buffer_submitted', 'buffer_published')
+                       'buffer_submitted', 'buffer_published', 'buffer_failed')
 BUFFER_HELD_LABELS = {'buffer_in_progress': '提交中、结果未确认', 'buffer_unknown': '结果待核实',
                       'buffer_draft': '已在 Buffer 草稿箱', 'buffer_submitted': '已提交 Buffer 发布',
                       'buffer_published': '已发布'}
@@ -231,7 +231,7 @@ class PublishingMixin:
                 size = item.get('bytes')
                 if isinstance(size, int) and size > r2_media.MAX_IMAGE_BYTES:
                     problems.append(name + '：' + format(size / 1024 / 1024, '.1f')
-                                    + ' MB 超过单张 5 MB 上限')
+                                    + ' MB 超过工作台单张 20 MB 上限')
                 try:
                     path = under(package, name)
                 except ValueError:
@@ -294,7 +294,7 @@ class PublishingMixin:
                 if len(body) > r2_media.MAX_IMAGE_BYTES:
                     raise ValueError('提交前检查未通过：' + name + ' 实际 '
                                      + format(len(body) / 1024 / 1024, '.1f')
-                                     + ' MB 超过单张 5 MB 上限；未提交到 Buffer')
+                                     + ' MB 超过工作台单张 20 MB 上限；未提交到 Buffer')
                 digest = hashlib.sha256(body).hexdigest()
                 key = r2_media.object_key(config.prefix, slug, version, digest, name)
                 content_type = r2_media.content_type_for(name)
@@ -414,6 +414,8 @@ class PublishingMixin:
             record['updated_at'] = now()
             if post.get('status') is not None:
                 record['buffer_status'] = post.get('status')
+            if post.get('dueAt') is not None:record['due_at']=post['dueAt']
+            if post.get('sentAt') is not None:record['sent_at']=post['sentAt']
             if post.get('error_message'):
                 record['error_message'] = post['error_message']
             if result['outcome'] == 'submitted':
@@ -451,10 +453,13 @@ class PublishingMixin:
             record['message'] = result['message']
             if post.get('status') is not None:
                 record['buffer_status'] = post.get('status')
+            if post.get('dueAt') is not None:record['due_at']=post['dueAt']
+            if post.get('sentAt') is not None:record['sent_at']=post['sentAt']
             if post.get('error_message'):
                 record['error_message'] = post['error_message']
             if result['outcome'] == 'ok':
-                if record['kind'] in ('buffer_in_progress', 'buffer_unknown'):
+                if not post.get('error_message'):record.pop('error_message',None)
+                if record['kind'] in ('buffer_in_progress', 'buffer_unknown', 'buffer_failed'):
                     record['kind'] = BUFFER_MODES.get(record.get('submission_mode'), 'buffer_submitted')
                 link = buffer_cli.tweet_link(post.get('externalLink'))
                 if link:
@@ -469,6 +474,9 @@ class PublishingMixin:
                                              + ' 不一致，未记为已发布')
                 elif post.get('externalLink'):
                     record['message'] = 'Buffer 返回的链接不是目标账号的推文链接，未记为已发布'
+                elif str(post.get('status') or '').lower() in ('error','failed','not_sent','notsent'):
+                    record['kind']='buffer_failed'
+                    record['message']='Buffer 发布失败：'+str(post.get('error_message') or '请到 Buffer 查看失败详情')
                 elif post.get('status') == 'sent':
                     record['message'] = 'Buffer 显示已发布，但推文链接尚未返回，可稍后再刷新状态'
                 else:

@@ -36,6 +36,29 @@ class MemorySettings:
         self.data[key] = str(value)
 
 
+class _UnavailableDiscoveryProvider:
+    """测试用发现来源：明确不可用，绝不发任何请求。"""
+
+    name = 'unavailable'
+
+    def capabilities(self):
+        return {'provider': self.name, 'installed': False, 'available': False}
+
+    def search(self, query, count, freshness, cancel=None, deadline=None):
+        from intel_link_discovery import ProviderUnavailable
+        raise ProviderUnavailable('发现来源不可用（测试）', provider=self.name)
+
+
+def _no_reader(link):
+    raise ValueError('测试不读正文')
+
+
+def fake_discovery(provider=None, reader=None):
+    """discovery_factory：默认注入「不可用」来源，保证零真实请求。"""
+    return lambda store: {'provider': provider or _UnavailableDiscoveryProvider(),
+                          'reader': reader or _no_reader}
+
+
 class FakePublic:
     """合集/搜狗两路的假实现。block_sogou=True 时按实测行为抛验证码。"""
 
@@ -97,7 +120,8 @@ class StatusTestCase(unittest.TestCase):
         self.public = FakePublic()
         self.backend = FakeBackend()
         self.intel = Intel(self.store, client_factory=lambda s: self.backend,
-                           public_factory=lambda s: self.public)
+                           public_factory=lambda s: self.public,
+                           discovery_factory=fake_discovery())
         # 限流状态跟生产一样落在 intel.db 的 settings 表里，冷却才能跨实例看见。
         self.backend.quota = BackendQuota(Settings(self.intel))
         self.intel.subscribe({'fakeid': BIZ, 'name': NAME})
@@ -110,7 +134,8 @@ class StatusTestCase(unittest.TestCase):
     def fresh(self):
         """另开一个 Intel 实例读同一份库，等价于「用户刷新页面」。"""
         return Intel(self.store, client_factory=lambda s: FakeBackend(),
-                     public_factory=lambda s: FakePublic())
+                     public_factory=lambda s: FakePublic(),
+                     discovery_factory=fake_discovery())
 
     def go(self, **payload):
         payload.setdefault('fakeid', BIZ)
@@ -155,13 +180,33 @@ class ManualResultTests(StatusTestCase):
     def test_successful_manual_run_still_records_its_routes(self):
         self.intel.remember_albums(BIZ, [ALBUM])
         done = self.go(sogou=False, backend=False)
-        self.assertEqual(done['status'], 'partial')      # 假合集没有文章，如实算部分完成
+        # 合集确实查询成功但取到 0 篇：这是「确实成功查询空列表」，终态 done（prep §3 行3）。
+        # 回执必须说明「查询成功，本次没有新文章」，不能和有新文章的完成混为一谈。
+        self.assertEqual(done['status'], 'done')
+        self.assertEqual(done['outcome']['list']['state'], 'complete')
+        self.assertIn('查询成功，本次没有新文章', done['outcome']['summary'])
         result = self.last_result()
         self.assertEqual([line['path'] for line in result['routes']], ['album', 'sogou', 'backend'])
         self.assertEqual(next(l for l in result['routes'] if l['path'] == 'album')['text'],
                          '1 个合集，取到 0 篇')
         self.assertEqual(next(l for l in result['routes'] if l['path'] == 'backend')['text'],
                          '已关闭（可用页面开关打开）')
+
+    def test_empty_success_differs_from_unavailable_list(self):
+        """空列表成功（done）与列表不可用（partial）必须能分开，不混为一谈。"""
+        # 有合集、查询成功、0 篇 → done，且回执写明「查询成功，本次没有新文章」。
+        self.intel.remember_albums(BIZ, [ALBUM])
+        empty = self.go(sogou=False, backend=False)
+        self.assertEqual(empty['status'], 'done')
+        self.assertIn('查询成功，本次没有新文章', empty['outcome']['summary'])
+        # 无合集、搜狗也关掉 → 列表不可用，partial，回执写明原因，不说「没有文章」。
+        other = self.intel.subscribe({'fakeid': OTHER, 'name': '另一个号'})
+        self.assertIsNotNone(other)
+        done = self.intel.wait_for(
+            self.intel.run({'fakeid': OTHER, 'mode': 'latest', 'sogou': False})['id'], timeout=5)
+        self.assertEqual(done['status'], 'partial')
+        self.assertEqual(done['outcome']['list']['state'], 'partial')
+        self.assertNotIn('查询成功，本次没有新文章', done['outcome']['summary'])
 
     def test_stale_running_job_is_reported_as_interrupted_on_the_subscription(self):
         stale = (datetime.now(timezone.utc) - timedelta(seconds=STALE_JOB_SECONDS + 60)).isoformat()
@@ -178,6 +223,307 @@ class ManualResultTests(StatusTestCase):
         result = self.last_result()
         self.assertIsNone(result)
         self.assertEqual(self.intel.subscriptions()[0]['last_status'], '')
+
+
+class OutcomeStatusTests(StatusTestCase):
+    """prep §2/§3：三段（列表/保存/正文）真实计数与 11 种终态规则。"""
+
+    def test_manual_all_save_failures_are_error(self):
+        """列表成功、每一条保存都失败 → save.failed → error，不再谎称完成。"""
+        def boom(*args, **kwargs):
+            raise sqlite3.Error('落库失败')
+
+        self.intel._upsert_article = boom
+        done = self.go(sogou=False, backend=True)
+        self.assertEqual(done['status'], 'error')
+        self.assertEqual(done['outcome']['list']['state'], 'complete')
+        self.assertEqual(done['outcome']['save']['state'], 'failed')
+        self.assertEqual(done['outcome']['save']['succeeded'], 0)
+        self.assertEqual(done['outcome']['save']['failed'], done['outcome']['save']['attempted'])
+
+    def test_partial_save_counts_committed_rows(self):
+        """部分保存失败：attempted=succeeded+failed，已提交的成果保留，终态 partial。"""
+        original = self.intel._upsert_article
+        self.backend.items = [
+            {'title': '甲', 'link': 'https://mp.weixin.qq.com/s/PART00001', 'published_at': 1788319003, 'aid': 'p1'},
+            {'title': '乙', 'link': 'https://mp.weixin.qq.com/s/PART00002', 'published_at': 1788319002, 'aid': 'p2'},
+            {'title': '丙', 'link': 'https://mp.weixin.qq.com/s/PART00003', 'published_at': 1788319001, 'aid': 'p3'}]
+
+        def flaky(identifier, item, job_id, connection=None):
+            if item.get('aid') == 'p2':
+                raise sqlite3.Error('这一条失败')
+            return original(identifier, item, job_id, connection)
+
+        self.intel._upsert_article = flaky
+        done = self.go(sogou=False, backend=True)
+        self.assertEqual(done['status'], 'partial')
+        save = done['outcome']['save']
+        self.assertEqual(save['attempted'], 3)
+        self.assertEqual(save['succeeded'], 2)
+        self.assertEqual(save['failed'], 1)
+        self.assertEqual(save['new'], 2)
+        self.assertEqual(save['attempted'], save['succeeded'] + save['failed'])
+        self.assertEqual(done['added'], 2)
+        self.assertEqual(self.intel.articles(BIZ)['total'], 2, '已提交的成果要保留')
+
+    def test_existing_articles_count_as_success(self):
+        """全是复用也算保存成功：done + existing=N，不误报「没有新文章=抓取失败」。"""
+        self.intel.remember_albums(BIZ, [ALBUM])
+        self.public.album_page = lambda *a, **k: {
+            'title': '占位合集', 'article_count': 1, 'nickname': NAME, 'continue_flag': False,
+            'items': [{'title': '复用文章', 'link': 'https://mp.weixin.qq.com/s/REUSE00001',
+                       'published_at': 1788319000, 'msgid': '1', 'itemidx': '1', 'source': 'album'}]}
+        first = self.go(sogou=False)
+        self.assertEqual(first['status'], 'done')
+        self.assertEqual(first['outcome']['save']['new'], 1)
+        second = self.go(sogou=False)
+        self.assertEqual(second['status'], 'done')
+        self.assertEqual(second['added'], 0)
+        save = second['outcome']['save']
+        self.assertEqual(save['succeeded'], 1)
+        self.assertEqual(save['new'], 0)
+        self.assertEqual(save['existing'], 1)
+        self.assertIn('复用', second['outcome']['summary'])
+        # 复用不是失败：建议里不能出现「检查抓取失败」这类误导。
+        self.assertIn('复用', self.last_result()['suggestion'])
+        self.assertNotIn('抓取失败', self.last_result()['suggestion'])
+
+    def test_empty_success_save_stage_is_complete(self):
+        """L2：手动确实成功查询空列表时，save 阶段统一记 complete，与 prep §3 行3 一致。"""
+        self.intel.remember_albums(BIZ, [ALBUM])
+        done = self.go(sogou=False, backend=False)
+        self.assertEqual(done['status'], 'done')
+        save = done['outcome']['save']
+        self.assertEqual(save['state'], 'complete')
+        self.assertEqual(save['attempted'], 0)
+        self.assertEqual(save['not_attempted'], 0)
+        self.assertEqual(done['outcome']['list']['selected'], 0)
+
+    def test_outcome_survives_reload_and_subscription_matches(self):
+        """刷新后同一份回执：jobs 与订阅的 last_result 读的是同一份 outcome。"""
+        done = self.go(sogou=False, backend=True)
+        fresh = self.fresh()
+        job = fresh.jobs(5)[0]
+        self.assertTrue(job['outcome_available'])
+        self.assertEqual(job['outcome']['version'], 1)
+        row = fresh.subscriptions()[0]
+        self.assertEqual(row['last_result']['outcome']['summary'], job['outcome']['summary'])
+        self.assertEqual(row['last_status'], done['status'])
+
+    def test_interrupted_job_rejects_late_outcome_write(self):
+        """已标中断的行不可被迟到的 outcome 写回覆盖成 done。"""
+        job_id = 'k' * 32
+        started = datetime.now(timezone.utc).isoformat()
+        with self.intel.db() as connection:
+            connection.execute('INSERT INTO jobs(id,fakeid,name,mode,status,started_at) '
+                               'VALUES(?,?,?,\'latest\',\'running\',?)', (job_id, BIZ, NAME, started))
+        self.intel._finish_job(job_id, 'interrupted', '残留回收')
+        self.intel._finish_job(job_id, 'done', '', outcome=self.intel._scheduled_outcome('complete', 1))
+        row = self.intel.job(job_id)
+        self.assertEqual(row['status'], 'interrupted')
+        self.assertIsNone(row['outcome'], '迟到写回不能补上 outcome')
+
+
+class OutcomeScheduledTests(StatusTestCase):
+    """定时轮次同样写三段 outcome：正文 not_requested，回滚不保留半截成功。"""
+
+    def test_scheduled_body_not_requested(self):
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        self.assertEqual(receipt['state'], 'done')
+        job = self.intel.jobs(5)[0]
+        self.assertEqual(job['outcome']['body']['state'], 'not_requested')
+        self.assertEqual(job['outcome']['list']['state'], 'complete')
+
+    def test_scheduled_round_aggregates_account_results(self):
+        self.intel.subscribe({'fakeid': OTHER, 'name': '另一个号'})
+        counter = {'n': 0}
+
+        def per_account(identifier, begin, count):
+            counter['n'] += 1
+            return [{'title': f'文章{counter["n"]}',
+                     'link': f'https://mp.weixin.qq.com/s/AGG{counter["n"]:05d}',
+                     'published_at': 1788319000, 'aid': f'a{counter["n"]}'}]
+
+        self.backend.appmsg_list = per_account
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        self.assertEqual(receipt['accounts'], 2)
+        self.assertEqual(receipt['new_articles'], 2)
+        self.assertEqual(receipt['state'], 'done')
+        for job in self.intel.jobs(5):
+            self.assertEqual(job['outcome']['save']['succeeded'], 1)
+
+    def test_scheduled_transaction_rollback_counts_zero_saved(self):
+        """共享事务回滚：前一条已写入、后一条失败 → 整批回滚，不能保留「前几条保存成功」的假计数。"""
+        self.backend.items = [
+            {'title': '甲', 'link': 'https://mp.weixin.qq.com/s/RB00000001', 'published_at': 3, 'aid': 'x1'},
+            {'title': '乙', 'link': 'https://mp.weixin.qq.com/s/RB00000002', 'published_at': 2, 'aid': 'x2'}]
+        original = self.intel._upsert_article
+        calls = {'n': 0}
+
+        def flaky(identifier, item, job_id, connection=None):
+            calls['n'] += 1
+            if calls['n'] == 2:
+                raise RuntimeError('第二条回滚')
+            return original(identifier, item, job_id, connection)
+
+        self.intel._upsert_article = flaky
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        self.assertEqual(receipt['state'], 'error')
+        self.assertEqual(self.intel.articles(BIZ)['total'], 0, '回滚后一条都不该留下')
+        job = self.intel.jobs(5)[0]
+        self.assertEqual(job['outcome']['save']['succeeded'], 0)
+
+    def test_rate_limit_stops_without_retry(self):
+        self.backend.error = RateLimited('命中公众号后台限流（200013）', until=0)
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        self.assertEqual(receipt['state'], 'rate_limited')
+        self.assertEqual(len(self.backend.calls), 1, '限流后不再重试')
+        job = self.intel.jobs(5)[0]
+        self.assertEqual(job['status'], 'rate_limited')
+        self.assertEqual(job['outcome']['body']['state'], 'not_requested')
+        self.assertEqual(job['outcome']['list']['state'], 'partial')
+
+    def test_scheduled_success_counts_selected_and_attempted(self):
+        """M1 探针1：定时成功取到 3 篇，list.selected 不能固定 0。
+
+        不变量：selected = attempted + not_attempted；attempted = succeeded + failed。
+        """
+        self.backend.items = [
+            {'title': '甲', 'link': 'https://mp.weixin.qq.com/s/SEL0000001', 'published_at': 3, 'aid': 's1'},
+            {'title': '乙', 'link': 'https://mp.weixin.qq.com/s/SEL0000002', 'published_at': 2, 'aid': 's2'},
+            {'title': '丙', 'link': 'https://mp.weixin.qq.com/s/SEL0000003', 'published_at': 1, 'aid': 's3'}]
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        self.assertEqual(receipt['state'], 'done')
+        self.assertEqual(receipt['new_articles'], 3)
+        job = self.intel.jobs(5)[0]
+        listed, save = job['outcome']['list'], job['outcome']['save']
+        self.assertEqual(listed['state'], 'complete')
+        self.assertEqual(listed['found'], 3)
+        self.assertEqual(listed['selected'], 3)
+        self.assertEqual(save['attempted'], 3)
+        self.assertEqual(save['succeeded'], 3)
+        self.assertEqual(save['not_attempted'], 0)
+        self.assertEqual(listed['selected'], save['attempted'] + save['not_attempted'])
+        self.assertEqual(save['attempted'], save['succeeded'] + save['failed'])
+
+    def test_scheduled_rollback_records_real_attempts_and_all_ledgers(self):
+        """M1 探针2：保存阶段整批回滚时，attempted 必须是真实调用次数；三段回执、
+        job 基础计数、轮次回执都吃同一份 known 台账（都不许丢或虚构）。
+
+        3 篇列表、第 2 条 _upsert_article 抛异常 → 真实调用 2 次、整批回滚；回执
+        save attempted=2/failed=2/not_attempted=1；job.found 与轮次 listed 都等于真实列表 3，
+        summary 不得写「尝试 3 篇」。
+        """
+        self.backend.items = [
+            {'title': '甲', 'link': 'https://mp.weixin.qq.com/s/RBK0000001', 'published_at': 3, 'aid': 'r1'},
+            {'title': '乙', 'link': 'https://mp.weixin.qq.com/s/RBK0000002', 'published_at': 2, 'aid': 'r2'},
+            {'title': '丙', 'link': 'https://mp.weixin.qq.com/s/RBK0000003', 'published_at': 1, 'aid': 'r3'}]
+        original = self.intel._upsert_article
+        calls = {'n': 0}
+
+        def flaky(identifier, item, job_id, connection=None):
+            calls['n'] += 1
+            if calls['n'] == 2:
+                raise RuntimeError('第二条回滚')
+            return original(identifier, item, job_id, connection)
+
+        self.intel._upsert_article = flaky
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        # 实际调用次数：第三条根本没进入循环。
+        self.assertEqual(calls['n'], 2, '真实调用只有 2 次，第三条未尝试')
+        # 数据库事实：整批回滚，一条都不该留下。
+        self.assertEqual(receipt['state'], 'error')
+        self.assertEqual(self.intel.articles(BIZ)['total'], 0, '整批回滚，一条都不该留下')
+        job = self.intel.jobs(5)[0]
+        listed, save = job['outcome']['list'], job['outcome']['save']
+        # 三段回执：列表成功 3 篇保留，保存按真实尝试记，正文未请求。
+        self.assertEqual(listed['state'], 'complete')
+        self.assertEqual(listed['found'], 3)
+        self.assertEqual(listed['selected'], 3)
+        self.assertEqual(save['state'], 'failed')
+        self.assertEqual(save['attempted'], 2)
+        self.assertEqual(save['succeeded'], 0)
+        self.assertEqual(save['failed'], 2)
+        self.assertEqual(save['not_attempted'], 1)
+        self.assertEqual(job['outcome']['body']['state'], 'not_requested')
+        self.assertEqual(save['attempted'], save['succeeded'] + save['failed'])
+        self.assertEqual(listed['selected'], save['attempted'] + save['not_attempted'])
+        # job 基础计数：列表事实保留，新增为 0（回滚）。
+        self.assertEqual(job['found'], 3)
+        self.assertEqual(job['added'], 0)
+        # 轮次回执：列表事实保留，新增为 0。
+        self.assertEqual(receipt['listed'], 3)
+        self.assertEqual(receipt['new_articles'], 0)
+        self.assertIn('列表 3 篇', job['outcome']['summary'])
+        self.assertIn('保存全部失败（尝试 2 篇）', job['outcome']['summary'])
+        self.assertNotIn('尝试 3 篇', job['outcome']['summary'])
+        self.assertNotIn('取列表失败', job['outcome']['summary'])
+
+    def test_scheduled_finish_failure_keeps_committed_ledgers(self):
+        """M1 探针2b：保存已提交后 _finish_job 首次抛异常，收口仍要保留已知成果。
+
+        3 篇确实已入库；job.found/added 与外层 receipt.listed/new_articles 必须是 3/3，
+        不能因为收口自身失败就报 0；嵌套 outcome.save 仍是 complete/new=3。
+        """
+        self.backend.items = [
+            {'title': '甲', 'link': 'https://mp.weixin.qq.com/s/FIN0000001', 'published_at': 3, 'aid': 'f1'},
+            {'title': '乙', 'link': 'https://mp.weixin.qq.com/s/FIN0000002', 'published_at': 2, 'aid': 'f2'},
+            {'title': '丙', 'link': 'https://mp.weixin.qq.com/s/FIN0000003', 'published_at': 1, 'aid': 'f3'}]
+        upserts = {'n': 0}
+        original_upsert = self.intel._upsert_article
+
+        def counted(identifier, item, job_id, connection=None):
+            upserts['n'] += 1
+            return original_upsert(identifier, item, job_id, connection)
+
+        self.intel._upsert_article = counted
+        original_finish = self.intel._finish_job
+        finish_calls = {'n': 0}
+
+        def flaky_finish(*args, **kwargs):
+            finish_calls['n'] += 1
+            if finish_calls['n'] == 1:
+                raise RuntimeError('收口首次写回失败')
+            return original_finish(*args, **kwargs)
+
+        self.intel._finish_job = flaky_finish
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        # 实际调用次数：三篇都真实落库。
+        self.assertEqual(upserts['n'], 3, '三篇都真实调用过保存')
+        # 数据库事实：保存已提交，三篇确实在库里。
+        self.assertEqual(receipt['state'], 'error')
+        self.assertEqual(self.intel.articles(BIZ)['total'], 3, '保存已提交，三篇都在库里')
+        job = self.intel.jobs(5)[0]
+        listed, save = job['outcome']['list'], job['outcome']['save']
+        # 三段回执：保留已提交成果，正文未请求。
+        self.assertEqual(listed['state'], 'complete')
+        self.assertEqual(listed['found'], 3)
+        self.assertEqual(listed['selected'], 3)
+        self.assertEqual(save['state'], 'complete')
+        self.assertEqual(save['attempted'], 3)
+        self.assertEqual(save['succeeded'], 3)
+        self.assertEqual(save['new'], 3)
+        self.assertEqual(job['outcome']['body']['state'], 'not_requested')
+        # job 基础计数：保留已知成果，不能报 0。
+        self.assertEqual(job['found'], 3)
+        self.assertEqual(job['added'], 3)
+        # 轮次回执：同样保留已知成果。
+        self.assertEqual(receipt['listed'], 3)
+        self.assertEqual(receipt['new_articles'], 3)
+        self.assertIn('列表 3 篇', job['outcome']['summary'])
+        self.assertIn('保存 3 篇', job['outcome']['summary'])
+
+    def test_scheduled_empty_success_save_stage_is_complete(self):
+        """L2：确实成功查询空列表时，save 阶段统一记 complete（prep §3 行3）。"""
+        self.backend.items = []
+        receipt = self.intel.daily_latest(run_id='r' * 32)
+        self.assertEqual(receipt['state'], 'done')
+        job = self.intel.jobs(5)[0]
+        self.assertEqual(job['outcome']['list']['state'], 'complete')
+        self.assertEqual(job['outcome']['list']['found'], 0)
+        self.assertEqual(job['outcome']['save']['state'], 'complete')
+        self.assertEqual(job['outcome']['list']['selected'], 0)
+        self.assertIn('查询成功，本次没有新文章', job['outcome']['summary'])
 
 
 class ScheduledResultTests(StatusTestCase):
@@ -216,7 +562,8 @@ class ScheduledResultTests(StatusTestCase):
         result = self.last_result()
         self.assertEqual(result['status'], 'done')
         texts = {line['path']: line['text'] for line in result['routes']}
-        self.assertIn('不走合集', texts['album'])
+        # 阶段 B 新语义：定时先走发现→合集，无合集时才回退后台；搜狗仍不走。
+        self.assertIn('还没发现任何合集', texts['album'])
         self.assertIn('不走搜狗', texts['sogou'])
         self.assertEqual(texts['backend'], '取到 1 篇')
         self.assertEqual(self.intel.subscriptions()[0]['last_status'], 'done')
@@ -225,6 +572,8 @@ class ScheduledResultTests(StatusTestCase):
         self.assertEqual(self.intel.articles(BIZ)['articles'][0]['job_id'], job_id)
 
     def test_whole_round_cooldown_skip_is_recorded_and_sends_nothing(self):
+        # 阶段 B 新语义：后台冷却只挡后台那一路，公开路径（发现/合集）仍按纪律执行；
+        # 旧语义是「冷却整轮跳过、未发送任何请求」，新语义是「后台被挡、账号照常处理」。
         self.backend.quota.settings.set(BackendQuota.K_COOLDOWN, repr(int(time.time()) + 7200))
         receipt = self.intel.daily_latest(run_id='r' * 32)
         self.assertEqual(receipt['state'], 'cooldown')
@@ -232,8 +581,8 @@ class ScheduledResultTests(StatusTestCase):
         result = self.last_result()
         self.assertEqual(result['status'], 'cooldown')
         self.assertEqual(result['status_label'], '冷却中，本轮跳过')
-        self.assertIn('整轮跳过', result['detail'])
-        self.assertIn('未发送任何请求', result['detail'])
+        self.assertIn('后台接口冷却中', result['detail'])
+        self.assertIn('未发送任何后台请求', result['detail'])
         self.assertIn('不用再点抓取', result['suggestion'])
         self.assertIn('后台接口冷却至', result['cooldown_label'])
         self.assertEqual(self.intel.subscriptions()[0]['last_status'], 'cooldown')
@@ -303,8 +652,13 @@ class ScheduledSaveFailureTests(StatusTestCase):
         self.assertEqual(len(self.backend.calls), 1)
         self.assertEqual(receipt['accounts'], 1)
 
-    def test_finish_writeback_failure_is_logged_and_the_stale_rule_recovers_it(self):
-        """收口自己失败（库不可写）：不吞错，回执写明恢复路径，残留规则兜底。"""
+    def test_finish_writeback_failure_is_logged_and_the_owner_recovery_recovers_it(self):
+        """收口自己失败（库不可写）：不吞错，回执写明恢复路径；v1 释放所有权后下次检查恢复。
+
+        旧语义：legacy 行按残留规则等 started_at 起 3600 秒。新语义：v1 在 owner FD 关闭后，
+        下次状态检查即按所有权 CAS 恢复，不必等 3600 秒（legacy 的 3600 秒由
+        test_stale_running_job_is_reported_as_interrupted_on_the_subscription 覆盖）。
+        """
         def boom(*args, **kwargs):
             raise sqlite3.OperationalError('数据库不可写')
 
@@ -313,28 +667,32 @@ class ScheduledSaveFailureTests(StatusTestCase):
             receipt = self.intel.daily_latest(run_id='r' * 32)
         self.assertEqual(receipt['state'], 'error')
         self.assertIn('收口也失败', receipt['detail'])
-        self.assertIn(str(STALE_JOB_SECONDS), receipt['detail'])
+        self.assertIn('所有权', receipt['detail'])
         self.assertTrue(any('收口失败' in line for line in logs.output), '收口失败必须记日志')
-        # 不能假装已收口：那一行还占着闸门，但到了残留门槛就会被标为已中断。
+        # 不能假装已收口：那一行还挂着 running。
         self.assertEqual([job['status'] for job in self.intel.jobs(20)], ['running'])
-        self.assertIsNotNone(self.intel.active_job())
-        stale = (datetime.now(timezone.utc) - timedelta(seconds=STALE_JOB_SECONDS + 60)).isoformat()
-        with self.intel.db() as connection:
-            connection.execute("UPDATE jobs SET started_at=? WHERE status='running'", (stale,))
+        # v1 已释放所有权：下次状态检查立即按所有权恢复为 interrupted，不等 3600 秒。
         self.assertIsNone(self.intel.active_job())
+        self.assertEqual(self.intel.jobs(20)[0]['status'], 'interrupted')
         row = self.intel.subscriptions()[0]
         self.assertEqual(row['last_status'], 'interrupted')
         self.assertEqual(row['last_result']['status'], 'interrupted')
 
     def test_manual_run_save_stage_failure_still_closes_the_row(self):
-        """手动 _execute 同样核对：落库阶段的意外异常不会把任务行留在 running。"""
+        """手动 _execute 同样核对：落库阶段的意外异常不会把任务行留在 running。
+
+        合成的是「保存全部失败」（第一条就抛 RuntimeError）：按 prep §3 行4，
+        列表成功但一条都没保存 → save.failed → 终态 error，不再只允许 done/partial。
+        """
         def boom(*args, **kwargs):
             raise RuntimeError('落库炸了')
 
         self.intel._upsert_article = boom
         done = self.go(sogou=False, backend=True)
         self.assertNotIn(done['status'], ('running', 'queued'))
-        self.assertIn(done['status'], ('done', 'partial'))
+        self.assertEqual(done['status'], 'error')
+        self.assertEqual(done['outcome']['save']['state'], 'failed')
+        self.assertEqual(done['outcome']['save']['succeeded'], 0)
         self.assertIn('未预期的错误：RuntimeError', done['detail'])
         self.assertIsNone(self.intel.active_job())
         self.assertFalse(self.intel.status()['busy'])

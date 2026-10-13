@@ -1,0 +1,11 @@
+{
+  "code": 0,
+  "data": {
+    "list": [
+      {"word": "AI 编程助手", "hot_value": 1200000, "rank": 3, "label": "热"},
+      {"word": "具身智能", "hot_value": 980000, "rank": 5, "label": "新"},
+      {"word": "端侧大模型", "hot_value": 1500000, "rank": 1, "label": "爆"},
+      {"word": "多模态 Agent", "hot_value": 1200000, "rank": 2, "label": "热"}
+    ]
+  }
+}

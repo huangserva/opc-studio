@@ -1187,3 +1187,105 @@ test('an item already confirmed failed is not polled forever', async t => {
   await settle();
   assert.equal(f.gets(), before, '已确认失败的条目不再轮询');
 });
+
+// ── fixes-intake-next-step-a：收下之后的写作入口（方案 A，纯前端）──────────────
+// 验收对照 coordination/design-intake-next-step-report.md §4 与 §6 的 A 用例清单。
+const storedLink = extra => base({ meta: { fetched: true, fetched_at: '2026-10-09T01:21:00+00:00', total_chars: 12 }, ...extra });
+const writeParams = (w, anchor) => new w.URLSearchParams(new w.URL(anchor.href).search);
+
+test('a finished analysis puts one writing entry beside every angle carrying only identifiers', async t => {
+  const f = await fixture(t, { items: [storedLink({ analysis: { status: 'done', at: '2026-10-09T02:00:00+00:00',
+    summary: '旧码头黄昏的蹲拍方法', angles: [{ title: '写一条蹲拍笔记', how: '从水面倒影切入' }, { title: '第二个角度', how: '' } ] } })] });
+  const entries = [...f.d.querySelectorAll('#in-list .in-use-angle')];
+  assert.equal(entries.length, 2);
+  assert.deepEqual(entries.map(a => writeParams(f.w, a).get('angle')), ['0', '1']);
+  for (const anchor of entries) {
+    const params = writeParams(f.w, anchor);
+    assert.equal(params.get('document'), id('b'));
+    assert.equal(params.get('intake'), id('a'));
+    assert.equal(params.get('analysis_at'), '2026-10-09T02:00:00+00:00');
+    assert.deepEqual([...params.keys()].sort(), ['analysis_at', 'angle', 'document', 'intake']);
+  }
+  // 有角度时不再另给通用入口，也不给「一键建底稿」这类过头承诺。
+  assert.equal(f.d.querySelector('#in-list .in-writing-primary'), null);
+  assert.doesNotMatch(f.list(), /一键/);
+});
+
+test('the angle link falls back to the analysis fingerprint when there is no finished clock', async t => {
+  const f = await fixture(t, { items: [storedLink({ analysis: { status: 'done', at: '', fingerprint: 'ab12cd34ef56', angles: [{ title: '角度' }] } })] });
+  assert.equal(writeParams(f.w, f.d.querySelector('.in-use-angle')).get('analysis_at'), 'ab12cd34ef56');
+});
+
+test('a stored body without usable angles still offers one plain writing entry', async t => {
+  for (const analysis of [{ status: 'queued' }, { status: 'running' }, { status: 'failed', error: '模型没回话' }, { status: 'done', angles: [] }, {}]) {
+    const f = await fixture(t, { items: [storedLink({ analysis })] });
+    const entry = f.d.querySelector('#in-list .in-writing-primary');
+    assert.ok(entry, JSON.stringify(analysis) + ' 时也要能用这篇资料写');
+    assert.match(entry.textContent, /用这篇资料写/);
+    const params = writeParams(f.w, entry);
+    assert.deepEqual([...params.keys()].sort(), ['document', 'intake'], '不带角度时不塞 angle/analysis_at');
+    assert.equal(f.d.querySelector('#in-list .in-use-angle'), null);
+  }
+});
+
+test('a duplicate row states what the existing copy is for and offers the three entries', async t => {
+  const f = await fixture(t, { items: [storedLink({ outcome: 'duplicate', meta: { duplicate: true, fetched: true, total_chars: 12 },
+    analysis: { status: 'done', at: '2026-10-09T02:00:00+00:00', angles: [{ title: '可写角度' } ] } })] });
+  assert.match(f.list(), /这篇已在知识库，未重复导入。收录后可以用来整理写作资料、参考可写角度，或到卡库确认提示词。/);
+  const actions = [...f.d.querySelectorAll('.in-writing-duplicate .in-writing-actions a')].map(a => a.textContent.trim());
+  assert.deepEqual(actions, ['查看已有资料', '用这篇资料写', '选片段建资料夹']);
+  const view = f.d.querySelector('.in-writing-duplicate a[href="' + '/knowledge.html?document=' + id('b') + '"]');
+  assert.ok(view, '查看已有资料只带原编号');
+  assert.deepEqual([...writeParams(f.w, f.d.querySelector('.in-writing-duplicate .in-writing-primary')).keys()].sort(), ['document', 'intake']);
+  assert.equal(f.d.querySelectorAll('#in-list .in-use-angle').length, 1, '重复行仍可按角度进入');
+});
+
+test('a failed link the backend labels duplicate keeps the failure first and offers no writing entry', async t => {
+  const f = await fixture(t, { items: [base({ error: '需要登录浏览器', outcome: 'duplicate', state: '抓取失败：需要登录浏览器；已存入知识库（仅链接）',
+    meta: { duplicate: true, fetched: false } })] });
+  assert.match(f.list(), /抓取失败：需要登录浏览器/, '失败口径仍然在最前面');
+  assert.match(f.list(), /先按上面的原因重试/);
+  assert.doesNotMatch(f.list(), /这篇已在知识库，未重复导入/, '不能用「已收录」盖住错误');
+  assert.doesNotMatch(f.list(), /用这篇资料写|用这个角度写|选片段建资料夹/);
+  assert.equal(f.d.querySelectorAll('#in-list .in-writing-primary, #in-list .in-use-angle').length, 0);
+  assert.ok(f.d.querySelector('.in-writing-failed .in-writing-quiet'), '已有资料只作次按钮');
+  assert.ok(f.d.querySelector('[data-resolve]'), '重试入口保留');
+});
+
+test('a bookmark with only a link says so and offers the record and the original link only', async t => {
+  const f = await fixture(t, { items: [base({ meta: { fetched: false } })] });
+  assert.match(f.list(), /这条链接已收藏，原文正文尚未保存。/);
+  const actions = [...f.d.querySelectorAll('.in-writing-linkonly .in-writing-actions a')].map(a => a.textContent.trim());
+  assert.deepEqual(actions, ['查看收藏记录', '打开原链接 ↗']);
+  assert.equal(f.d.querySelector('.in-writing-linkonly .in-writing-actions a').getAttribute('href'), '/knowledge.html?document=' + id('b'));
+  assert.equal(f.d.querySelector('#in-list .in-writing-primary, #in-list .in-use-angle'), null, '没正文不给写作入口');
+});
+
+test('an item whose body was never stored gets no writing entry at all', async t => {
+  const f = await fixture(t, { items: [base({ document_id: '', knowledge_url: '', status: 'pending', outcome: 'pending' })] });
+  assert.equal(f.d.querySelector('#in-list .in-writing'), null);
+  assert.equal(f.d.querySelector('#in-list a[href^="/knowledge.html"]'), null);
+});
+
+test('writing entries escape untrusted text and carry no body, summary, angle wording or reason', async t => {
+  const f = await fixture(t, { items: [storedLink({ reason: '<img src=x onerror=alert(1)>收藏理由',
+    analysis: { status: 'done', at: '2026-10-09T02:00:00+00:00', summary: '<script>bad()</script>摘要正文',
+      angles: [{ title: '<script>角度标题</script>', how: '<img src=x>角度做法' }] } })] });
+  assert.equal(f.d.querySelectorAll('#in-list img, #in-list script').length, 0);
+  assert.match(f.list(), /<script>角度标题<\/script>/, '角度文字仍然按文本显示');
+  for (const anchor of f.d.querySelectorAll('#in-list a[href^="/knowledge.html"]')) {
+    const href = anchor.getAttribute('href');
+    for (const leak of ['角度标题', '角度做法', '摘要正文', '收藏理由', 'onerror']) {
+      assert.ok(!decodeURIComponent(href).includes(leak), href + ' 不该带上 ' + leak);
+    }
+  }
+});
+
+test('the new writing block keeps the knowledge, retry, reanalyse, cards and delete entries working', async t => {
+  const f = await fixture(t, { items: [storedLink({ analysis: { status: 'done', at: '2026-10-09T02:00:00+00:00', cards: 2, angles: [{ title: '角度' }] } })] });
+  assert.ok(f.d.querySelector('#in-list footer a[href="/knowledge.html?document=' + id('b') + '"]'), '在知识库查看仍在');
+  assert.ok(f.d.querySelector('[data-analyze]'), '重新分析仍在');
+  assert.ok(f.d.querySelector('[data-delete]'), '删除仍在');
+  assert.match(f.list(), /去卡库确认/);
+  assert.equal(f.d.querySelectorAll('#in-list footer a[href^="/knowledge.html"]').length, 1, '写作入口不挤掉原有查看入口');
+});

@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 
 from collect_core import Adapter, PlannedAdapter, provenance
+# 复用知识库唯一的「退出正常检索」口径：手动移到「已删除」的正文照旧可读，
+# 但来源计数与「最新」不数它。这里不另写一份条件，免得两边口径漂移。
+from knowledge_store import NOT_TRASHED
 
 # 线索中心 / 知识库里已有的来源 id，我们只是把它们映射到平台名。
 CLUE_SOURCES = {
@@ -109,7 +112,7 @@ def knowledge_sources(store, kinds):
         rows = connection.execute(
             '''SELECT s.config AS config, s.status AS status, s.detail AS detail,
                       s.synced_at AS synced_at, COUNT(d.id) AS count, MAX(d.modified) AS latest
-               FROM sources s LEFT JOIN documents d ON d.source = s.id
+               FROM sources s LEFT JOIN documents d ON d.source = s.id AND ''' + NOT_TRASHED + '''
                GROUP BY s.id ORDER BY s.rowid'''
         ).fetchall()
     found = []
@@ -281,12 +284,58 @@ class ClueSourceAdapter(Adapter):
                           'home': self.home}}
 
 
+class AIsaRadarAdapter(Adapter):
+    """全网情报雷达（AIsa）。取数委托给独立的 aisa_source 模块，这里只看状态。"""
+
+    platform = 'aisa'
+    label = '全网情报雷达 (AIsa)'
+    state = 'connected'
+    home = '/clues.html'
+
+    def __init__(self, source):
+        self.source = source
+
+    def sources(self):
+        """AIsa 是单 Key 网关，没有可枚举的订阅源。"""
+        return []
+
+    def latest(self, source):
+        return self._delegate('抓最新')
+
+    def history(self, source):
+        return self._delegate('抓历史')
+
+    def body(self, source, item):
+        return self._delegate('抓正文')
+
+    def _delegate(self, action):
+        return {'platform': self.platform, 'action': action, 'delegated': True,
+                'detail': f'{self.label}由 AIsa 网关采集，这里不代跑；请到 {self.home}',
+                'home': self.home}
+
+    def status(self):
+        try:
+            record = self.source.status()
+        except Exception as exc:  # noqa: BLE001 - 状态读取失败要如实说，不编造
+            return {'available': False, 'detail': f'读取状态失败：{type(exc).__name__}'}
+        return {'available': bool(record.get('available')),
+                'count': public_count(record.get('count')),
+                'detail': public_text(record.get('detail'))[:200],
+                'extra': {'last_synced': public_text(record.get('last_synced')),
+                          'home': self.home}}
+
+
 def build_adapters(store):
     """装好全部适配器：公众号一个真正的，其余按平台分派。"""
     from collect_core import PLATFORMS
     adapters = {'wechat_mp': WechatMpAdapter(store.intel)}
     for platform in CLUE_SOURCES:
         adapters[platform] = ClueSourceAdapter(platform, store)
+    try:
+        from aisa_source import AIsaSource
+        adapters['aisa'] = AIsaRadarAdapter(AIsaSource(store=store))
+    except Exception:  # noqa: BLE001 - 模块暂不可用不能影响其他已有适配器
+        pass
     for meta in PLATFORMS:
         adapters.setdefault(meta['id'], PlannedAdapter(meta['id'], meta['label'], meta['note']))
     return adapters

@@ -5,6 +5,7 @@ Read-only queries are always available; mutation requests must be explicit.
 """
 import html
 import re
+from collections import namedtuple
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
@@ -23,6 +24,48 @@ def delete_kinds(command):
         return {'image','text'}
     return {'image'} if image else {'text'}
 
+_PASTE_VERB = (r'(?:(?:请帮我|帮我|麻烦|请)(?:你|您)?)?(?:把|将)?(?:下面|以下|这段|这条|用户)?(?:的)?'
+               r'(?:贴文|原文|正文|内容|文字|段落)?(?:原样|直接)?'
+               r'(?:贴上|贴入|贴进|贴到|粘贴|插入|复制)(?:到|进)?'
+               r'(?:当前作品|作品|末尾|文末|第[一二三四五六七八九十0-9]+条(?:推文)?(?:后面|后))?'
+               r'(?:吧|呢|啊)?')
+_COMPOSE_VERB = r'(?:请|再|并|然后)?(?:补写|补|加|写)(?:一句|一段|一条|几句)(?:过渡|文字|文案|说明|正文)?'
+
+# `_paste_turn` 用的首子句判据，与 `_PASTE_VERB` 同形，只把前缀词放宽成可重复，
+# 好让「把下面这段贴上」「把这段下面的内容贴上」也算粘贴指令——
+# `_PASTE_VERB` 的前缀是**单选**，`把下面这段贴上` 在它那里并不匹配（实测）。
+# **只在 `_paste_turn` 里放宽**：`_paste_instruction_only` / `paste_originals`
+# 用的 `_PASTE_VERB` 一个字符都不动，粘贴原文的判定口径因此完全不变
+# （tests/test_fixes_b2.py 与 b3 把那套语法钉得很死）。
+_PASTE_TURN_LEAD = (r'(?:(?:请帮我|帮我|麻烦|请)(?:你|您)?)?(?:把|将)?'
+                   r'(?:(?:下面|以下|这段|这条|用户|的))*'
+                   r'(?:贴文|原文|正文|内容|文字|段落)?(?:原样|直接)?'
+                   r'(?:贴上|贴入|贴进|贴到|粘贴|插入|复制)(?:到|进)?'
+                   r'(?:当前作品|作品|末尾|文末|第[一二三四五六七八九十0-9]+条(?:推文)?(?:后面|后))?'
+                   r'(?:吧|呢|啊)?')
+
+
+def _paste_turn(message):
+    """这一轮是不是「把某段内容贴进去」的粘贴轮。
+
+    口径：**首个子句是粘贴/补写指令**。只取第一行（换行后是贴文本体），
+    挖掉围栏/引号字面量后按标点切子句，首子句必须是粘贴/补写指令。
+
+    **h5 与 h3 的区别**：h3 用 `_paste_turn` 跳过整个无指代收权，这一轮所有改稿
+    操作全部豁免——粘贴命令搭车的 delete_block/move_block/set_text 也不被挡。
+    h5 只用 `_paste_turn` 判断「这是不是粘贴轮」，具体放行什么操作由调用方的
+    收窄逻辑决定（只保留 insert_text，其余一律收回），从结构上杜绝搭车越权。
+    """
+    head = str(message or '').split('\n', 1)[0]
+    head = re.sub(r'```[\s\S]*?```|「[^」]*」|“[^”]*”|\"[^\"\n]*\"|`[^`]*`', '', head)
+    head = re.sub(r'[ \t\u3000]+', '', head)
+    clauses = [part for part in re.split(r'[，,。.!！；;：:]', head) if part]
+    if not clauses:
+        return False
+    lead = clauses[0]
+    return bool(re.fullmatch(_PASTE_TURN_LEAD, lead) or re.fullmatch(_COMPOSE_VERB, lead))
+
+
 def _paste_instruction_only(value):
     """Bounded instruction area; never discard arbitrary inline prose."""
     # Only a quoted compose instruction is part of the directive. Quoted paste
@@ -30,13 +73,7 @@ def _paste_instruction_only(value):
     value = re.sub(r'((?:补写|补|加|写)(?:一句|一段|一条|几句)(?:过渡|文字|文案|说明|正文)?)'
                    r'(?:「[^」]*」|“[^”]*”)', r'\1', value)
     clauses = [part.strip() for part in re.split(r'[，,。.!！；;：:]', value) if part.strip()]
-    paste = (r'(?:(?:请帮我|帮我|麻烦|请)(?:你|您)?)?(?:把|将)?(?:下面|以下|这段|这条|用户)?(?:的)?'
-             r'(?:贴文|原文|正文|内容|文字|段落)?(?:原样|直接)?'
-             r'(?:贴上|贴入|贴进|贴到|粘贴|插入|复制)(?:到|进)?'
-             r'(?:当前作品|作品|末尾|文末|第[一二三四五六七八九十0-9]+条(?:推文)?(?:后面|后))?'
-             r'(?:吧|呢|啊)?')
-    compose = r'(?:请|再|并|然后)?(?:补写|补|加|写)(?:一句|一段|一条|几句)(?:过渡|文字|文案|说明|正文)?'
-    return all(re.fullmatch(paste, clause) or re.fullmatch(compose, clause) for clause in clauses)
+    return all(re.fullmatch(_PASTE_VERB, clause) or re.fullmatch(_COMPOSE_VERB, clause) for clause in clauses)
 
 
 _COMPOSE_QUOTE = re.compile(
@@ -218,8 +255,18 @@ def _link_identity(url):
     return None
 
 
-def _command_clauses(text):
-    """Keep question terminators; sentence dots never split dotted tokens or URLs."""
+_CommandSegment=namedtuple('_CommandSegment','text question boundary')
+
+
+def _segments(text):
+    """Split into command segments and keep the raw delimiter span before each one.
+
+    Question terminators stay on their own segment; sentence dots never split
+    dotted tokens or URLs. `boundary` is the delimiter text that closed the
+    previous segment, so a caller can tell whether a following question may
+    attach backwards: a comma, 然后/但是, newline or colon may, a sentence
+    terminator (。；;！？!? or an ASCII sentence dot) may not.
+    """
     urls=[m.span() for m in re.finditer(r'https?://[^\s，。；;！？,]+',text,re.I)]
     pattern=r'[，,。；;！？!?\n：:]|但是|然后|\.'
     # First preserve URL/dotted-token protection, then join adjacent terminators.
@@ -232,9 +279,11 @@ def _command_clauses(text):
             if re.fullmatch(r'[A-Za-z0-9_]{2}',pair):
                 continue
         delimiters.append(match)
+    segments=[]
     start=0
     index=0
     terminators='！？!?。.；;'
+    boundary=''
     while index<len(delimiters):
         match=delimiters[index]
         end=match.end()
@@ -265,13 +314,119 @@ def _command_clauses(text):
                 question=question or following.group() in ('？','?')
                 end=following.end()
                 index=next_index
-        yield text[start:match.start()],question
+        segments.append(_CommandSegment(text[start:match.start()],question,boundary))
+        boundary=text[match.start():end]
         start=end
         index+=1
-    yield text[start:],False
+    segments.append(_CommandSegment(text[start:],False,boundary))
+    return segments
 
 
-def policy_for(message):
+def _command_clauses(text):
+    """Keep question terminators; sentence dots never split dotted tokens or URLs."""
+    for segment in _segments(text):
+        yield segment.text,segment.question
+
+
+# 24i-B: an associated question revokes only the command group it questions.
+# A sentence terminator closes the group before it, so a later isolated
+# 「可以吗？」 never reaches back across 。；;！？!? or an ASCII sentence dot
+# (coordinator decision). Dotted tokens and URLs are never delimiters, so their
+# dots are not group breaks either.
+_GROUP_BREAK=set('。；;！？!?.')
+_TAIL_PUNCTUATION='？?！!。. \t\u3000'
+# Closed whole-segment list. Text that merely contains 可以 is never a tail.
+_CONFIRMATION_TAIL=re.compile(
+    r'(?:吗|么|可以吗|可以么|可以不|可以|行吗|行不行|行不|好不好|好吗|好么|是不是|对不对|对吧|是吧|'
+    r'没问题吧|确认|确认吗|ok|okay|please confirm|pls confirm|confirm)',re.I)
+
+
+def _is_confirmation_tail(value):
+    """Whole-segment confirmation tail: 吗/吗？、可以吗、好吗、行不行、OK?、please confirm?."""
+    core=(value or '').strip().rstrip(_TAIL_PUNCTUATION)
+    return bool(core) and bool(_CONFIRMATION_TAIL.fullmatch(core))
+
+
+def _attach_target(segments,index):
+    """Nearest preceding non-empty segment, unless a sentence terminator intervenes."""
+    for j in range(index-1,-1,-1):
+        if any(ch in _GROUP_BREAK for ch in segments[j+1].boundary):
+            return None
+        if segments[j].text.strip():
+            return j
+    return None
+
+
+def _questioned_segments(segments):
+    """Indices whose command group is being asked about, so it grants nothing."""
+    questioned=set()
+    for index,segment in enumerate(segments):
+        if segment.question:
+            questioned.add(index)
+        # A URL captured with an empty query ends in a bare '?': ambiguous, ask first.
+        # A non-empty query (?x=1) is data and stays untouched.
+        if re.search(r'\?\s*$',segment.text):
+            questioned.add(index)
+            continue
+        empty=not segment.text.strip()
+        if empty and not segment.question:
+            continue
+        if not (empty or _is_confirmation_tail(segment.text)):
+            continue
+        target=_attach_target(segments,index)
+        if target is not None:
+            questioned.add(target)
+    return questioned
+
+
+READ_ONLY_WITHOUT_WORK = READ_TOOLS | MEMORY_WRITE_TOOLS | {
+    'search_knowledge', 'read_knowledge', 'search_events', 'read_event',
+    'get_workspace_context', 'propose_event',
+}
+# 没有打开作品时，下面这些只是「没有指代对象的指代」：用户说的「当前作品」在页面上
+# 并不存在，给了改稿工具就只能让助手 search 完自己挑一篇改。
+# 指明目标的明确操作（删除第二段、插入一段文字）不受影响，仍按逐子句规则授权，
+# 并且执行层照样要求本轮先 read_work（复核 M-4，协调者选定的 B 口径）。
+_UNANCHORED_TARGET = re.compile(
+    r'当前作品|当前文章|当前这篇|当前稿|这篇(?:文章|稿|正文)?|这篇文章|本文|本篇|'
+    r'(?<!小)正文|(?<!小)标题|当前标题|当前正文', re.I)
+
+# 没打开作品时的改稿工具集合（见 M-4 的 B 口径）。
+EDIT_TOOLS = frozenset({'update_text', 'edit_work', 'reflow_markdown'})
+EDIT_GRANTS = frozenset({'set_text', 'insert_text', 'delete_block', 'move_block',
+                         'insert_image', 'reflow_markdown'})
+# 打开着作品时每轮交给模型的完整名单。改稿、生成媒体、写笔记、归档合集都在内：
+# 「不给 AI 限制，给 AI 帮助」，改不改、怎么改交给模型自己判断。
+OPEN_WORK_TOOLS = frozenset(READ_TOOLS | MEMORY_WRITE_TOOLS | {
+    'update_text', 'edit_work', 'reflow_markdown', 'organize_collection',
+    'create_card', 'generate_media',
+    'search_knowledge', 'read_knowledge', 'search_events', 'read_event',
+    'get_workspace_context', 'propose_event',
+})
+OPEN_WORK_GRANTS = EDIT_GRANTS
+
+
+def _open_work_policy(pasted_text=False):
+    """当前打开着一篇作品时的完整授权：不收回任何工具，由模型自己判断。"""
+    policy = {'allowed_tools': sorted(OPEN_WORK_TOOLS), 'allow_insert': True, 'reply': None,
+              'media_kinds': ['image', 'video'], 'requested_media_model': None,
+              'edit_grants': sorted(OPEN_WORK_GRANTS)}
+    if pasted_text:
+        policy['text_source'] = 'user_paste'
+    return policy
+
+
+def policy_for(message, work_open=False):
+    """work_open：当前页面上确实打开着一篇作品。
+
+    黄总 10-11 17:4x：「根本不能够去给 AI 做什么限制，而是给 AI 做什么帮助。」
+    打开着作品就把助手能做的全部工具每轮都交给模型，由它自己理解用户意思决定
+    改不改、怎么改，不再用正则判断「是不是命令 / 是不是提问」来收回工具。
+    没有打开作品时**只收回无指代指代**（复核 M-4 的 B 口径）：「当前作品/这篇/
+    正文/标题」这类说法不知道改哪一篇，整句的改稿工具一律不给；已经指明了目标的
+    明确操作（「删除第二段」「把 Rea 项目第二段改写」）沿用逐子句规则照旧授权，
+    执行层仍要求本轮先 read_work 那一篇。
+    """
     plain=message.strip()
     greeting=re.fullmatch(r'(?:你好|您好|嗨|哈喽|哈啰|早上好|晚上好|下午好|早|在吗|谢谢|谢了|好的|收到|hello|hi|hey|thanks|thank you)[呀啊哦哈\s！!。.?？~～]*',plain,re.I)
     if greeting:
@@ -280,16 +435,83 @@ def policy_for(message):
         return {'allowed_tools':[], 'allow_insert':False, 'reply':answer, 'edit_grants':[]}
     # Quoted examples, code and embedded content are not executable requests.
     text=re.sub(r'```[\s\S]*?```|“[^”]*”|「[^」]*」|"[^"\n]*"|`[^`]*`',' ',plain)
-    clauses=_command_clauses(text)
+    if work_open:
+        # 打开着作品：工具全给，但用户点名的生成模型仍要提取——
+        # 取消关键词闸门不等于丢掉参数语义（复核 M-3：「用 Krea2 生成」不能被默认偏好覆盖）。
+        policy=_open_work_policy(pasted_text=_paste_body_present(plain))
+        named=_grants_for(_segments(text), frozenset(), plain)
+        if named.get('requested_media_model'):
+            policy['requested_media_model']=named['requested_media_model']
+        return policy
+    # Pass 1 assigns every question to its command group; pass 2 grants only
+    # surviving groups, with the pre-existing per-clause grammar. Nothing is
+    # subtracted from the global set afterwards.
+    segments=_segments(text)
+    revoked=_questioned_segments(segments)
+    policy=_grants_for(segments,revoked,plain)
+    if revoked:
+        # A revoked clause can drop the explicit MemOS destination that used to
+        # override the default note tool. Recomputing must never hand out a memory
+        # write tool the message did not already grant: keep the safe upper bound.
+        unrevoked=_grants_for(segments,frozenset(),plain)
+        widened=((set(policy['allowed_tools'])&MEMORY_WRITE_TOOLS)
+                 -(set(unrevoked['allowed_tools'])&MEMORY_WRITE_TOOLS))
+        if widened:
+            policy['allowed_tools']=sorted(set(policy['allowed_tools'])-widened)
+    # 没有打开作品：只对「当前作品/这篇/正文」这类没有指代对象的指代收权（复核 M-4 的 B 口径）。
+    # 指明目标的明确操作照旧授权；生成、笔记、搜索、合集这些全局工具维持原有口径。
+    #
+    # h5 收窄粘贴豁免（取代 h3/h4 的整体豁免）：粘贴轮只保留 insert_text 授权，
+    # delete_block/move_block/set_text/insert_image 一律收回。从结构上保证粘贴豁免
+    # 不可能放行非粘贴操作，不需要枚举动词黑名单。
+    # h5 新增目标绑定：work_open=False 时粘贴豁免设置 paste_requires_open_work 标记，
+    # 执行层据此拒绝写入——只能走到服务端边界提示或「请先指明/打开要贴入的作品」。
+    if _UNANCHORED_TARGET.search(plain) and (EDIT_TOOLS & set(policy['allowed_tools'])):
+        if _paste_turn(plain):
+            # 粘贴轮：只保留 insert_text（粘贴/补写必需），其余改稿授权一律收回。
+            # edit_work 保留当且仅当 insert_text 在授权中（否则没有可写操作）。
+            _PASTE_KEEP_GRANTS = frozenset({'insert_text'})
+            revoked_grants = EDIT_GRANTS - _PASTE_KEEP_GRANTS
+            policy['edit_grants'] = [g for g in policy['edit_grants'] if g not in revoked_grants]
+            if not policy['edit_grants']:
+                # 没有任何可写授权，收回全部改稿工具
+                policy['allowed_tools'] = sorted(set(policy['allowed_tools']) - EDIT_TOOLS)
+                policy['allow_insert'] = False
+                for key in ('edit_targets', 'composed_insert', 'text_source'):
+                    if key in policy:
+                        policy.pop(key)
+            else:
+                # 有 insert_text：保留 edit_work，收回 update_text 和 reflow_markdown
+                policy['allowed_tools'] = sorted(
+                    (set(policy['allowed_tools']) - EDIT_TOOLS) | {'edit_work'})
+                # delete_block 的目标集已不需要
+                policy.pop('edit_targets', None)
+            # 目标绑定：work_open=False 时粘贴豁免不能落成写入，只能走边界提示
+            if not work_open:
+                policy['paste_requires_open_work'] = True
+        else:
+            # 非粘贴轮：完全收回（原 h2 逻辑）
+            policy['allowed_tools'] = sorted(set(policy['allowed_tools']) - EDIT_TOOLS)
+            policy['edit_grants'] = [g for g in policy['edit_grants'] if g not in EDIT_GRANTS]
+            policy['allow_insert'] = False
+            for key in ('edit_targets', 'composed_insert', 'text_source'):
+                if key in policy:
+                    policy.pop(key)
+    return policy
+
+
+def _grants_for(segments,revoked,plain):
     # Read-only business queries do not require a particular wording. Mutation grants
     # remain separate and are checked again by the Python executor.
     allowed=set(READ_TOOLS);insert=False;media_kinds=set();requested_media_model=None;edit_grants=set()
     edit_target_sets={};composed_text=False;pasted_text=False
-    for clause, clause_question in clauses:
+    for index,segment in enumerate(segments):
+        clause,clause_question=segment.text,segment.question
         c=clause.strip()
         if not c:continue
         # 子句终止问号统一阻止所有写授权，不影响相邻命令与只读工具。
-        if clause_question:continue
+        # 24i-B：被关联疑问归属到的整组同样不授予任何写权限。
+        if clause_question or index in revoked:continue
         if re.search(r'不要|不用|不需要|暂不|先不|别|禁止|未授权|不许|do not|don.t',c,re.I):continue
         if re.search(r'怎么|如何|为什么|建议|方案|如果|假如|是否|能否|上次|之前|曾经|我说|他说|她说|我只是|能做什么|可以做什么|how to|can you explain',c,re.I):
             if re.search(r'建议|看看|查询|查找|搜索|分析|总结|统计',c):allowed.update(READ_TOOLS)

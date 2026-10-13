@@ -37,6 +37,10 @@ PLATFORMS = (
      'via': '线索中心 · 邮箱来源', 'note': '由既有邮件同步送入，这里只看状态。'},
     {'id': 'github', 'label': 'GitHub', 'state': 'connected', 'kind': 'stream',
      'via': '线索中心 · GitHub 来源', 'note': '由既有 GitHub 定时任务送入，这里只看状态。'},
+    # AIsa 雷达：适配器已接通（取数委托给 aisa_source），但没配 Key 时状态如实显示未就绪。
+    {'id': 'aisa', 'label': '全网情报雷达 (AIsa)', 'state': 'connected', 'kind': 'stream',
+     'via': 'AIsa 网关（单 Key）→ 线索中心',
+     'note': '取数由 AIsa 网关负责，本页只看状态；未配置 AISA_API_KEY 环境变量时不可用。'},
     {'id': 'channels', 'label': '视频号', 'state': 'planned', 'kind': 'feed',
      'via': '', 'note': '链接格式已能识别（collect_links），抓取未接通。'},
     {'id': 'xiaohongshu', 'label': '小红书', 'state': 'planned', 'kind': 'feed',
