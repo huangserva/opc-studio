@@ -78,3 +78,9 @@ details[open]>.cl-disclosure-label::after,details[open]>summary>.cl-disclosure-l
  .cl-tech-select-wrap{display:flex;align-items:center;gap:8px;font-size:12px;color:#7d88a0}
  #cl-tech-select{padding:6px 8px;font-size:13px}
 }
+
+.cl-aisa-panel {padding:20px;margin:0 0 18px;border:1px solid var(--line,#ddd);border-radius:12px;background:var(--paper,#fff)}
+.cl-aisa-panel[hidden] {display:none}.cl-aisa-panel header {display:flex;justify-content:space-between;align-items:center}
+.cl-aisa-panel h2 {font-size:18px}.cl-aisa-inputs {display:flex;gap:14px;align-items:end;flex-wrap:wrap}.cl-aisa-inputs label {display:grid;gap:6px;min-width:180px}
+.cl-aisa-inputs textarea {min-height:65px}.cl-aisa-inputs input,.cl-aisa-inputs select {padding:8px}#cl-aisa-status {line-height:1.7;white-space:pre-wrap}
+@media(max-width:600px){.cl-aisa-inputs {display:grid}.cl-aisa-inputs label {min-width:0}.cl-aisa-panel {padding:14px}}

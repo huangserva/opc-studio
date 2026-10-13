@@ -317,7 +317,7 @@ class Deals:
         for k in ('received','outstanding','recorded_quote'):s[k]={c:format(v,'.2f') for c,v in s[k].items()}
         return dict(deals=result,summary=s,stage_counts=stage_counts,imports=imports,total=len(result))
     def _bind_post(self,ident,key,child):
-        from publication_metrics import normalized_url
+        from publication_metrics import PUBLISHED,normalized_url
         canonical=normalized_url(child['url'],child['platform'])
         # Register the user-confirmed external URL in the existing publication service.
         # A stable marker recovers a crash between its file write and this ledger commit.
@@ -327,7 +327,9 @@ class Deals:
                 candidates=self.store.delivery_records(child['slug'])
                 record=None
                 for candidate in candidates:
-                    if candidate.get('kind') not in ('published_manual','published_browser') or candidate.get('platform')!=child['platform'] or candidate.get('version')!=child['version']:continue
+                    # 复用统计服务那份已发布清单：X 官方接口与 Buffer 确认已发布的记录同样是已发布项，
+                    # 商单复盘不该另写一份少两类的名单，不然同一条发布会被重复登记成新记录。
+                    if candidate.get('kind') not in PUBLISHED or candidate.get('platform')!=child['platform'] or candidate.get('version')!=child['version']:continue
                     try:matches=normalized_url(candidate.get('url',''),child['platform'])==canonical
                     except (ValueError,TypeError):continue
                     if matches and (candidate.get('account')==child['account'] or candidate.get('note')==marker):

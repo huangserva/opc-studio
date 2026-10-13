@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlsplit, parse_qs
 from publishing.x_official import XOfficial, private_write, XError
-from publishing.x_feedback import XFeedback
+from publishing.x_feedback import CURSOR_LIMIT, XFeedback, cursor_signature
 
 class XFeedbackTests(unittest.TestCase):
     def setUp(self):
@@ -141,7 +141,110 @@ class XFeedbackTests(unittest.TestCase):
         key=hashlib.sha256(json.dumps(parts).encode()).hexdigest()
         old={'mode':'discussion','post_id':'444','start_time':self.payload['start_time'],'end_time':self.payload['end_time'],'ids':['123'],'synced_at':'2026-10-10T01:00:00Z'}
         newer=dict(old,ids=['124'],synced_at='2026-10-10T02:00:00Z')
-        private_write(self.feedback.path('111'),{'posts':{},'comments':{},'pages':{key:old,'duplicate':newer},'synced_at':None})
+        # 这一页的续页 token 是我们自己为这个查询发出的，登记进游标表后才能继续翻。
+        cursors={cursor_signature('111',parts):'next'}
+        private_write(self.feedback.path('111'),{'posts':{},'comments':{},'pages':{key:old,'duplicate':newer},'cursors':cursors,'synced_at':None})
         with patch('publishing.x_feedback.remote',return_value={'data':[{'id':'555','text':'next'}]}):
             result=self.feedback.sync(dict(self.payload,next_token='next'))
         self.assertEqual(result['page']['ids'],['124','555'])
+
+    # ---------------- R22：分页 token 必须属于当前账号的当前查询 ----------------
+
+    def issue(self, payload=None, token='page2'):
+        """先读一页，拿到服务发出去的续页 token（本机假 remote，零外网）。"""
+        with patch('publishing.x_feedback.remote', return_value=self.result()):
+            self.assertEqual(self.feedback.sync(payload or self.payload)['page']['next_token'], token)
+        return token
+
+    def test_issued_token_still_paginates_the_same_query(self):
+        token = self.issue()
+        with patch('publishing.x_feedback.remote', return_value={'data': [{'id': '777', 'text': '第二页'}],
+              'meta': {'next_token': 'page3'}}) as call:
+            result = self.feedback.sync(dict(self.payload, next_token=token))
+        self.assertEqual(result['page']['ids'], ['555', '777'])
+        self.assertEqual(result['result_count'], 1)
+        # token 原样发给 X；讨论模式另有一次有界的原帖补齐查询
+        self.assertIn('next_token=page2', call.call_args_list[0].args[1])
+
+    def test_token_from_another_post_window_mode_or_account_is_rejected_without_calling_x(self):
+        token = self.issue()
+        others = [
+            dict(self.payload, post_id='999'),                                        # 换帖子
+            dict(self.payload, start_time='2026-10-09T00:00:00Z'),                     # 换时间窗
+            dict(self.payload, mode='mentions'),                                       # 换模式
+            dict(self.payload, mode='timeline'),                                       # 换模式（原帖时间线）
+            dict(self.payload, mode='timeline', post_kind='replies'),                  # 换帖子分类
+        ]
+        with patch('publishing.x_feedback.remote') as call:
+            for payload in others:
+                with self.subTest(payload=payload):
+                    with self.assertRaisesRegex(ValueError, '分页参数与当前查询不匹配'):
+                        self.feedback.sync(dict(payload, next_token=token))
+            call.assert_not_called()          # 跨签名的 token 一次都不能发给 X
+        # 另一个账号即使在同一个本机缓存里也认不出来
+        parts = ['discussion', '444', self.payload['start_time'], self.payload['end_time']]
+        private_write(self.feedback.path('111'), {'posts': {}, 'comments': {}, 'pages': {},
+            'cursors': {cursor_signature('222', parts): token}, 'synced_at': None})
+        with patch('publishing.x_feedback.remote') as call:
+            with self.assertRaisesRegex(ValueError, '分页参数与当前查询不匹配'):
+                self.feedback.sync(dict(self.payload, next_token=token))
+            call.assert_not_called()
+
+    def test_unknown_and_malformed_tokens_are_rejected_without_calling_x(self):
+        self.issue()
+        for token in ['page9', '', 'x' * 1001]:
+            with self.subTest(token=token[:12]):
+                with patch('publishing.x_feedback.remote') as call:
+                    if len(token) > 1000:
+                        with self.assertRaisesRegex(ValueError, '分页参数无效'):
+                            self.feedback.sync(dict(self.payload, next_token=token))
+                    else:
+                        with self.assertRaisesRegex(ValueError, '分页参数与当前查询不匹配'):
+                            self.feedback.sync(dict(self.payload, next_token=token))
+                    call.assert_not_called()
+
+    def test_legacy_page_token_is_accepted_once_then_registered(self):
+        # 升级前写下的页面自带 next_token：它确实是这个查询发出去的，先收下并补登记，合法分页不中断。
+        import hashlib, json
+        parts = ['discussion', '444', self.payload['start_time'], self.payload['end_time']]
+        signature = hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+        page = {'mode': 'discussion', 'post_id': '444', 'start_time': self.payload['start_time'],
+                'end_time': self.payload['end_time'], 'ids': ['123'], 'next_token': 'legacy-token',
+                'synced_at': '2026-10-10T01:00:00Z'}
+        private_write(self.feedback.path('111'), {'posts': {}, 'comments': {}, 'pages': {signature: page},
+            'synced_at': None})
+        with patch('publishing.x_feedback.remote', return_value={'data': [{'id': '555', 'text': '接着读'}],
+              'meta': {'next_token': 'page3'}}) as call:
+            result = self.feedback.sync(dict(self.payload, next_token='legacy-token'))
+        self.assertEqual(result['page']['ids'], ['123', '555'])
+        self.assertIn('next_token=legacy-token', call.call_args_list[0].args[1])
+        self.assertEqual(result['page']['next_token'], 'page3')
+        # 读完之后新发出的 token 已经登记到这个查询上，合法分页继续可用
+        self.assertEqual(self.feedback.cached('111')['cursors'][cursor_signature('111', parts)], 'page3')
+        with patch('publishing.x_feedback.remote', return_value={'data': [{'id': '888'}]}) as call:
+            self.feedback.sync(dict(self.payload, next_token='page3'))
+        self.assertIn('next_token=page3', call.call_args_list[0].args[1])
+
+    def test_token_stops_working_after_the_last_page_and_registry_stays_bounded(self):
+        with patch('publishing.x_feedback.remote', return_value=self.result()):
+            self.feedback.sync(self.payload)
+        parts = ['discussion', '444', self.payload['start_time'], self.payload['end_time']]
+        key = cursor_signature('111', parts)
+        self.assertEqual(self.feedback.cached('111')['cursors'][key], 'page2')
+        # 读完整页：这一页没有下一页，旧 token 立刻作废，不能再被拿去请求 X。
+        with patch('publishing.x_feedback.remote', return_value={'data': []}) as call:
+            self.feedback.sync(dict(self.payload, next_token='page2'))
+        self.assertIn('next_token=page2', call.call_args_list[0].args[1])
+        self.assertNotIn(key, self.feedback.cached('111').get('cursors', {}))
+        with patch('publishing.x_feedback.remote') as call:
+            with self.assertRaisesRegex(ValueError, '分页参数与当前查询不匹配'):
+                self.feedback.sync(dict(self.payload, next_token='page2'))
+            call.assert_not_called()
+        # 连续翻很多个查询签名，游标表也不会无限长。
+        for n in range(CURSOR_LIMIT + 10):
+            payload = dict(self.payload, start_time='2026-10-%02dT00:00:00Z' % (1 + n % 9),
+                           end_time='2026-10-%02dT01:00:00Z' % (1 + n % 9))
+            payload['post_id'] = str(400 + n)
+            with patch('publishing.x_feedback.remote', return_value=self.result()):
+                self.feedback.sync(payload)
+        self.assertLessEqual(len(self.feedback.cached('111')['cursors']), CURSOR_LIMIT)

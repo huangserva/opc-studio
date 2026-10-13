@@ -736,6 +736,8 @@ class IntakeCards:
         """Analysis state for a page of drops, in one read.
 
         同一篇资料被重复收进来时，新回收项直接沿用已有分析（不再调模型），并标明沿用来源。
+        沿用只认**正文版本一致**的分析：正文更新过的旧分析不再投影（否则页面还显示旧分析）；
+        分析行没有版本信息（加版本字段之前的旧行）同样不投影，如实显示「还没有分析」。
         """
         rows = [row for row in rows if isinstance(row, dict)]
         ids = [row['id'] for row in rows if row.get('id')]
@@ -749,14 +751,16 @@ class IntakeCards:
             if documents:
                 marks = ','.join('?' * len(documents))
                 for row in connection.execute('SELECT * FROM analysis WHERE document_id IN (' + marks +
-                                              " AND status='done') ORDER BY updated_at DESC", documents):
-                    by_document.setdefault(row['document_id'], row)
+                                              ") AND status='done' ORDER BY updated_at DESC", documents):
+                    by_document.setdefault(row['document_id'], []).append(row)
+        versions = self._document_versions(documents)
         states = {}
         for row in rows:
             stored = own.get(row.get('id'))
             if stored is None:
-                shared = by_document.get(row.get('document_id')) if row.get('document_id') else None
-                if shared is not None and shared['drop_id'] != row.get('id'):
+                shared = self._same_version_analysis(by_document.get(row.get('document_id')), row.get('id'),
+                                                     versions.get(row.get('document_id'), ''))
+                if shared is not None:
                     state = self._public_analysis(dict(shared))
                     state['inherited_from'] = shared['drop_id']
                     state['drop_id'] = row.get('id')
@@ -767,12 +771,77 @@ class IntakeCards:
             states[row['id']] = self._public_analysis(dict(stored))
         return states
 
+    @staticmethod
+    def _stored_version(stored):
+        """分析行里记下的正文版本；旧行没有这个键、或数据读不出来，都返回 ''（视为无版本）。"""
+        try:
+            data = json.loads(stored['data'] or '{}')
+        except (ValueError, IndexError, KeyError):
+            return ''
+        return data.get('document_hash', '') if isinstance(data, dict) else ''
+
+    def _same_version_analysis(self, candidates, drop_id, version):
+        """从同一 document_id 的已完成分析里挑出正文版本一致、且不是自己那条的最新一条。"""
+        if not version:
+            return None
+        for candidate in candidates or ():
+            if candidate['drop_id'] == drop_id:
+                continue
+            if self._stored_version(candidate) == version:
+                return candidate
+        return None
+
+    def _document_versions(self, document_ids):
+        """一次批量取这些回收项当前的正文版本（knowledge documents.hash）。
+
+        同源重复行共用同一次查询：列表页不再每行进一次知识库。只读 id/hash，不取正文。
+        读不到版本（没有 document_id、正文已被单独删除、知识库读不了）就不给那条条目，
+        调用方按「无版本」处理 —— 安全回退到正常分析路径，既不报错也不静默复用旧结果。
+        """
+        wanted = [doc for doc in document_ids if doc]
+        if not wanted:
+            return {}
+        try:
+            return {doc_id: (digest or '') for doc_id, digest in self.knowledge.document_hashes(wanted).items()}
+        except (ValueError, OSError, sqlite3.Error):
+            return {}
+
+    def _document_version(self, document_id):
+        """单条回收项当前的正文版本；读不到返回 ''（语义同 ``_document_versions``）。"""
+        if not document_id:
+            return ''
+        return self._document_versions([document_id]).get(document_id, '')
+
+    def _body_unchanged(self, drop, version):
+        """继承要用的那份正文版本，到现在还是不是同一版。
+
+        版本为空或读不到（正文被单独删了、知识库读不了）都算「变了」：宁可退回正常分析路径
+        重新读一次当前正文，也不把旧正文的结果当成当前正文的分析写下去。
+        """
+        return bool(version) and version == self._document_version(drop.get('document_id') or '')
+
     def _shared_analysis(self, drop):
-        """同一篇资料已分析过：拿那条完成的结果，不再花一次模型调用。"""
+        """同一篇资料**且正文版本一致**的已完成分析：拿它复用，不再花一次模型调用。
+
+        正文版本是 ``knowledge documents.hash``。同一 document_id 的正文被更新后，旧正文下
+        产出的分析不得再被复用（否则「文章更新了还显示旧分析」）；分析行里没有版本信息
+        （加版本字段之前写下的旧行）同样视为不可复用，走正常分析路径。
+
+        返回 ``(可复用的分析, 那条分析当时对应的正文版本)``，没有可复用分析时是 ``(None, '')``。
+        版本必须跟结果一起带到落盘点：继承写 done 时记的是**被继承那份分析**对应的正文版本，
+        不能在写盘那一刻改取当前最新正文 —— 那样正文更新后旧结果会冒充新正文的分析继续传播。
+        """
+        version = self._document_version(drop.get('document_id') or '')
+        if not version:
+            return None, ''
         with self.db() as connection:
-            row = connection.execute('''SELECT * FROM analysis WHERE document_id=? AND drop_id<>?
-                AND status='done' ORDER BY updated_at DESC LIMIT 1''', (drop['document_id'], drop['id'])).fetchone()
-        return self._public_analysis(dict(row)) if row else None
+            candidates = connection.execute('''SELECT * FROM analysis WHERE document_id=? AND drop_id<>?
+                AND status='done' ORDER BY updated_at DESC''',
+                (drop['document_id'], drop['id'])).fetchall()
+        shared = self._same_version_analysis(candidates, drop['id'], version)
+        if not shared:
+            return None, ''
+        return self._public_analysis(dict(shared)), self._stored_version(shared)
 
     def analysis_model(self):
         """The model already configured for 创意提炼; instant analysis adds no service and reads no key."""
@@ -906,6 +975,58 @@ class IntakeCards:
             errors.append(f"回收项 {drop['id'][:8]} · 知识库正文读不到，未标记已处理")
         return False
 
+    def _seen_claim(self, drop_id):
+        """本轮 mark_seen 之前，这条回收项在 seen / extraction_retry 里的原样（撤销要用）。
+
+        继承作废时要按这份快照还原，而不是盲删 seen：之前已有有效的已读记录就原样写回，
+        之前没有才删掉本轮新建的那条。重试记录同理，只还原这次被放行的那些行。
+        """
+        with self.db() as connection:
+            seen = connection.execute('SELECT * FROM seen WHERE drop_id=?', (drop_id,)).fetchone()
+            retries = connection.execute('''SELECT fingerprint,model,epoch,state,next_retry_at FROM extraction_retry
+                WHERE drop_id=? AND (state<>'resolved' OR next_retry_at IS NOT NULL)''', (drop_id,)).fetchall()
+        return {'seen': dict(seen) if seen else None, 'retries': [dict(row) for row in retries]}
+
+    def _release_seen_claim(self, drop, fingerprint, shared_version, claim):
+        """继承作废：撤销本轮 mark_seen 提前写下的「已处理」标记与重试放行。
+
+        `mark_seen` 一次写两件事：把「当前这一版正文已处理」记进 seen，并把该回收项的重试记录
+        放行（state='resolved'、next_retry_at=NULL）。继承随后作废时，当前这版正文其实还没被处理：
+        这条要走下面的正常分析，而它可能阅读失败或卡片失败。留着这次标记的后果是用户可见的——
+        页面写「提示词卡这一段没完成……定时提炼会重试」，`pending()` 却因为这条 seen 不再选中它，
+        正文和指纹都不再变化时就永远不会重试（返修 c 的 M1）。
+
+        只撤销本轮这次写入，不放宽任何守卫：
+
+        * seen：只碰这一条 drop_id，且只在这行确实是本轮写下的（指纹是本轮指纹、版本不是继承
+          依据那一版）时才动；之前有旧行按快照原样写回，之前没有才删。
+        * extraction_retry：只把这次被改成 resolved 的行恢复原来的 state/next_retry_at，其他行不碰；
+          「这次没处理完」与重试状态保持一致，不留下放行的重试记录。
+
+        正文被单独删除、父回收项被删的分支本轮根本没写 seen（mark_seen 返回 False），不会走到这里。
+        调用方须与 `_seen_claim` 同处一把回收站锁内，快照与撤销之间不得让别的写入插进来。
+        """
+        with self.intake.lock:
+            with self.db() as connection:
+                row = connection.execute('SELECT * FROM seen WHERE drop_id=?', (drop['id'],)).fetchone()
+                if row is not None and row['fingerprint'] == fingerprint and row['document_hash'] != shared_version:
+                    before = claim.get('seen')
+                    if before is None:
+                        connection.execute('DELETE FROM seen WHERE drop_id=? AND fingerprint=? AND document_hash=?',
+                                           (drop['id'], fingerprint, row['document_hash']))
+                    elif any(row[key] != before[key] for key in
+                             ('document_id', 'fingerprint', 'processed_at', 'document_hash')):
+                        connection.execute('''UPDATE seen SET document_id=?,fingerprint=?,processed_at=?,
+                            document_hash=? WHERE drop_id=?''',
+                            (before['document_id'], before['fingerprint'], before['processed_at'],
+                             before['document_hash'], drop['id']))
+                for item in claim.get('retries', []):
+                    connection.execute('''UPDATE extraction_retry SET state=?,next_retry_at=? WHERE drop_id=?
+                        AND fingerprint=? AND model=? AND epoch=? AND state='resolved'
+                        AND next_retry_at IS NULL''',
+                        (item['state'], item['next_retry_at'], drop['id'], item['fingerprint'], item['model'],
+                         item['epoch']))
+
     def _write_analysis(self, drop, status, **fields):
         if status not in ANALYSIS_STATUSES:
             raise ValueError('分析状态无效')
@@ -915,6 +1036,20 @@ class IntakeCards:
             stored = self._analysis_row(drop_id) or {}
             moment = now()
             data = fields.get('data')
+            if data is None:
+                data = json.loads(stored.get('data') or '{}')
+            if status == 'done' and isinstance(data, dict):
+                # 完成的分析要记下它是对哪一版正文做的：共享复用只认版本一致的行。
+                # 版本只能由调用方从**实际读到的那份正文**带过来（evidence() 返回的 document['hash']，
+                # 或被继承那条分析记下的版本），在这里随任务落到盘上。这里绝不重新读当前正文：
+                # 后台分析读正文与落盘之间正文可能已被更新，用落盘那一刻的版本盖章，等于把旧分析
+                # 冒充成新正文的分析，列表和后续分析都会继续复用这份旧结果。
+                # 调用方没带版本（例如给已完成的结果补一条注记）就沿用行里原有的版本；行里也没有
+                # 就留空 —— 无版本的行按「不可复用」处理，不猜版本。
+                version = fields.get('document_version')
+                if version is None:
+                    version = self._stored_version(stored)
+                data = {**data, 'document_hash': version}
             row = {'document_id': drop.get('document_id') or stored.get('document_id', ''), 'status': status,
                    'error': fields.get('error', ''), 'retryable': 1 if fields.get('retryable') else 0,
                    'fingerprint': fields.get('fingerprint') or stored.get('fingerprint', ''),
@@ -925,8 +1060,7 @@ class IntakeCards:
                                  (moment if status == 'running' else ''),
                    'finished_at': fields.get('finished_at') or (moment if status in ('done', 'failed') else ''),
                    'updated_at': moment,
-                   'data': json.dumps(data if data is not None else json.loads(stored.get('data') or '{}'),
-                                      ensure_ascii=False)}
+                   'data': json.dumps(data, ensure_ascii=False)}
             with self.db() as connection:
                 if not self._intake_alive(connection, drop_id):
                     # 黄总已删掉这条回收项：后台收尾不得把它写回来。
@@ -1257,21 +1391,40 @@ class IntakeCards:
         if not force and stored and stored['status'] == 'done' and stored['fingerprint'] == fingerprint:
             return self._public_analysis(stored)
         if not force:
-            shared = self._shared_analysis(drop)
+            shared, shared_version = self._shared_analysis(drop)
             # 继承前先落已读指纹：mark_seen 在回收站锁内读取源正文版本，正文已被单独删除时
             # 不写（返回 False）。此时不得写 done —— 退回正常分析路径，由 evidence() 给出可诊断
             # 的失败状态，绝不静默吞错或盲标完成。
             # 数据损坏时 mark_seen 会抛（20s-L2）；这里按「不可继承」处理，与正文被删
             # 走同一条路，继承语义不变、结果同样落到 evidence() 的可诊断失败。
-            try:
-                inheritable = bool(shared) and self.mark_seen(drop, fingerprint)
-            except ValueError:
-                inheritable = False
+            # 快照、mark_seen、撤销同处一把回收站锁里：这一段的 seen / extraction_retry 不会被别的
+            # 线程插进来，撤销才能只还原「本轮这次写入」，也不会覆盖别人已经写成的成功结果。
+            with self.intake.lock:
+                claim = self._seen_claim(drop['id']) if shared else None
+                try:
+                    inheritable = bool(shared) and self._body_unchanged(drop, shared_version) \
+                        and self.mark_seen(drop, fingerprint)
+                except ValueError:
+                    inheritable = False
+                if inheritable and not self._body_unchanged(drop, shared_version):
+                    # 继承匹配成功之后、写 done 之前正文又更新了（mark_seen 就在读这一版的正文）：
+                    # 这次继承作废 —— 不得把旧正文的结果盖成当前正文的分析，否则这份旧结果还会
+                    # 顺着列表投影和后续继承继续传播。退回下面的正常分析路径，按当前正文重新读
+                    # 证据、重新花这次模型调用。
+                    # 退回之前要撤销 mark_seen 刚写下的「当前这版正文已处理」：这次继承没做成，而后面
+                    # 那次正常分析也可能阅读失败或卡片失败。留着这条 seen，`pending()` 会按「同指纹 +
+                    # 同正文版本」把它当已处理跳过，页面却写着「定时提炼会重试」——失败项再也进不了
+                    # 定时队列（返修 c 的 M1）。
+                    self._release_seen_claim(drop, fingerprint, shared_version, claim)
+                    inheritable = False
             if inheritable:
                 data = {key: shared.get(key) for key in
                         ('summary', 'points', 'why', 'angles', 'related', 'cards', 'cards_error', 'parse_notes')}
                 data['inherited_from'] = shared['drop_id']
+                # 记的是**被继承那条分析**当时的正文版本，不是此刻的最新版本：
+                # 版本一致才复用，正文之后更新过就自然不再匹配。
                 return self._write_analysis(drop, 'done', fingerprint=fingerprint, data=data,
+                                            document_version=shared_version,
                                             model_name=shared.get('model', ''), attempts=0)
         run_id = uuid.uuid4().hex
         self._write_analysis(drop, 'running', fingerprint=fingerprint, run_id=run_id,
@@ -1290,6 +1443,9 @@ class IntakeCards:
         except ValueError as exc:
             return self._write_analysis(drop, 'failed', fingerprint=fingerprint, run_id=run_id, attempts=0,
                                         error=('知识库正文读不到：' + str(exc))[:300], retryable=True)
+        # 送给模型的是这一版正文，done 就记这一版的版本：随任务带到落盘点，不在写盘时重取
+        # 当前最新版本（读证据与落盘之间正文可能已更新，重取会把旧分析冒充成新正文的分析）。
+        read_version = str(document.get('hash') or '')
         if not refs:
             return self._write_analysis(drop, 'failed', fingerprint=fingerprint, run_id=run_id, attempts=0,
                                         error='这条回收项在知识库里没有正文，无法分析', retryable=True)
@@ -1386,7 +1542,7 @@ class IntakeCards:
             data = {**reading, 'related': self.related_entries(drop, document, reading), 'cards': cards,
                     'dropped': len(dropped), 'drop_reasons': sorted(set(dropped)), 'cards_error': cards_error}
             state = self._write_analysis(drop, 'done', fingerprint=fingerprint, run_id=run_id, attempts=attempt,
-                                         model_name=model_name, data=data)
+                                         model_name=model_name, data=data, document_version=read_version)
             if cards_done:
                 # 卡片这一段也跑完了，定时提炼就可以跳过这条；没跑完则留给兜底重试。
                 self.mark_seen(drop, fingerprint)

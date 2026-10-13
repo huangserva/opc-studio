@@ -493,17 +493,19 @@ class _Reservation:
 # （否则同一进程两次 flock 同一文件会自我阻塞）。
 _USAGE_THREAD_LOCK = threading.Lock()
 
-# 用量记录日期：严格 `YYYY-MM-DD`（零填充两位月/日）。
-_USAGE_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+# 用量记录日期：严格 `YYYY-MM-DD`（零填充两位月/日，只认 ASCII 数字）。
+# 必须 fullmatch：`match` + `$` 会接受末尾换行，`\d` 还会接受全角/阿拉伯等 Unicode 数字，
+# 让一份损坏的额度文件被当成合法记录（静默归零或误判未来）。
+_USAGE_DATE_RE = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
 
 
 def _valid_usage_date(value):
-    """严格校验用量记录日期：必须是 `YYYY-MM-DD` 且为真实日历日。
+    """严格校验用量记录日期：必须是 `YYYY-MM-DD`（ASCII 数字）且为真实日历日。
 
     仅形状匹配不够——`2000-02-30` 形状合法但不是真实日历日，须拒绝。
     非 str、格式不符或日历非法都返回 False。
     """
-    if not isinstance(value, str) or not _USAGE_DATE_RE.match(value):
+    if not isinstance(value, str) or _USAGE_DATE_RE.fullmatch(value) is None:
         return False
     try:
         datetime.date(int(value[0:4]), int(value[5:7]), int(value[8:10]))
@@ -748,6 +750,7 @@ class SelfHostedProvider:
     请求 `/search?format=json`，只映射 results[].url/title/content。
     连接拒绝/服务没起 → ProviderUnavailable（链路回退到 skipped）；超时 → SearchTimeout
     （failed）；坏 JSON/格式异常 → SearchFailed；上游引擎全被拦且无结果 → ProviderUnavailable。
+    3xx 与传输形态无关：默认传输的 HTTPError 和自定义 opener 返回的状态元组一律 RedirectBlocked。
     """
 
     name = 'selfhosted'
@@ -808,6 +811,9 @@ class SelfHostedProvider:
         except OSError:
             raise ProviderUnavailable('自建搜索服务不可达', provider=self.name)
 
+        if isinstance(status, int) and 300 <= status < 400:
+            # 自定义传输（返回状态码元组）与默认传输一致：3xx 一律当失败，不回显被重定向的地址。
+            raise RedirectBlocked('自建搜索拒绝重定向')
         if isinstance(status, int) and status >= 400:
             if status == 429:
                 raise ProviderUnavailable('自建搜索上游限流', provider=self.name)

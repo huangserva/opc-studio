@@ -20,7 +20,7 @@ from pathlib import Path
 import intel_job_ownership as ownership
 from intel_wechat_mp import (MAX_BODIES_PER_RUN, MAX_PAGES_PER_RUN, HISTORY_PAGE_SIZE,
                              LATEST_PAGE_SIZE, BackendQuota, CredentialExpired, CredentialsMissing,
-                             RateLimited, article_url, fakeid)
+                             RateLimited, TaskDeadlinePassed, article_url, fakeid, request_deadline)
 from intel_public import (ALBUM_REQUEST_BUDGET, AlbumError, AlbumStopped, PublicClient,
                           SOGOU_COOLDOWN_SECONDS, SOGOU_REQUEST_BUDGET, SogouBlocked,
                           discover_album_ids)
@@ -316,11 +316,16 @@ def summarize_outcome(outcome):
 
 
 def build_outcome(list_state, list_found, list_selected, list_routes,
-                  save_state, save, body_state, body):
+                  save_state, save, body_state, body, unique_new=None):
     outcome = {'version': OUTCOME_VERSION,
                'list': {'state': list_state, 'found': int(list_found),
                         'selected': int(list_selected), 'routes': list_routes},
                'save': dict(save), 'body': dict(body)}
+    # R10 口径分开记：list.found 是**来源命中数**（各路各自计数，同一篇被多个来源命中会各算一次），
+    # unique_new 是**唯一新增文章数**（本轮按入库身份键去重后真正新增的文章）。
+    # 两者语义都不改既有字段，只是把「命中」与「新增」说清楚。
+    if unique_new is not None:
+        outcome['unique_new'] = max(0, int(unique_new))
     outcome['summary'] = summarize_outcome(outcome)
     return outcome
 
@@ -1134,7 +1139,8 @@ class Intel:
                 on_read(reads)
             try:
                 parsed = self.client().fetch_article(link)
-            except (ValueError, OSError, RateLimited, CredentialsMissing, CredentialExpired):
+            except (ValueError, OSError, RateLimited, CredentialsMissing, CredentialExpired,
+                    TaskDeadlinePassed):
                 continue
             if parsed.get('biz') != identifier:
                 continue
@@ -1299,7 +1305,7 @@ class Intel:
     @staticmethod
     def _scheduled_outcome(backend_state, backend_count=0, backend_stop='', backend_attempted=1, save=None,
                            album=None, album_count=0, album_stop='', album_attempted=0,
-                           backend_requested=True, discovery_count=0):
+                           backend_requested=True, discovery_count=0, unique_new=None):
         """定时轮次的 outcome：合集 + 后台两路（定时不走搜狗），正文永远 not_requested。
 
         requested/attempted 必须随实际路由同步：后台没请求时 requested=False、attempted=0，
@@ -1319,7 +1325,8 @@ class Intel:
         # selected 必须满足 selected = attempted + not_attempted，不能固定 0。
         selected = int(save['attempted']) + int(save['not_attempted'])
         found = int(album_count or 0) + int(backend_count or 0) + int(discovery_count or 0)
-        return build_outcome(list_state, found, selected, routes, save['state'], save, body['state'], body)
+        return build_outcome(list_state, found, selected, routes, save['state'], save, body['state'], body,
+                             unique_new=unique_new)
 
     # ── 阶段 B：发现 / 合集 / 必要后台 ──────────────────────────────────────
     def _scheduled_discovery(self, record, job_id, routes, known, owner, cancel, deadline):
@@ -1387,11 +1394,12 @@ class Intel:
         discovery = known.get('discovery') or {}
         found = int(discovery.get('new') or 0) + int(discovery.get('existing') or 0)
         added = int(discovery.get('new') or 0)
+        unique_new = self._unique_new_count(known)
         self._finish_job(job_id, 'done', '', routes=routes, detail=self._routes_detail(routes),
                          found=found, added=added,
                          outcome=self._scheduled_outcome('not_requested', 0, '', 0,
                                                          backend_requested=False,
-                                                         discovery_count=found),
+                                                         discovery_count=found, unique_new=unique_new),
                          discovery=known.get('discovery_receipt'), owner=owner)
         return 'stop', {'state': stop, 'detail': f'{word}，本轮已停止，已保存的成果保留',
                         'listed': found, 'new_articles': added}
@@ -1422,10 +1430,26 @@ class Intel:
             return [], info
         if known is not None:
             known['backend_attempted'] = True  # 实际要发请求了；异常也算尝试过
-        items = list(self.client().appmsg_list(record['fakeid'], 0, LATEST_PAGE_SIZE))
+        # 任务期限贯穿到这一次后台 HTTP：min(BACKEND_TIMEOUT=40, 剩余期限)，不突破既有预算。
+        # 不替换共享客户端的任何对象，只给本次调用设期限（R09）。
+        with request_deadline(deadline):
+            try:
+                items = list(self.client().appmsg_list(record['fakeid'], 0, LATEST_PAGE_SIZE))
+            except TaskDeadlinePassed as exc:
+                # 期限在冷却等待／取凭据里耗尽：一个请求都没发出去，如实记超时，
+                # 绝不能因为把超时压到 0.01 秒就报「后台正常完成」（M2）。
+                routes['backend'] = str(exc)
+                info['state'], info['stop'] = 'blocked', 'deadline'
+                return [], info
         # 后台列表给的是长链：按 mid/idx 映射到与发现/合集一致的可信身份 aid。
         self._stamp_identity_aid(record['fakeid'], items)
-        routes['backend'] = f'取到 {len(items)} 篇'
+        # 链接不合格的单条由客户端单独交上来（client.isolated_items）：只隔离这一条，
+        # 正常条目照常入库，但要在回执里报出失败条数，不能让坏条目静默消失（M3）。
+        isolated = list(getattr(self.client(), 'isolated_items', None) or ())
+        if known is not None:
+            known['backend_isolated'] = len(isolated)
+        routes['backend'] = (f'取到 {len(items)} 篇'
+                             + (f'，另 {len(isolated)} 条链接不合格已隔离' if isolated else ''))
         info['requested'], info['state'], info['stop'] = True, 'complete', 'ok'
         return items, info
 
@@ -1526,16 +1550,13 @@ class Intel:
     def _deadline_reader(reader, client, cancel, deadline):
         """把 reader 包一层：读取前查取消/截止，并把底层 HTTP 超时压到剩余时间。
 
-        真实链路里 reader 是 ``client.fetch_article``，底层用固定 60 秒超时；这里在调用前后
-        临时把 client.opener 包一层，把传给底层 opener 的超时 min(原超时, 剩余时间)，
-        保证「单 HTTP 耗时不超过剩余时间」；调用结束立即还原 opener，不长期改动共享客户端。
-        注入的假 reader（测试）没有 opener 也不受影响，仍会做取消/截止检查。
-
-        并发边界（Pi-L1）：包裹窗口内，共享同一 WechatMpClient 的非任务路径
-        （identify_from_link、intel_recommend、collect_adapters）若恰好并发调用，
-        会继承被压小的超时——影响上限是偶发一次文章页读取超时失败，无正确性/安全
-        问题（BodyThrottle 串行使窗口极窄，opener 在 finally 必然还原）。单飞闸门
-        保证同一时刻只有一个任务在用这个 client。
+        真实链路里 reader 是 ``client.fetch_article``。期限只随**本次调用**走：
+        ``request_deadline`` 把截止时刻放进当前调用上下文（contextvar，按线程/上下文隔离），
+        底层 ``WechatMpClient`` 每次 HTTP 自己算 min(既有预算, 剩余期限)，保证「单 HTTP 耗时
+        不超过剩余时间」。**绝不临时替换共享 client.opener**（R09）：那是共享对象，
+        包裹窗口内共用同一 WechatMpClient 的非任务路径（identify_from_link、
+        intel_recommend、collect_adapters）会继承被压小的超时。
+        注入的假 reader（测试）不受影响，仍会做取消/截止检查；client 参数只为既有调用方保留。
         """
         def call(link):
             if _cancel_requested(cancel):
@@ -1543,18 +1564,13 @@ class Intel:
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 raise DiscoveryStopped('发现读取前已到时限')
-            opener = getattr(client, 'opener', None)
-            if opener is None or remaining is None:
-                return reader(link)
-            def capped(url, headers, timeout, _opener=opener, _remaining=remaining):
-                if isinstance(timeout, (int, float)):
-                    timeout = min(timeout, max(_remaining, 0.01))
-                return _opener(url, headers, timeout)
-            client.opener = capped
-            try:
-                return reader(link)
-            finally:
-                client.opener = opener
+            with request_deadline(deadline):
+                try:
+                    return reader(link)
+                except TaskDeadlinePassed:
+                    # 读取途中期限到点（节流等待跨期）：按发现侧的停止词汇收口，
+                    # 不当成一次读取失败，也不把已耗尽的期限当还能成功（M2）。
+                    raise DiscoveryStopped('发现读取时已到时限') from None
         return call
 
     def _discover(self, identifier, name, has_album, cancel=None, deadline=None, reference=None):
@@ -1597,6 +1613,7 @@ class Intel:
         """
         new = existing = bodies = 0
         dedupe = []
+        new_keys = []
         album_ids = [str(a) for a in (receipt.get('album_ids') or []) if str(a).isdigit()]
         with self.db() as connection:
             # 漏 owner 不能降级：无条件 _guard_owner（v1 漏 token → 直接拒绝，不写业务）。
@@ -1612,9 +1629,11 @@ class Intel:
                     'aid': discovery_aid(identity, identifier),
                 }
                 article_id, created = self._upsert_article(identifier, item, job_id, connection)
-                dedupe.append(self._dedupe_key(item))
+                key = self._dedupe_key(item)
+                dedupe.append(key)
                 if created:
                     new += 1
+                    new_keys.append(key)
                 else:
                     existing += 1
                 body = article.get('body')
@@ -1626,16 +1645,35 @@ class Intel:
                     VALUES(?,?,?,?) ON CONFLICT(fakeid,album_id) DO NOTHING''',
                     (identifier, album_id, 'discovery', now()))
         # dedupe：本轮发现已提交文章的身份键，供合集/后台汇总去重（Pi-L3）。
+        # new_keys：本轮确实新建的那部分身份键，供「唯一新增文章数」计数（R10）。
         return {'new': new, 'existing': existing, 'bodies': bodies, 'albums': len(album_ids),
-                'dedupe': dedupe}
+                'dedupe': dedupe, 'new_keys': new_keys}
+
+    @staticmethod
+    def _unique_new_count(known):
+        """本轮唯一新增文章数（R10）：按入库身份键去重，跨来源命中同一篇只算一次。
+
+        与「来源命中数」（outcome['list']['found']）分开：同一篇文章被发现/合集/后台
+        各路命中时命中数会重复计数，唯一新增不会。没登记身份键的收口路径回退到
+        已提交台账里的 added，不虚构。
+        """
+        keys = known.get('new_keys')
+        if keys is not None:
+            return len(set(str(key) for key in keys))
+        return int(known.get('added') or 0)
 
     @staticmethod
     def _dedupe_key(item):
-        """文章去重键，与 _upsert_article 的入库身份同口径：aid 优先，否则链接指纹。"""
+        """文章去重键，与 _upsert_article 的入库身份同口径：aid 优先，否则链接指纹。
+
+        链接先过 accepted_link：不合格链接在入库时会清成占位，去重键也必须按
+        「无链接」算 —— 否则 article_url 会对畸形链接（缺 mid 等）抛错，
+        一条坏链接把整轮带崩（R01），且两种口径会算出不同键、同一篇可能重复入库。
+        """
         aid = str(item.get('aid') or '').strip()[:64]
         if aid:
             return aid
-        return article_fingerprint(item.get('link') or '',
+        return article_fingerprint(accepted_link(item.get('link') or ''),
                                    f"{item.get('published_at', 0)}|{item.get('title', '')}")
 
     @staticmethod
@@ -1776,6 +1814,7 @@ class Intel:
         discovery_found = discovery_new + int(discovery.get('existing') or 0)
         attempted = bool(known.get('backend_attempted'))
         return {'found': discovery_found, 'added': discovery_new,
+                'unique_new': len(set(str(key) for key in discovery.get('new_keys') or ()) or ()),
                 'requested': attempted, 'attempted': 1 if attempted else 0}
 
     def _scheduled_account(self, record, job_id, routes, known=None, owner=None, cancel=None, deadline=None):
@@ -1825,6 +1864,9 @@ class Intel:
             known['backend_count'] = len(backend_items)
             known['backend_state'] = backend_info['state']
             known['backend_stop'] = backend_info['stop']
+            if backend_info['stop'] == 'deadline' and not stop:
+                # 期限在后台这一路耗尽：没发出去的请求不算成功，本轮到此为止，已保存的成果保留。
+                stop = 'timeout'
             items = list(album['items']) + list(backend_items)
         except RateLimited as exc:
             # 200013：立即停本轮，不重试；下一轮若仍未冷却会累计到 3 次转 6 小时冷却。
@@ -1837,7 +1879,8 @@ class Intel:
                                                              totals['attempted'],
                                                              album=self._album_outcome(known)[0],
                                                              backend_requested=totals['requested'],
-                                                             discovery_count=totals['found']),
+                                                             discovery_count=totals['found'],
+                                                             unique_new=totals['unique_new']),
                              discovery=known.get('discovery_receipt'), owner=owner)
             return 'stop', {'state': 'rate_limited', 'detail': f'{exc}；本轮已停止，未重试',
                             'cooldown_until': exc.until or self.client().quota.cooldown_until(),
@@ -1852,7 +1895,8 @@ class Intel:
                                                              totals['attempted'],
                                                              album=self._album_outcome(known)[0],
                                                              backend_requested=totals['requested'],
-                                                             discovery_count=totals['found']),
+                                                             discovery_count=totals['found'],
+                                                             unique_new=totals['unique_new']),
                              discovery=known.get('discovery_receipt'), owner=owner)
             return 'stop', {'state': 'credentials', 'detail': str(exc),
                             'listed': totals['found'], 'new_articles': totals['added']}
@@ -1866,7 +1910,8 @@ class Intel:
                                                              totals['attempted'],
                                                              album=self._album_outcome(known)[0],
                                                              backend_requested=totals['requested'],
-                                                             discovery_count=totals['found']),
+                                                             discovery_count=totals['found'],
+                                                             unique_new=totals['unique_new']),
                              discovery=known.get('discovery_receipt'), owner=owner)
             return 'stop', {'state': 'credentials', 'detail': str(exc),
                             'listed': totals['found'], 'new_articles': totals['added']}
@@ -1880,7 +1925,8 @@ class Intel:
                                                              totals['attempted'],
                                                              album=self._album_outcome(known)[0],
                                                              backend_requested=totals['requested'],
-                                                             discovery_count=totals['found']),
+                                                             discovery_count=totals['found'],
+                                                             unique_new=totals['unique_new']),
                              discovery=known.get('discovery_receipt'), owner=owner)
             return 'continue', {'detail': f"{name or identifier} · {exc}",
                                 'listed': totals['found'], 'new_articles': totals['added']}
@@ -1900,6 +1946,7 @@ class Intel:
         known['listed'] = listed
         created_count = 0
         attempted_count = 0
+        created_keys = []
         with self.db() as connection:
             # 同一事务先校验 owner：迟到 owner 的整批业务写直接拒绝，不先写业务后才发现失效。
             self._guard_owner(connection, job_id, owner)
@@ -1912,10 +1959,16 @@ class Intel:
                 # 复用外层事务：_upsert_article 自己开事务会自锁。
                 _, created = self._upsert_article(identifier, item, job_id, connection)
                 created_count += int(created)
+                if created:
+                    created_keys.append(self._dedupe_key(item))
         # 事务提交成功后才把临时计数确认为成功；回滚不会保留「前两条保存成功」。
         # 列表查询成功（含 0 篇空列表）都算保存阶段达成目标，统一记 complete（prep §3 行3）。
+        # 被隔离的坏单条计入 attempted+failed：不变量 attempted=succeeded+failed 仍成立，
+        # 回执里能看到「保存失败 N 条」，而不是一条坏链接静默消失（M3）。
+        isolated = int(known.get('backend_isolated') or 0)
         existing = listed - created_count
-        save = save_stage('complete', listed, listed, created_count, existing, 0, 0)
+        save = save_stage('partial' if isolated else 'complete',
+                          listed + isolated, listed, created_count, existing, isolated, 0)
         known['save'] = save
         known['added'] = created_count
         album_state, album_count, album_stop, album_attempted = self._album_outcome(known)
@@ -1926,6 +1979,11 @@ class Intel:
         discovery_found = discovery_new + int(discovery.get('existing') or 0)
         found_total = listed + discovery_found
         added_total = created_count + discovery_new
+        # 唯一新增文章数（R10）：本轮实际新建的文章身份键，跨来源命中同一篇只算一次。
+        # 只在事务提交后登记，回滚不会留下假的新增键。
+        known['new_keys'] = [str(key) for key in created_keys] + \
+            [str(key) for key in discovery.get('new_keys') or ()]
+        unique_new = self._unique_new_count(known)
         produced = bool(listed or discovery_new or int(discovery.get('albums') or 0))
         until = self.client().quota.cooldown_until()
         backend_requested = bool(known.get('backend_requested'))
@@ -1943,7 +2001,8 @@ class Intel:
                                                              album_stop=album_stop,
                                                              album_attempted=album_attempted,
                                                              backend_requested=backend_requested,
-                                                             discovery_count=discovery_found),
+                                                             discovery_count=discovery_found,
+                                                             unique_new=unique_new),
                              discovery=known.get('discovery_receipt'), owner=owner)
             return 'stop', {'state': stop, 'detail': f'{word}，本轮已停止，已保存的成果保留',
                             'listed': found_total, 'new_articles': added_total}
@@ -1958,7 +2017,8 @@ class Intel:
                                                              album_stop=album_stop,
                                                              album_attempted=album_attempted,
                                                              backend_requested=False,
-                                                             discovery_count=discovery_found),
+                                                             discovery_count=discovery_found,
+                                                             unique_new=unique_new),
                              discovery=known.get('discovery_receipt'), owner=owner)
             return 'continue', {'state': 'cooldown', 'detail': reason, 'cooldown_until': until}
         self._finish_job(job_id, 'done', '', routes=routes, detail=self._routes_detail(routes),
@@ -1968,7 +2028,8 @@ class Intel:
                                                          album_stop=album_stop,
                                                          album_attempted=album_attempted,
                                                          backend_requested=backend_requested,
-                                                         discovery_count=discovery_found),
+                                                         discovery_count=discovery_found,
+                                                         unique_new=unique_new),
                          discovery=known.get('discovery_receipt'),
                          owner=owner)
         return 'continue', {'listed': found_total, 'new_articles': added_total}
@@ -2015,11 +2076,17 @@ class Intel:
                 added = int(save.get('new') or 0)
         found += discovery_found
         added += discovery_new
+        # 唯一新增文章数（R10）：发现成果已在自己的事务里提交，必定计入；
+        # 列表那一批只在事务确实提交后才登记身份键，整批回滚时不会留下假新增。
+        unique_new = len(set(str(key) for key in discovery.get('new_keys') or ()))
+        if known.get('new_keys') is not None:
+            unique_new = self._unique_new_count(known)
         try:
             self._finish_job(job_id, 'error', reason, routes=routes, detail=self._routes_detail(routes),
                              found=found, added=added,
                              outcome=self._scheduled_outcome(backend_state, backend_count, backend_stop, 1, save,
-                                                             discovery_count=discovery_found),
+                                                             discovery_count=discovery_found,
+                                                             unique_new=unique_new),
                              discovery=known.get('discovery_receipt'), owner=owner)
             closed = True
         except Exception as finish_error:  # noqa: BLE001
@@ -2389,6 +2456,9 @@ class Intel:
         # 分阶段结果：空/坏 JSON/未知版本一律不可用，页面按 detail/reason 回退，不猜计数。
         data['outcome'] = Intel._parse_outcome(data.get('outcome'))
         data['outcome_available'] = data['outcome'] is not None
+        # R10：「唯一新增文章数」单独投影，页面才能和「来源命中数」分开写。
+        # 旧任务回执里没这个键：如实给 None，页面就不显示这组数字，不拿 added 列猜。
+        data['unique_new_articles'] = Intel._unique_new_of(data['outcome'])
         # 发现安全回执：独立列，未知版本/坏 JSON 一律标不可用；UI 只做安全投影。
         raw_discovery = data.get('discovery')
         data['discovery'] = Intel._parse_discovery(raw_discovery)
@@ -2436,6 +2506,20 @@ class Intel:
             return ('无法确认这个任务的所有权（身份残缺，或锁文件缺失/被替换），'
                     '页面不会自动放行新任务；请检查本机锁目录。')
         return ''
+
+    @staticmethod
+    def _unique_new_of(outcome):
+        """outcome → 唯一新增文章数（R10）；回执里没有就返回 None，不拿别的字段猜。"""
+        if not isinstance(outcome, dict):
+            return None
+        value = outcome.get('unique_new')
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
 
     @staticmethod
     def _parse_outcome(raw):
@@ -2928,7 +3012,7 @@ class Intel:
             added = int((committed or {}).get('new') or 0)
             detail = self._discovery_route_text(receipt, True, '', committed)
             outcome = self._scheduled_outcome('not_requested', 0, '', 0, save_stage('not_attempted'),
-                                              backend_requested=False)
+                                              backend_requested=False, unique_new=added)
             self._finish_job(job_id, status, detail[:300], routes={'discovery': detail}, detail=detail,
                              outcome=outcome, discovery=receipt, found=found, added=added, owner=owner)
             finished = True
@@ -3060,13 +3144,21 @@ class Intel:
                         pages = 1 if mode == 'latest' else MAX_PAGES_PER_RUN
                         size = LATEST_PAGE_SIZE if mode == 'latest' else HISTORY_PAGE_SIZE
                         backend_items = []
+                        isolated = []
                         route_attempted = True
                         for page in range(pages):
                             backend_items.extend(self.client().appmsg_list(identifier, page * size, size))
+                            isolated.extend(getattr(self.client(), 'isolated_items', None) or ())
                         # 后台长链按 mid/idx 映射到与发现/合集一致的可信身份 aid。
                         self._stamp_identity_aid(identifier, backend_items)
+                        # 坏单条只隔离这一条并计入保存失败；正常条目照常入库（M3）。
+                        if isolated:
+                            save_attempted += len(isolated)
+                            save_failed += len(isolated)
+                            notes.append(f'后台列表另有 {len(isolated)} 条链接不合格，已隔离未入库')
                         absorb(backend_items, 'backend')
-                        routes['backend'] = f'取到 {len(backend_items)} 篇'
+                        routes['backend'] = (f'取到 {len(backend_items)} 篇'
+                                             + (f'，另 {len(isolated)} 条链接不合格已隔离' if isolated else ''))
                         list_routes['backend'] = route_record('complete', True, pages, len(backend_items))
                     except RateLimited as exc:
                         routes['backend'] = f'{exc}（未重试）'
@@ -3074,6 +3166,10 @@ class Intel:
                     except (CredentialsMissing, CredentialExpired) as exc:
                         routes['backend'] = str(exc)
                         list_routes['backend'] = route_record('blocked', True, 1, 0, 'credentials')
+                    except TaskDeadlinePassed as exc:
+                        # 期限在冷却/取凭据里耗尽，一个请求都没发出去：如实记超时（M2）。
+                        routes['backend'] = str(exc)
+                        list_routes['backend'] = route_record('blocked', True, 0, 0, 'deadline')
                     except (ValueError, OSError) as exc:
                         routes['backend'] = str(exc)
                         list_routes['backend'] = route_record('failed', True, 1, 0, 'error')
@@ -3142,7 +3238,7 @@ class Intel:
                 except (ValueError, OSError) as exc:
                     self.fail_body(row['id'], str(exc), guard=guard)
                     body_failed += 1
-        except (RateLimited, CredentialsMissing, CredentialExpired, ValueError, OSError) as exc:
+        except (RateLimited, CredentialsMissing, CredentialExpired, TaskDeadlinePassed, ValueError, OSError) as exc:
             notes.append(str(exc))
             aborted = True
         except Exception as exc:  # noqa: BLE001
@@ -3178,7 +3274,9 @@ class Intel:
             save_stage(save_state, save_attempted, save_succeeded, save_new, save_existing,
                        save_failed, save_not_attempted), body_state,
             body_stage(body_state, bodies, body_cap, body_reads, done_bodies, body_failed,
-                       body_stopped, body_skipped, body_eligible, body_unreadable))
+                       body_stopped, body_skipped, body_eligible, body_unreadable),
+            # 手动这一路先按链接/标题合并再入库，added 已是唯一新增数（R10）。
+            unique_new=added)
 
         # 三条路线的结果排在前面，其他补充说明跟在后面。
         notes = [f"{PATH_LABELS[path]}：{routes[path]}" for path in PATH_ORDER if routes.get(path)] + notes

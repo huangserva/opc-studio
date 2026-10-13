@@ -461,12 +461,73 @@ async function submit(event) {
     await finish(saved);
   } catch (e) { status(e.message); } finally { endBusy(); }
 }
-function fileKind(file) {
-  const type = file.type || '';
-  return type.startsWith('image/') ? 'image' : type.startsWith('video/') ? 'video' : '';
+// 前端的支持集必须和后端 intake_store 的 IMAGE_FORMATS（PNG / JPEG / WebP）与
+// VIDEO_SUFFIXES（.mp4 .mov .m4v .webm .mkv .avi）对齐：只按 MIME 大类放行会让 GIF /
+// SVG / OGG 这类后端必然拒收的格式被静默选中，界面上说「已选」却永远传不上去。
+// 名单是一一对应的：后端 IMAGE_FORMATS 的三种格式各对应两种常见后缀（.webp 只有一种，
+// 别漏——漏了它，浏览器没给类型（File.type 为空）的合法 WebP 就被自己的提示文案打脸）。
+const IMAGE_MIME = { 'image/png': 1, 'image/jpeg': 1, 'image/jpg': 1, 'image/pjpeg': 1, 'image/webp': 1 };
+const IMAGE_SUFFIXES = ['.png', '.jpg', '.jpeg', '.webp'];
+const VIDEO_MIME = { 'video/mp4': 1, 'video/quicktime': 1, 'video/m4v': 1, 'video/x-m4v': 1,
+  'video/webm': 1, 'video/x-matroska': 1, 'video/x-msvideo': 1, 'video/avi': 1 };
+const VIDEO_SUFFIXES = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi'];
+function suffixOf(name) {
+  const hit = /\.([a-z0-9]+)$/i.exec(String(name || ''));
+  return hit ? '.' + hit[1].toLowerCase() : '';
+}
+// {kind:'image'|'video', why:''} 表示支持；kind 为空表示不支持，why 是给用户看的原因。
+function fileSupport(file) {
+  const type = String((file && file.type) || '').toLowerCase().split(';')[0].trim();
+  const suffix = suffixOf(file && file.name);
+  if (IMAGE_MIME[type]) return { kind: 'image', why: '' };
+  if (type.startsWith('video/')) {
+    if (VIDEO_MIME[type] || VIDEO_SUFFIXES.includes(suffix)) return { kind: 'video', why: '' };
+    return { kind: '', why: '视频格式不支持。' };
+  }
+  if (type.startsWith('image/')) return { kind: '', why: '图片格式不支持。' };
+  // File.type 为空（部分系统的拖放与剪贴板文件就是这样）：按受支持后缀判断，不能一律当不支持。
+  if (IMAGE_SUFFIXES.includes(suffix)) return { kind: 'image', why: '' };
+  if (VIDEO_SUFFIXES.includes(suffix)) return { kind: 'video', why: '' };
+  return { kind: '', why: '' };
+}
+// 拖入的类型/大小规则与后端 intake_store 的 MAX_IMAGE_BYTES / MAX_VIDEO_BYTES 同一组数字。
+// 类型不对：当场拒收并说清原因（这类文件根本传不上去，选了也是白选）。
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024, MAX_VIDEO_BYTES = 1024 ** 3;
+function fileKindProblem(file) {
+  const support = fileSupport(file);
+  if (support.kind) return '';
+  const name = (file && file.name) || '这个文件';
+  return `「${name}」${support.why || '不是图片或视频文件。'}这里收 PNG / JPEG / WebP 图片，以及 MP4 / MOV / M4V / WebM / MKV / AVI 视频；别的文件请先在电脑上打开，再把要点粘进来。`;
+}
+// 超大文件：当场提醒，但不替用户做主 —— 仍可选中，收下时由后端给出最终回执（与既有路径一致）。
+function fileSizeWarning(file) {
+  const kind = fileSupport(file).kind;
+  const limit = kind === 'image' ? MAX_IMAGE_BYTES : kind === 'video' ? MAX_VIDEO_BYTES : 0;
+  if (!limit || !(Number(file.size) > limit)) return '';
+  return kind === 'image'
+    ? `「${file.name}」${bytes(file.size)}，超过图片上限 10 MB：仍可选中，但收下时会被后端拒收，请先压缩或换一张。`
+    : `「${file.name}」${bytes(file.size)}，超过视频上限 1 GB：仍可选中，但收下时会被后端拒收，请先裁短或换一段。`;
+}
+// 拖入、粘贴、选择框三条入口都走这里：类型不合格当场拒收并把原生框与「已选」恢复成一致，
+// 超限先提醒；上传中维持既有提示。
+function pickFile(file) {
+  if (!file) return;
+  if (uploading) { setPendingFile(file); return; }        // 上传中：沿用 setPendingFile 里的既有提示
+  const problem = fileKindProblem(file);
+  if (problem) {
+    // 原生 change 入口里，浏览器的 files 已经换成这个不支持的文件（拖入/粘贴时则是拖进来的那个）。
+    // 这里把两处一起恢复成上一个有效选择：没有选择就两处都清空。否则原生框显示新文件、
+    // 「已选」还是旧文件，点「收下」实际上传旧文件，界面上说的和传上去的不是一回事（M1）。
+    setPendingFile(pendingFile || null);
+    status((pendingFile ? `仍是原来选中的 ${pendingFile.name}；` : '') + problem);
+    return;
+  }
+  setPendingFile(file);
+  status(fileSizeWarning(file));
 }
 async function stage(file) {
-  const what = fileKind(file);
+  // kind 用与前端闸门同一套支持集判定：File.type 为空但后缀受支持的文件也要能真的传上去。
+  const what = fileSupport(file).kind;
   if (!what) throw new Error('只能投喂图片与视频文件；其他文件请先在电脑上打开，再粘贴要点。');
   const params = new URLSearchParams({ kind: what, name: file.name });
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -517,8 +578,27 @@ function renderPicked() {
 function setPendingFile(file) {
   if (uploading) { status('上传中不能换文件：要中止请点「取消当前上传」，换文件请等这次传完。'); return; }
   pendingFile = file;
-  if (!file) { const input = $('#in-file'); if (input) input.value = ''; }
+  setInputFile(file);
   renderPicked();
+}
+// 原生文件框与右侧「已选 …」必须说同一件事：把文件写回 #in-file.files，浏览器就自己显示文件名。
+// 浏览器不支持写回时（老 Safari 等）只藏起原生控件的文字，「选择图片 / 视频」仍可点开选择框。
+function setInputFile(file) {
+  const input = $('#in-file');
+  if (!input) return;
+  input.classList.remove('in-file-quiet');
+  if (!file) {
+    input.value = '';
+    try { input.files = null; } catch (e) { }          // 显式清空：不能只指望 value=''
+    return;
+  }
+  try {
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+  } catch (e) {
+    input.classList.add('in-file-quiet');
+  }
 }
 async function resolve(id) {
   if (busy) { status('上一条还在读取，请稍等；也可以点右上角“刷新”看最新结果。'); return; }
@@ -656,7 +736,7 @@ async function batchDelete() {
   finally { endBusy(); }
 }
 $('#in-form').addEventListener('submit', submit);
-$('#in-file').addEventListener('change', e => { const file = e.target.files[0]; setPendingFile(file || null); });
+$('#in-file').addEventListener('change', e => { const file = e.target.files[0]; if (file) pickFile(file); else setPendingFile(null); });
 $('#in-picked').addEventListener('click', e => {
   if (e.target.closest('[data-cancel-upload]')) { cancelUpload(); return; }
   if (e.target.closest('[data-discard]')) { setPendingFile(null); status('已取消选中的文件，这条不会带上它。'); }
@@ -691,9 +771,50 @@ $('#in-list').addEventListener('click', e => {
   const gone = e.target.closest('[data-delete]');
   if (gone) remove(gone.dataset.delete);
 });
-// Drag a file anywhere onto the page; dropping text stays with the input box.
-for (const name of ['dragover', 'drop']) document.addEventListener(name, e => e.preventDefault());
-document.addEventListener('drop', e => { const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (file) setPendingFile(file); });
+// Drag a file anywhere onto the page; dropped text stays with the input box.
+// 只对「带文件」的拖放阻止默认行为：文件必须 preventDefault 才不会让浏览器直接打开它；
+// 文字拖放若也被 preventDefault，浏览器就不会把这段文字插进输入框了（M3）。
+const dragTypes = e => (e.dataTransfer && e.dataTransfer.types) || [];
+const dragsFile = e => Array.prototype.indexOf.call(dragTypes(e), 'Files') >= 0;
+for (const name of ['dragover', 'drop']) document.addEventListener(name, e => { if (dragsFile(e)) e.preventDefault(); });
+// 拖拽反馈：只对「带文件」的拖拽高亮，拖文字不高亮。
+// dragleave 在子元素之间也会冒泡，用计数器判断是不是真的离开了页面。
+let dragDepth = 0;
+function dropHint(on) {
+  const form = $('#in-form'), hint = $('#in-drop-hint');
+  if (form) form.classList.toggle('in-dragging', Boolean(on));
+  if (hint) hint.hidden = !on;
+}
+document.addEventListener('dragenter', e => {
+  if (!dragsFile(e)) return;
+  e.preventDefault(); dragDepth++; dropHint(true);
+});
+document.addEventListener('dragover', e => {
+  if (!dragsFile(e)) return;
+  e.preventDefault(); dropHint(true);
+  if (e.dataTransfer) e.dataTransfer.dropEffect = uploading ? 'none' : 'copy';
+});
+document.addEventListener('dragleave', e => {
+  if (!dragsFile(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) dropHint(false);
+});
+document.addEventListener('drop', e => {
+  dragDepth = 0; dropHint(false);
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) pickFile(file);
+});
+// Esc 取消拖拽高亮：拖到一半按住 Esc 不松手时，提示不能留在页面上。
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { dragDepth = 0; dropHint(false); } });
+// 粘贴图片/视频（截屏、复制文件）也走同一条入口：原生框与「已选 …」照样一致。
+document.addEventListener('paste', e => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const item of items) {
+    if (item.kind && item.kind !== 'file') continue;
+    const file = item.getAsFile && item.getAsFile();
+    if (file) { e.preventDefault(); pickFile(file); return; }
+  }
+});
 Promise.all([probeAnalysis(), load()]).catch(e => status(e.message));
 function needsRefresh(item) {
   // 凡是回执里承诺「结果会自动刷新」的，都要真的去刷（M2）：

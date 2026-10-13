@@ -1009,6 +1009,15 @@ class StrictLegacyIdentityTests(OwnershipTestCase):
             (2, token, 7, 8), ('bad-version', '', 0, 0), (b'v1', '', 0, 0), (1.0, '', 0, 0),
             (0, b'', 0, 0), (0, '', float('inf'), 0), (0, '', 1.5, 0), (0, '', -1, 0),
             (0, '0', 0, 0), (0, '', '0', '0'), (0, None, 0, 0), (None, '', 0, 0),
+            # SQLite 真的会按 INTEGER 亲和转成整数的文本写法：两侧都必须是 legacy。
+            (0, '', ' 0 ', 0), (0, '', '+0', 0), (0, '', '-0', 0), (0, '', '00', 0),
+            (0, '', 0.0, 0), (0, '', '0', 0.0),
+            # SQLite 不转换、原样存 TEXT 的零形状：SQL 谓词为假，classify 必须是 unknown。
+            (0, '', '0_0', 0), (0, '', '\uff10', 0), (0, '', '\u0660', 0),
+            (0, '', '0_0', '0_0'), (0, '', '\uff10', '\uff10'),
+            (0, '', '_0', 0), (0, '', '0_', 0), (0, '', '1_0', 0),
+            (0, '', '0\xa0', 0), (0, '', '\u30000', 0), (0, '', '0x0', 0),
+            (0, '', '\u0660\u0660', 0), (0, '', '0\x00', 0),
         )
         for index, (version, owner_token, dev, ino) in enumerate(cases):
             job_id = f'x{index}'
@@ -1023,6 +1032,24 @@ class StrictLegacyIdentityTests(OwnershipTestCase):
             self.assertEqual(
                 hit, ownership.classify(version, owner_token, dev, ino) == ownership.LEGACY,
                 f'{job_id} 的 SQL 谓词与 classify 对 {version!r},{owner_token!r},{dev!r},{ino!r} 不一致')
+
+    def test_ascii_int_grammar_matches_sqlite_affinity(self):
+        """R07：身份数值列的「0」只认 SQLite 会转成整数的 ASCII 文法。
+
+        `int('0_0')`/`int('０')`/`int('٠')` 在 Python 里都等于 0，但 SQLite 的 INTEGER
+        亲和不转换这些写法、原样存 TEXT，`IFNULL(col,0)=0` 因此为假。若 _as_int 放行，
+        这三个零形状会被 classify 判成 legacy（可被年龄回收），与 SQL 谓词分叉。
+        """
+        for text in ('0_0', '\uff10', '\u0660', '0\xa0', '\u30000', '0x0', '_0', '0_'):
+            self.assertIsNone(ownership._as_int(text), f'{text!r} 不是 SQLite 能当整数存的写法')
+            self.assertFalse(ownership._zero_number(text), f'{text!r} 不算数值 0')
+            self.assertEqual(ownership.classify(0, '', text, 0), ownership.UNKNOWN,
+                             f'零形状 {text!r} 必须归类 unknown，与 SQL 谓词保持一致')
+        # 反向：SQLite 真的会转成整数 0 的写法不能被收紧掉，否则会把真 legacy 行判成 unknown。
+        for text in ('0', ' 0 ', '\t0\n', '+0', '-0', '00', '000'):
+            self.assertEqual(ownership._as_int(text), 0, f'{text!r} 应解析成 0')
+            self.assertEqual(ownership.classify(0, '', text, 0), ownership.LEGACY,
+                             f'{text!r} 与 SQL 谓词一致应判 legacy')
 
 
 class ForkLockTests(OwnershipTestCase):

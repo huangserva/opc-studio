@@ -6,7 +6,8 @@
 - 代码、命令、文件名、接口名保持原样，不翻译。
 
 ## 验收
-- 验收必须覆盖真实用户路径：在真实浏览器里端到端操作（computer use 或 Playwright），不能只靠单元测试。
+- 验收必须覆盖真实用户路径：在真实浏览器里端到端操作，不能只靠单元测试。
+- 工人复核/验收只用隔离 Playwright（独立 profile、/tmp 副本或随机端口），不得用 computer use 操作黄总的真实桌面或 Chrome（黄总 2026-10-13：曾因此抢占用户界面并误导航到 Google）。派工合同须写明这一条。
 - 后端代码改动后必须确认服务已重启并加载新代码，再做浏览器验收。
 - Python 测试用 `../article-importer/.venv/bin/python`。
 
@@ -26,7 +27,8 @@
 - 停用：`launchctl bootout gui/$(id -u)/com.$USER.orca-article-studio-watch`。
 
 ## 派工
-- **全部交给 Codex（黄总 2026-10-13 起，优先于下文各工人条款）**：后续实施和检查一律派 Codex，不再派 Pi、CodeBuddy、Antigravity、OpenCode（Pi 只做完在途的第 13 轮返修合并单）。固定 4 个 Codex 窗口：实施 term_2d118173、term_503c695f；检查 term_6f63337a、term_b0904322（后两个经黄总同意 2026-10-13 新开）。实施窗口与检查窗口不混用，同一条线的实施与检查必须用不同窗口。注意：term_2d118173 属于另一个 worktree 登记，`worker-start --terminal` 会被拒（"does not belong to worktree"），派工前先确认；经黄总同意 2026-10-13 再新开实施窗口 term_50d22cfc；目前可派实施窗口：term_503c695f、term_50d22cfc。
+- **Codex 只做测试/检查，实施交给 Pi、CodeBuddy、OpenCode（黄总 2026-10-13 下午，取代下一条「全部交给 Codex」）**：实施派 Pi Agent、CodeBuddy（模型 DeepSeek v4.1 Flash）、OpenCode（模型 Grace Bunny）；Codex 只做复核、测试、验收，不再接实施单。Antigravity 不在名单内，不派。Codex 检查窗口：term_b0904322、term_cc4ccc16（2026-10-13 经黄总同意新开；term_6f63337a 已被另一项目（剪映逆向）占用，不再派）。在途的 Codex 实施单（task_8a91b45d2903 AIsa 链路）已交付，按原流程复核收口。
+- （已被上一条取代）**全部交给 Codex（黄总 2026-10-13 起）**：后续实施和检查一律派 Codex，不再派 Pi、CodeBuddy、Antigravity、OpenCode（Pi 只做完在途的第 13 轮返修合并单）。固定 4 个 Codex 窗口：实施 term_2d118173、term_503c695f；检查 term_6f63337a、term_b0904322（后两个经黄总同意 2026-10-13 新开）。实施窗口与检查窗口不混用，同一条线的实施与检查必须用不同窗口。注意：term_2d118173 属于另一个 worktree 登记，`worker-start --terminal` 会被拒（"does not belong to worktree"），派工前先确认；经黄总同意 2026-10-13 再新开实施窗口 term_50d22cfc；目前可派实施窗口：term_503c695f、term_50d22cfc。
 - **做完一轮就停（黄总 2026-10-13，取代原「工人不要停／队列空了要补充」）**：当前轮次收口（合并→重启→复验→提交推送）后暂停派工，不自行发掘或补充新任务。下一步做什么，由黄总先定目标、策略和衡量指标，再按它立项派工；一次只把一件事做好。
 - Pi 用本地显卡部署的模型，token 不限，优先多派给 Pi。
 - Pi 每派一份新合同前，先在它空闲时发 `/new` 开新会话（合同自带全部上下文）。同一会话连续压缩时摘要越滚越长，超过摘要输出上限就会「压缩失败」（2026-10-10 查明）；`~/.pi/agent/settings.json` 已设 `compaction.reserveTokens=65536`，改设置后需 `/reload` 或重开 Pi 才生效。

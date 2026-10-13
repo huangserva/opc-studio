@@ -159,6 +159,181 @@ class CluePipelineLocksTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(sorted(changes), [0, 2])
 
+    # ── R13：锁后重读时钟 / 坏回执兜底 / recovery_grants 复合主键非空 ──────────
+
+    def advancing_clock(self, start=1000):
+        clock = {'now': start}
+        return clock, (lambda: clock['now'])
+
+    def lock_waits_until(self, clock, when):
+        """在 BEGIN IMMEDIATE 真正拿到写锁前推进时钟，模拟等锁期间时间流逝。"""
+        original = self.pipeline.db
+        @contextmanager
+        def db():
+            with original() as connection:
+                def trace(sql):
+                    if sql.upper() == 'BEGIN IMMEDIATE':
+                        clock['now'] = when
+                connection.set_trace_callback(trace)
+                yield connection
+        return patch.object(self.pipeline, 'db', db)
+
+    def test_claim_rereads_the_clock_after_the_write_lock(self):
+        identity = self.defer(); self.grant(identity, due=1000, expires=1200)
+        clock, now = self.advancing_clock()
+        with self.lock_waits_until(clock, 5000), module_time(SOURCE, time=now):
+            self.assertIsNone(self.pipeline.claim_recovery(self.batch, 'fake-model', 'late-run'))
+        with self.pipeline.db() as db:
+            self.assertIsNone(db.execute('SELECT claimed_at FROM recovery_grants').fetchone()[0])
+
+    def test_claimed_at_stamps_the_post_lock_clock(self):
+        identity = self.defer(); self.grant(identity)
+        clock, now = self.advancing_clock()
+        with self.lock_waits_until(clock, 5000), module_time(SOURCE, time=now):
+            self.assertIs(self.pipeline.claim_recovery(self.batch, 'fake-model', 'late-run'), True)
+        with self.pipeline.db() as db:
+            self.assertEqual(tuple(db.execute('SELECT claimed_at,claimed_run_id FROM recovery_grants').fetchone()), (5000, 'late-run'))
+
+    def corrupt(self, clue_ids):
+        identity = self.defer()
+        with self.pipeline.db() as db:
+            db.execute('UPDATE failed_batches SET clue_ids=? WHERE id=?', (clue_ids, identity))
+        return identity
+
+    def test_corrupt_same_run_receipt_reports_the_batch_not_a_json_error(self):
+        identity = self.corrupt('NOT-JSON')
+        with module_time(SOURCE, time=lambda: 99999):
+            with self.assertRaises(ValueError) as caught:
+                self.pipeline.defer_batch(self.batch, 'fake-model', 'first-run', 'new error', ['new'])
+        message = str(caught.exception)
+        self.assertIn('clue_ids', message); self.assertIn(identity, message)
+        self.assertNotIn('Expecting value', message)
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT clue_ids FROM failed_batches WHERE id=?', (identity,)).fetchone()[0], 'NOT-JSON')
+
+    def test_corrupt_cross_run_receipt_reports_the_batch_not_a_json_error(self):
+        identity = self.corrupt('{"clue_ids": broken')
+        with module_time(SOURCE, time=lambda: 99999):
+            with self.assertRaises(ValueError) as caught:
+                self.pipeline.defer_batch(self.batch, 'fake-model', 'second-run', 'another failure', ['new'])
+        self.assertIn('clue_ids', str(caught.exception)); self.assertIn(identity, str(caught.exception))
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT clue_ids FROM failed_batches WHERE id=?', (identity,)).fetchone()[0], '{"clue_ids": broken')
+
+    def test_non_list_receipt_is_a_clear_error_not_a_type_error(self):
+        identity = self.corrupt('null')
+        with module_time(SOURCE, time=lambda: 99999):
+            with self.assertRaises(ValueError) as caught:
+                self.pipeline.defer_batch(self.batch, 'fake-model', 'second-run', 'another failure', ['new'])
+        self.assertIn('clue_ids', str(caught.exception))
+
+    def test_valid_receipt_still_merges_after_the_guard(self):
+        identity = self.defer()
+        with module_time(SOURCE, time=lambda: 99999):
+            self.pipeline.defer_batch(self.batch, 'fake-model', 'second-run', 'again', ['new'])
+        with self.pipeline.db() as db:
+            self.assertEqual(json.loads(db.execute('SELECT clue_ids FROM failed_batches WHERE id=?', (identity,)).fetchone()[0]), ['old', 'new'])
+
+    def test_recovery_grants_composite_key_rejects_null_columns(self):
+        with self.pipeline.db() as db:
+            for column in ('batch_id', 'epoch'):
+                values = [None if name == column else 'synthetic' for name in ('batch_id', 'epoch')]
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute('INSERT INTO recovery_grants VALUES(?,?,?,?,NULL,NULL)', (*values, 1000, 2000))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recovery_grants').fetchone()[0], 0)
+
+    def test_fresh_table_needs_no_hardening(self):
+        self.assertEqual(self.pipeline.harden_recovery_grants(), {'changed': False, 'nullable_keys': [], 'rows': 0})
+
+    def age_table(self, rows=()):
+        with self.pipeline.db() as db:
+            db.execute('DROP TABLE recovery_grants')
+            db.execute('CREATE TABLE recovery_grants(batch_id TEXT,epoch TEXT,due_at REAL NOT NULL,'
+                       'expires_at REAL NOT NULL,claimed_at REAL,claimed_run_id TEXT,PRIMARY KEY(batch_id,epoch))')
+            db.executemany('INSERT INTO recovery_grants VALUES(?,?,?,?,?,?)', list(rows))
+
+    def test_legacy_table_hardening_is_checked_then_applied_idempotently(self):
+        self.age_table([('batch', 'epoch', 1000, 2000, None, None), ('other', 'epoch', 1000, 2000, 1500, 'run')])
+        self.assertEqual(self.pipeline.harden_recovery_grants(),
+                         {'changed': False, 'nullable_keys': ['batch_id', 'epoch'], 'rows': 2, 'would_rebuild': True})
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recovery_grants').fetchone()[0], 2)
+        self.assertEqual(self.pipeline.harden_recovery_grants(apply=True),
+                         {'changed': True, 'nullable_keys': ['batch_id', 'epoch'], 'rows': 2})
+        with self.pipeline.db() as db:
+            self.assertEqual([tuple(r) for r in db.execute('SELECT * FROM recovery_grants ORDER BY batch_id')],
+                             [('batch', 'epoch', 1000, 2000, None, None), ('other', 'epoch', 1000, 2000, 1500, 'run')])
+            self.assertEqual([r[1] for r in db.execute('PRAGMA table_info(recovery_grants)') if r[5] and not r[3]], [])
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('INSERT INTO recovery_grants VALUES(?,?,?,?,NULL,NULL)', (None, None, 1000, 2000))
+        self.assertEqual(self.pipeline.harden_recovery_grants(apply=True), {'changed': False, 'nullable_keys': [], 'rows': 2})
+
+    def test_legacy_hardening_refuses_rows_needing_manual_review(self):
+        # 旧形状下 NULL 主键能重复插入，这正是需要人工核对的脏行。
+        self.age_table([(None, 'epoch', 1000, 2000, None, None), (None, 'epoch', 3000, 4000, None, None),
+                        ('batch', 'epoch', 1000, 2000, None, None)])
+        report = self.pipeline.harden_recovery_grants(apply=True)
+        self.assertFalse(report['changed']); self.assertIn('NULL', report['blocked']); self.assertIn('重复', report['blocked'])
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recovery_grants').fetchone()[0], 3)
+            self.assertEqual([r[1] for r in db.execute('PRAGMA table_info(recovery_grants)') if r[5] and not r[3]], ['batch_id', 'epoch'])
+
+    # ── R13-b：过期收口保护在途授权；未发送后状态与授权一致 ────────────────
+
+    def claimed_grant(self, identity, due=1000, expires=100000, run='owner-run'):
+        """插一条已被认领、且仍在有效期内的恢复授权（在途状态）。"""
+        self.grant(identity, due=due, expires=expires)
+        with self.pipeline.db() as db:
+            db.execute('UPDATE recovery_grants SET claimed_at=?,claimed_run_id=?', (due, run))
+
+    def test_expiry_protects_an_inflight_claimed_grant(self):
+        # 首次失败已超 24h，但 grant 被本次运行认领且未过期：读队列不得收口。
+        identity = self.defer(); self.claimed_grant(identity)
+        with self.traced() as sql:
+            self.expire(87400)
+        self.assertFalse(any('BEGIN IMMEDIATE' in s.upper() for s in sql), sql)
+        with self.pipeline.db() as db:
+            for table in ('failed_batches', 'retry_documents'):
+                self.assertEqual(tuple(db.execute('SELECT state,next_retry_at FROM '+table).fetchone()), ('waiting', 2800))
+
+    def test_expiry_still_closes_a_claimed_but_expired_grant(self):
+        # 认领过但窗口已过：仍按旧失败窗正常收口，保护不能放宽到过期授权。
+        identity = self.defer(); self.claimed_grant(identity, due=1000, expires=2000)
+        self.expire(87400)
+        with self.pipeline.db() as db:
+            for table in ('failed_batches', 'retry_documents'):
+                self.assertEqual(tuple(db.execute('SELECT state,next_retry_at FROM '+table).fetchone()), ('needs_review', None))
+
+    def unsent_receipt(self, identity, sent):
+        folder = self.pipeline.root/'analysis-pi'/identity
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder/'execution-receipt.json').write_text(json.dumps({'sent': sent}))
+
+    def test_unsent_recovery_restores_state_matching_the_authorization(self):
+        # 模拟读队列已把在途批次收成 needs_review：明确未发送后要还原成
+        # waiting，授权放回未认领，next_retry_at 与授权窗口起点一致。
+        identity = self.defer(); self.claimed_grant(identity, due=90000, expires=110000)
+        with self.pipeline.db() as db:
+            db.execute("UPDATE failed_batches SET state='needs_review',next_retry_at=NULL WHERE id=?", (identity,))
+            db.execute("UPDATE retry_documents SET state='needs_review',next_retry_at=NULL WHERE batch_id=?", (identity,))
+        self.unsent_receipt('synthetic-unsent', False)
+        with module_time(SOURCE, time=lambda: 100000):
+            self.pipeline.unsent_recovery(self.batch, 'fake-model', 'owner-run', 'synthetic-unsent')
+        with self.pipeline.db() as db:
+            self.assertEqual(tuple(db.execute('SELECT state,next_retry_at FROM failed_batches').fetchone()), ('waiting', 90000))
+            self.assertEqual(tuple(db.execute('SELECT state,next_retry_at FROM retry_documents').fetchone()), ('waiting', 90000))
+            self.assertIsNone(db.execute('SELECT claimed_at FROM recovery_grants').fetchone()[0])
+
+    def test_sent_recovery_stays_parked_and_keeps_the_claim(self):
+        # 回执明确已发送：批次保持 needs_review，授权仍被认领，不回退成普通重试。
+        identity = self.defer(); self.claimed_grant(identity, due=90000, expires=110000)
+        self.unsent_receipt('synthetic-sent', True)
+        with module_time(SOURCE, time=lambda: 100000):
+            self.pipeline.unsent_recovery(self.batch, 'fake-model', 'owner-run', 'synthetic-sent')
+        with self.pipeline.db() as db:
+            self.assertEqual(tuple(db.execute('SELECT state,next_retry_at FROM failed_batches').fetchone()), ('needs_review', None))
+            self.assertEqual(db.execute('SELECT claimed_run_id FROM recovery_grants').fetchone()[0], 'owner-run')
+
     def test_two_connections_claim_once(self):
         identity = self.defer(); self.grant(identity)
         barrier = threading.Barrier(2)

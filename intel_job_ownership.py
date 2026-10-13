@@ -17,7 +17,8 @@ exec 由 CLOEXEC 挡住继承。调用方不得把锁 FD 放进 pass_fds。
 
 身份归类只有一处：``classify()``（Python）与 ``LEGACY_WHERE``（SQL 谓词）必须给出同一个
 legacy/v1/unknown 判定。只有严格 legacy（version 0 且 owner 三件套全空）可以按年龄回收；
-v1 与一切身份残缺/未知行都保持闸门，不因类型畸形而抛异常。
+v1 与一切身份残缺/未知行都保持闸门，不因类型畸形而抛异常。数值列的「0」按 SQLite 的
+INTEGER 亲和文法（ASCII 数字）判定，两侧不得各写一套，见 ``_as_int``。
 """
 import errno
 import fcntl
@@ -30,6 +31,11 @@ from pathlib import Path
 
 # 锁文件里的 token：32 位十六进制（服务端生成，绝不来自 payload）。
 TOKEN_RE = re.compile(r'^[0-9a-f]{32}$')
+
+# 身份列的文本值文法，与 SQLite 的 INTEGER 亲和转换一致：ASCII 数字、可带单个 +/-，
+# 两端可带 ASCII 空白。`0_0`、全角 `０`、阿拉伯 `٠`、NBSP/U+3000 包裹的 `0` 都不在此列。
+_ASCII_WS = ' \t\n\v\f\r'
+_ASCII_INT_RE = re.compile(r'[+-]?[0-9]+')
 
 # 恢复探测的状态。
 HELD = 'held'          # 原任务锁仍被持有：保持 active，无论年龄。
@@ -51,7 +57,12 @@ OWNERSHIP_VERSION = 1
 # SQL 侧的严格 legacy 谓词：必须是 ``classify() == LEGACY`` 的同一判定，不能各写一套。
 # 年龄清理、短宽限排除、缺 owner 的写入守卫与订阅回读都用它，因此「公开投影说是 unknown」
 # 的行绝不会在 SQL 里被当成 legacy 回收或放行。IFNULL 只把 NULL 当空，与 _zero_number/_text_blank
-# 一致；BLOB/文本/浮点等非零值在 SQL 与 Python 两侧都不算空。
+# 一致；BLOB/浮点等非零值在 SQL 与 Python 两侧都不算空。
+#
+# 数值列的文本值走 SQLite 的 INTEGER 亲和转换：SQLite 只认 ASCII 数字文法（可带 +/-，
+# 两端可带 ASCII 空白），`0_0`、全角 `０`、阿拉伯 `٠`、NBSP/U+3000 包裹的 `0` 它都
+# 原样存成 TEXT，于是 `IFNULL(col,0)=0` 为假。Python 侧的 _as_int 必须用同一套 ASCII
+# 文法，否则会出现「SQL 说不是 legacy、classify 说是 legacy」的分叉。
 LEGACY_WHERE = ("IFNULL(ownership_version,0)=0 AND IFNULL(owner_token,'')='' "
                 "AND IFNULL(owner_dev,0)=0 AND IFNULL(owner_ino,0)=0")
 # 严格 legacy 的补集：v1 与一切身份残缺/未知行都落在这一侧，必须保持闸门。
@@ -81,6 +92,11 @@ def _as_int(value):
 
     故意比 ``int(x)`` 严格：无限/NaN/非整数浮点会抛 OverflowError 或悄悄截断，BLOB 更不
     是合法身份列。数据库里存着什么类型都可能（SQLite 动态类型），所以坏值必须归类而不是抛。
+
+    文本值按 SQLite INTEGER 亲和转换的文法解析：只认 ASCII 数字（可带单个 +/-，两端可带
+    ASCII 空白）。``int('0_0')``/``int('０')``/``int('٠')`` 在 Python 里都能当 0，但 SQLite
+    不转换这些写法、原样存成 TEXT，``IFNULL(col,0)=0`` 因此为假；这里若放行，SQL 谓词与
+    ``classify()`` 就会对同一行给出相反结论。Unicode 空白（NBSP、U+3000）同理不算空白。
     """
     if isinstance(value, bool):
         return int(value)
@@ -91,10 +107,10 @@ def _as_int(value):
     if isinstance(value, (bytes, bytearray)):
         return None
     if isinstance(value, str):
-        try:
-            return int(value.strip())
-        except ValueError:
+        text = value.strip(_ASCII_WS)
+        if _ASCII_INT_RE.fullmatch(text) is None:
             return None
+        return int(text)
     try:
         return int(value)
     except (TypeError, ValueError, OverflowError):

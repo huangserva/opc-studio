@@ -160,14 +160,15 @@ class AIsaSourceTests(unittest.TestCase):
         self.assertEqual(first['username'], 'tech_watch')
         self.assertEqual(first['tweet_id'], '1800000000000000001')
         self.assertIn('推理吞吐', first['text'])
-        self.assertEqual(first['created_at'], '2026-10-11T08:30:00Z')
+        self.assertEqual(first['created_at'], '2026-10-11T08:30:00+00:00')
         self.assertEqual(first['likes'], 1280)
         self.assertEqual(first['retweets'], 340)
         self.assertEqual(first['media_urls'], ['https://pbs.twimg.com/media/aaa111.jpg'])
         call = transport.calls[0]
-        self.assertEqual(call['method'], 'POST')
+        self.assertEqual(call['method'], 'GET')
         self.assertEqual(call['path'], TWITTER_TWEETS_PATH)
-        self.assertEqual(json.loads(call['body']), {'username': 'tech_watch', 'count': 20})
+        self.assertIsNone(call['body'])
+        self.assertIn('userName=tech_watch',call['url'])
         self.assertEqual(call['headers']['Authorization'], 'Bearer unit-test-key')
 
     # ── 抖音热搜解析与排序 ─────────────────────────────────────────────────
@@ -260,8 +261,8 @@ class AIsaSourceTests(unittest.TestCase):
                  'likes': 1280, 'retweets': 340, 'media_urls': []}
         clue = source.to_clue_item(tweet)
         self.assertEqual(clue['categories'], ['topics'])
-        self.assertEqual(clue['heat'], 'rising')
-        self.assertTrue(clue['title'].startswith('【推特技术首提】@tech_watch:'))
+        self.assertEqual(clue['heat'], '')
+        self.assertTrue(clue['title'].startswith('【推特】@tech_watch:'))
 
         hot = {'platform': 'douyin', 'word': '端侧大模型', 'hot_value': 1500000, 'rank': 1, 'label': '爆'}
         clue = source.to_clue_item(hot)
@@ -352,7 +353,7 @@ class AIsaRedlineTests(unittest.TestCase):
         payload = {'items': [{'tweet_id': CANARY, 'text': CANARY, 'created_at': CANARY,
                               'media_urls': [CANARY], 'word': CANARY, 'label': CANARY,
                               'title': CANARY, 'topic_id': CANARY}]}
-        cases = (('twitter', lambda s: s.get_twitter_tweets(CANARY)),
+        cases = (('twitter', lambda s: s.get_twitter_tweets('redline_user')),
                  ('douyin', lambda s: s.fetch_douyin_hot_searches()),
                  ('xiaohongshu', lambda s: s.fetch_xiaohongshu_inspirations()))
         for platform, call in cases:
@@ -447,9 +448,24 @@ class AIsaRedlineTests(unittest.TestCase):
         self.assertEqual(source.get_twitter_tweets('u'), [])
 
     # ── M1：默认 transport 的超时与读上限（直接测默认实现，不走注入）────
+    def test_default_transport_opener_refuses_redirects(self):
+        # 注入类测试把网络层换到 mod._open；这里确认那个出口接的是产品自己的
+        # 不跟随跳转 opener，而不是会带 Authorization 跳转的全局 urlopen。
+        handlers = mod._NO_REDIRECT_OPENER.handlers
+        self.assertTrue(any(isinstance(h, mod._RefuseRedirect) for h in handlers))
+        self.assertFalse(any(type(h) is mod.request.HTTPRedirectHandler for h in handlers))
+        for code in (301, 302, 303, 307, 308):
+            taken = mod._NO_REDIRECT_OPENER.handle_error['http'].get(code)
+            self.assertTrue(taken and all(isinstance(h, mod._RefuseRedirect) for h in taken),
+                            f'{code} 仍由默认跳转处理器接管')
+        # 产品出口 _open 必须真的调这个 opener，而不是全局 urlopen。
+        with patch.object(mod._NO_REDIRECT_OPENER, 'open', return_value='RESP') as opened:
+            self.assertEqual(mod._open('URL', timeout=3), 'RESP')
+        self.assertEqual(opened.call_args.kwargs['timeout'], 3)
+
     def test_default_transport_always_passes_a_positive_timeout(self):
         for passed in (None, 0, -1, 'bad', 15):
-            with patch.object(mod.request, 'urlopen', return_value=FakeStream()) as opening:
+            with patch.object(mod, '_open', return_value=FakeStream()) as opening:
                 urllib_transport('GET', 'https://api.aisa.one.invalid/x', {}, None, passed)
             timeout = opening.call_args.kwargs['timeout']
             self.assertIsNotNone(timeout, 'urlopen 的 timeout 不得为 None')
@@ -457,7 +473,7 @@ class AIsaRedlineTests(unittest.TestCase):
 
     def test_default_transport_response_read_is_bounded(self):
         stream = FakeStream()
-        with patch.object(mod.request, 'urlopen', return_value=stream):
+        with patch.object(mod, '_open', return_value=stream):
             status, text = urllib_transport('GET', 'https://api.aisa.one.invalid/x', {}, None, 15)
         self.assertEqual((status, text), (200, '{}'))
         self.assertTrue(stream.sizes, '默认 transport 必须带大小参数读取响应体')
@@ -468,7 +484,7 @@ class AIsaRedlineTests(unittest.TestCase):
     def test_default_transport_reads_full_body_under_the_cap(self):
         payload = json.dumps({'items': [{'word': 'w' * 5000}] * 200}).encode()
         stream = FakeStream(payload)
-        with patch.object(mod.request, 'urlopen', return_value=stream):
+        with patch.object(mod, '_open', return_value=stream):
             status, text = urllib_transport('GET', 'https://api.aisa.one.invalid/x', {}, None, 15)
         self.assertEqual(status, 200)
         self.assertEqual(len(text), len(payload))
@@ -476,7 +492,7 @@ class AIsaRedlineTests(unittest.TestCase):
 
     def test_oversized_response_degrades_to_safe_receipt(self):
         source = self.source(default_transport=True)
-        with patch.object(mod.request, 'urlopen', return_value=EndlessStream()):
+        with patch.object(mod, '_open', return_value=EndlessStream()):
             self.assertEqual(source.get_twitter_tweets('u'), [])
         self.assertIn('上限', source.last_error)
         self.assertNotIn(CANARY, self.surfaces(source, []))
@@ -486,7 +502,7 @@ class AIsaRedlineTests(unittest.TestCase):
         source = self.source(default_transport=True)
         # 时钟补丁只替换 aisa_source 自己的 time 绑定，不动共享标准库 time。
         with module_time('aisa_source', monotonic=lambda: clock['now']), \
-                patch.object(mod.request, 'urlopen', return_value=SlowStream(clock)):
+                patch.object(mod, '_open', return_value=SlowStream(clock)):
             self.assertEqual(source.get_twitter_tweets('u'), [])
         self.assertIn('总时限', source.last_error)
         self.assertNotIn(CANARY, self.surfaces(source, []))
@@ -503,7 +519,9 @@ class AIsaRedlineTests(unittest.TestCase):
             source = self.source(transport=transport)
             result = source.get_twitter_tweets('u', count=count)
             self.assertEqual(len(result), expected)
-            self.assertEqual(json.loads(calls[0][3])['count'], expected)
+            self.assertIsNone(calls[0][3])
+            self.assertEqual(calls[0][0],'GET')
+            self.assertIn('userName=u',calls[0][1])
 
     def test_build_adapters_never_calls_network(self):
         for key in ('', CANARY):
@@ -604,7 +622,7 @@ class Stream(io.BytesIO):
 def test_exact_byte_cap(http_error, size):
     stream = Stream(b'x' * size)
     exc = HTTPError('https://example.invalid', 401, 'fake', {}, stream)
-    with patch.object(mod.request, 'urlopen', side_effect=exc if http_error else None,
+    with patch.object(mod, '_open', side_effect=exc if http_error else None,
                       return_value=stream):
         if size > mod.MAX_RESPONSE_BYTES:
             with pytest.raises(mod.ResponseTooLarge):
@@ -627,7 +645,7 @@ def test_last_short_chunk_respects_deadline(http_error):
     stream = SlowLast(b'{}')
     exc = HTTPError('https://example.invalid', 401, 'fake', {}, stream)
     with module_time('aisa_source', monotonic=lambda: clock['now']), \
-            patch.object(mod.request, 'urlopen', side_effect=exc if http_error else None,
+            patch.object(mod, '_open', side_effect=exc if http_error else None,
                          return_value=stream):
         with pytest.raises(mod.ResponseTooSlow):
             mod.urllib_transport('GET', 'https://example.invalid', {}, None, 15)
@@ -642,7 +660,7 @@ def test_total_deadline_not_expanded_by_timeout():
             return b'x' * n
 
     with module_time('aisa_source', monotonic=lambda: clock['now']), \
-            patch.object(mod.request, 'urlopen', return_value=Late(b'')):
+            patch.object(mod, '_open', return_value=Late(b'')):
         with pytest.raises(mod.ResponseTooSlow):
             mod.urllib_transport('GET', 'https://example.invalid', {}, None, 300)
         assert clock['now'] <= 60, 'DEADLINE_EXPANDED_ABOVE_30'
@@ -864,7 +882,7 @@ def test_https_real_socket_path(tmp_path):
     try:
         with patch.object(mod, 'MAX_TOTAL_SECONDS', .1), patch.object(mod, 'DEFAULT_TIMEOUT', .06), \
                 patch.object(mod, '_underlying_socket', side_effect=record), \
-                patch.object(mod.request, 'urlopen', side_effect=local_open):
+                patch.object(mod, '_open', side_effect=local_open):
             start = time.monotonic()
             with pytest.raises(mod.ResponseTooSlow):
                 mod.urllib_transport('GET', f'https://127.0.0.1:{server.server_address[1]}/', {}, None, .06)
@@ -905,7 +923,7 @@ def test_plain_socket_variants(mode, tmp_path):
         with patch.object(mod, '_underlying_socket', side_effect=record):
             if mode == 'http_proxy':
                 opener = mod.request.build_opener(mod.request.ProxyHandler({'http': f'http://127.0.0.1:{server.server_address[1]}'}))
-                with patch.object(mod.request, 'urlopen', side_effect=opener.open), \
+                with patch.object(mod, '_open', side_effect=opener.open), \
                         patch.object(mod.request, 'proxy_bypass', return_value=False):
                     assert mod.urllib_transport('GET', 'http://127.0.0.1:1/probe', {}, None, 15) == (200, '{}')
                 assert requests[0].startswith('GET http://127.0.0.1:1/probe ')

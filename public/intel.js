@@ -125,6 +125,16 @@ function resultCard(sub) {
   // 发现安全回执：只做安全投影（provider、状态、计数、范围三态）；未知版本提示不可用。
   const discovery = result.discovery;
   const range = (discovery && discovery.range_counts) || {};
+  // 计数口径分开写（R10）：「来源命中」是各路来源各自命中的条数（同一篇被发现/合集/后台
+  // 多路命中会各算一次）；「新增文章」是本轮按入库身份去重后真正新增的唯一文章数。
+  // 两个数字分开显示，避免把命中数当成入库数。旧任务回执里没有这个口径：不显示、不猜。
+  const hits = outcome && outcome.list && Number.isFinite(outcome.list.found) ? outcome.list.found : null;
+  const uniqueNew = Number.isFinite(result.unique_new_articles) ? result.unique_new_articles : null;
+  const counts = (hits === null || uniqueNew === null)
+    ? ''
+    : `<p class="itl-muted" data-note="counts">来源命中 ${esc(hits)} 篇 · 新增文章 ${esc(uniqueNew)} 篇` +
+      `<span class="itl-muted">（来源命中按各路分别计数，同一篇文章被多个来源命中会各算一次；` +
+      `新增文章按入库身份去重，只算本轮真正新增的）</span></p>`;
   const discoveryBlock = discovery
     ? `<p class="itl-muted" data-note="discovery">发现：来源 ${esc(discovery.provider || '未知')}` +
       ` · 状态 ${esc(discovery.state || '')} · 验证 ${esc(discovery.verified || 0)} 篇` +
@@ -140,6 +150,7 @@ function resultCard(sub) {
     `<span class="itl-muted">${esc(result.mode_label || '')}${result.at_label ? ' · ' + esc(result.at_label) : ''}</span></header>` +
     `<p class="itl-result-head">${esc(result.headline || result.status_label)}</p>` +
     stages +
+    counts +
     discoveryBlock +
     (routes ? `<ul class="itl-result-routes">${routes}</ul>` : '') +
     (result.cooldown_label ? `<p class="itl-result-cooldown">冷却：${esc(result.cooldown_label)}</p>` : '') +
@@ -227,7 +238,7 @@ function pollJob(jobId) {
   polling = setInterval(async () => {
     let job = null;
     try { job = await api('/api/intel/jobs/' + jobId); } catch (error) { clearInterval(polling); pollingJobId = ''; return say('读取任务失败：' + error.message, 'bad'); }
-    if (['queued', 'running'].includes(job.status)) { say('抓取中：已用 ' + job.pages + ' 页，新增 ' + job.added + ' 篇…'); return; }
+    if (['queued', 'running'].includes(job.status)) { say('抓取中：已用 ' + job.pages + ' 页，新增文章 ' + job.added + ' 篇…'); return; }
     clearInterval(polling); pollingJobId = '';
     // 结束回执：优先用结构化 outcome.summary（与刷新后最近结果卡是同一份），
     // 没有就回退到完整 detail；done 正常、partial 警示、error 坏色。

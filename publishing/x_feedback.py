@@ -42,6 +42,23 @@ def window(payload):
     return {k: v.isoformat(timespec='seconds').replace('+00:00', 'Z') for k, v in values.items()}
 
 
+# 分页游标的绑定键：账号 + 模式 + 帖子 + 时间窗（+ 帖子分类）。同一把 key 下的 token 才能续页。
+CURSOR_LIMIT = 64
+
+
+def cursor_signature(account_id, signature_parts):
+    return hashlib.sha256(json.dumps([str(account_id), *signature_parts]).encode()).hexdigest()
+
+
+def cursor_issued(cache, key, cursor, signature):
+    """这个 token 是不是我们为这个账号的这个查询发出去的。"""
+    if cache.get('cursors', {}).get(key) == cursor:
+        return True
+    # 升级前写下的分页 token 只记在这一页里；它确实是这个查询发给前端的，顺手补登记，
+    # 免得升级把正在进行的合法分页打断。
+    return cache.get('pages', {}).get(signature, {}).get('next_token') == cursor
+
+
 class XFeedback:
     def __init__(self, service):
         self.service = service
@@ -128,9 +145,17 @@ class XFeedback:
         if mode == 'timeline':
             signature_parts.append(post_kind)
         signature = hashlib.sha256(json.dumps(signature_parts).encode()).hexdigest()
+        cursor_key = cursor_signature(account['id'], signature_parts)
         cursor = payload.get('next_token')
         if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 1000):
             raise ValueError('分页参数无效')
+        if cursor is not None:
+            with s.lock:
+                cache = self.cached(account['id'])
+            # 分页游标只认我们自己为“同一个账号的同一个查询”发出去的那一个：
+            # 串到别的账号、模式、时间窗或帖子上的 token 绝不发给 X。
+            if not cursor_issued(cache, cursor_key, cursor, signature):
+                raise ValueError('分页参数与当前查询不匹配，请重新从这段列表的开始位置读取')
         token = s.token()
         params = {**FIELDS, **dates, 'max_results': 20}
         if mode == 'timeline':
@@ -190,9 +215,18 @@ class XFeedback:
                 cache['pages'].pop(key)
 
             ids = list(dict.fromkeys((old.get('ids', []) if cursor else []) + primary))
-            cache['pages'][signature] = {'ids': ids, 'next_token': result.get('meta', {}).get('next_token'),
+            following = result.get('meta', {}).get('next_token')
+            cache['pages'][signature] = {'ids': ids, 'next_token': following,
                 'mode': mode, 'post_id': post_id, 'post_kind': post_kind, 'start_time': payload['start_time'], 'end_time': payload['end_time'],
                 'synced_at': now, 'partial': bool(result.get('errors'))}
+            # 记下这个查询刚发出的分页游标；读完最后一页就撤掉，别让过期 token 一直能用。
+            cursors = cache.setdefault('cursors', {})
+            if following:
+                cursors[cursor_key] = following
+                while len(cursors) > CURSOR_LIMIT:      # 按写入顺序丢最旧的，缓存不会无限长
+                    cursors.pop(next(iter(cursors)))
+            else:
+                cursors.pop(cursor_key, None)
             cache['synced_at'] = now
             private_write(self.path(account['id']), cache)
         return {'page': cache['pages'][signature], 'result_count': len(primary), 'partial': bool(result.get('errors'))}

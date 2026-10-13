@@ -252,17 +252,24 @@ class SafeHTML(rich_text.RichHTML):
                 effects.append((decl.strip(), name, note))
         return effects
 
-    def _lost_detail(self, idx, lost, actual, attrs):
-        """未生效的 style 效果 + 具体原因（被 data 覆盖 / 只采用第一个 style / 同 style 内重复）。"""
+    def _lost_detail(self, idx, lost, winners):
+        """未生效的 style 效果 + 具体原因（被 data 覆盖 / 只采用第一个 style / 同 style 内重复）。
+
+        `winners` 由调用处按**实际落盘的积木**算出：{积木名: (合法取值, 来源)}。来源只认真正
+        赢过的那一份：首项 data-* 取值非法时它根本没落盘，这时还说「被 data-color=red 覆盖」
+        就是凭空造一个输入里不存在的来源（复核 m2c 的 L1 / 残余 R06）——那份红其实来自首个
+        style。落盘值本身没错，这里只把来源说对。
+        """
         parts = []
         for _, name, value in lost:
-            have = actual.get(name)
-            if have is None:
+            winner = winners.get(name)
+            if winner is None:
                 parts.append('%s=%s 未落盘' % (name, value))
-            elif rich_text.RichHTML._attr(attrs, name) is not None:
-                parts.append('%s=%s 被 %s=%s 覆盖' % (name, value, name, have))
+            elif winner[1] == 'data':
+                parts.append('%s=%s 被 %s=%s 覆盖' % (name, value, name, winner[0]))
             else:
-                parts.append('%s=%s 未采用，实际为 %s=%s' % (name, value, name, have))
+                parts.append('%s=%s 未采用，实际 %s=%s 来自%s'
+                             % (name, value, name, winner[0], winner[1]))
         head = '同一标签只采用第一个 style，本条未参与' if idx else '首个 style 的声明未生效'
         return head + '：' + '、'.join(parts)
 
@@ -313,7 +320,12 @@ class SafeHTML(rich_text.RichHTML):
                 if failures or lost:
                     detail = '；'.join(failures)
                     if lost:
-                        more = self._lost_detail(idx, lost, actual, attrs)
+                        # 获胜积木的合法取值与来源：只有真的落盘的那份才拿来解释来源。
+                        # 同名 data-* 首项的取值等于实际落盘值，才说明它过了白名单并赢下这个
+                        # 积木（data 优先，合法值必然胜出）；否则这份效果来自首个 style。
+                        winners = {name: (have, 'data' if rich_text.RichHTML._attr(attrs, name) == have
+                                          else '首个 style') for name, have in actual.items()}
+                        more = self._lost_detail(idx, lost, winners)
                         detail = (detail + '；' + more) if detail else more
                     self._drop('attribute_not_allowed', requested, detail=detail)
                 continue
@@ -1454,6 +1466,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, store.deals.detail(segments[2]))
             if parts.path == '/api/collect/platforms':
                 return self.reply(200, store.collect.listing())
+            if parts.path == '/api/collect/aisa/job':
+                return self.reply(200, store.collect.adapter('aisa').job(query.get('id', [''])[0]))
             if parts.path == '/api/collect/status':
                 return self.reply(200, store.collect.status())
             if parts.path == '/api/intel/recommendations':
@@ -1719,6 +1733,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if segments == ['api', 'collect', 'aisa', 'run']:
+                return self.reply(202, self.server.store.collect.adapter('aisa').start(payload))
             if segments[:2] == ['api', 'x-official']:
                 from publishing.x_official import post_route
                 return post_route(self, route.path, payload)

@@ -22,7 +22,11 @@ from publishing.registry import PLATFORMS
 DOMAINS = {'x': ('x.com', 'twitter.com'), 'wechat': ('mp.weixin.qq.com',),
            'douyin': ('douyin.com',), 'xiaohongshu': ('xiaohongshu.com', 'xhslink.com'),
            'channels': ('weixin.qq.com', 'weixinbridge.com')}
-PUBLISHED = {'published_manual', 'published_browser', 'published_x_api'}
+# 发布记录的 kind 里，只有这几种算“已经发出去”，统计与商单复盘共用这一份清单。
+# Buffer 只有拿到目标账号的推文链接才会落成 buffer_published；提交中、结果未确认、草稿箱一律不算已发布。
+PUBLISHED = frozenset({'published_manual', 'published_browser', 'published_x_api', 'buffer_published'})
+# 明确不算已发布的中间态，单独写出来是为了让两处判断口径一致，也防止以后顺手把它们加进 PUBLISHED。
+UNPUBLISHED = frozenset({'buffer_in_progress', 'buffer_draft', 'buffer_submitted', 'buffer_unknown', 'buffer_failed'})
 MAX_CSV = 256000
 SOURCE = 'publication_feedback'
 NOTICE = '用户导入，未向平台校验；指标含义和统计时间窗口不同，不能直接比较。登记时间不是实际发布时间。'
@@ -162,6 +166,9 @@ class PublicationMetrics:
         with self.store.lock:
             records=self.store.delivery_records(slug)
             record=next((r for r in records if r.get('id')==delivery_id),None)
+            if record and record.get('kind') in UNPUBLISHED:
+                # 提交中/已提交未确认/草稿箱都没发出去，说清楚是哪一步，别让用户以为是登记丢了。
+                raise ValueError('统计必须绑定已经登记的发布项；这条 Buffer 记录还没发出去（'+record['kind']+'），等状态确认后再统计')
             if not record or record.get('kind') not in PUBLISHED or record.get('platform') not in PLATFORMS:
                 raise ValueError('统计必须绑定已经登记的发布项；导出记录不能作为已发布项')
             if platform is not None and record['platform']!=platform:

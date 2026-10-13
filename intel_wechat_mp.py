@@ -9,6 +9,8 @@
 
 方法与实测结论见 coordination/intel-wechat-mp-contract.md。
 """
+import contextlib
+import contextvars
 import html as html_module
 import json
 import random
@@ -32,6 +34,7 @@ HISTORY_PAGE_SIZE = 15             # 「抓历史」2 页 × 15 = ≤30 篇
 MAX_BODIES_PER_RUN = 3             # 每次运行最多抓 3 篇正文
 BACKEND_TIMEOUT = 40
 BODY_TIMEOUT = 60
+MIN_HTTP_TIMEOUT = 0.01             # 剩余时间再短也不传 0/负数：那是直接报错而非超时
 MAX_HTML_BYTES = 24 * 1024 * 1024
 MIN_ARTICLE_BYTES = 400  # 低于此长度必然是异常页；真实文章页实测 3.5 MB
 MAX_BODY_CHARS = 200_000
@@ -42,6 +45,56 @@ FAKEID = re.compile(r'^M[A-Za-z0-9+/=_-]{5,80}$')
 
 DESKTOP_UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
               '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+
+
+# ── 请求级超时（R09）─────────────────────────────────────────────────────
+# 任务期限（time.monotonic() 基准）跟着**调用上下文**走，绝不替换共享客户端的 opener：
+# WechatMpClient 是全进程共享的，换掉它的 opener 会让同一时刻在跑的非任务读
+# （identify_from_link、intel_recommend、collect_adapters）继承被压小的超时。
+# contextvar 按线程/上下文隔离：只有显式进入 request_deadline(...) 的那一路受影响。
+_TASK_DEADLINE = contextvars.ContextVar('intel_http_deadline', default=None)
+
+
+@contextlib.contextmanager
+def request_deadline(deadline):
+    """把任务截止时刻带进当前上下文的每一次 HTTP；None / 非法值等于不设限。"""
+    value = deadline if isinstance(deadline, (int, float)) and not isinstance(deadline, bool) else None
+    token = _TASK_DEADLINE.set(value)
+    try:
+        yield value
+    finally:
+        _TASK_DEADLINE.reset(token)
+
+
+def request_timeout(budget, timeout=None):
+    """单次 HTTP 超时 = min(既有预算, 显式 timeout, 剩余期限)。
+
+    只会比预算更小，绝不放宽既有请求预算（BACKEND_TIMEOUT=40 / BODY_TIMEOUT=60）；
+    没进任务期限上下文时就是原预算。
+    """
+    value = float(budget)
+    if timeout is not None:
+        value = min(value, float(timeout))
+    deadline = _TASK_DEADLINE.get()
+    if deadline is not None:
+        value = min(value, float(deadline) - time.monotonic())
+    return max(value, MIN_HTTP_TIMEOUT)
+
+
+class TaskDeadlinePassed(Exception):
+    """任务期限已在等待中耗尽：这一次请求**没有发出去**。
+
+    与 CredentialExpired 严格分开：期限到点是「本轮超时」，不是「需重新登录后台」；
+    也不能因为把超时压到 0.01 秒就当成功、返回一份其实没读完的列表（M2）。
+    """
+
+
+def guard_deadline(where=''):
+    """真正出网前的最后一道闸：期限已过就不发请求，按超时如实收口。"""
+    deadline = _TASK_DEADLINE.get()
+    if deadline is None or time.monotonic() < deadline:
+        return
+    raise TaskDeadlinePassed(f'本轮时限已到，未发送{where or "本次"}请求')
 
 
 class CredentialsMissing(Exception):
@@ -76,6 +129,15 @@ def article_url(value):
 
     接受两种形态：`/s/<短码>` 与 `/s?__biz=…&mid=…&idx=…&sn=…&chksm=…`。
     片段（#rd 之类）丢掉，query 一个字都不动。
+
+    必需参数一律**显式校验**：缺 mid、空 mid、缺/空 __biz 都是「链接不合格」，
+    统一抛可识别的 ValueError。绝不能抛 KeyError —— 保存路径只接 ValueError，
+    一条坏链接会变成未预期异常，把整批（整轮任务）一起带崩（R01）。
+
+    判据只看解析出来的原值，**不做 strip 之类的规整**：入库身份是这条链接的指纹，
+    旧库里按同一判据存过的行必须被同样的判据再次判成不合格，才不会重采时另建一条
+    （`mid=%202650000004%20` 旧判据存成无链接占位、`__biz=%20&mid=…` 旧判据存成带链接）。
+    放宽或收紧判据都会改掉旧行的身份键，制造重复入库（M1）。
     """
     message = '请填写 mp.weixin.qq.com/s/ 开头的文章链接'
     if not isinstance(value, str) or not value.strip():
@@ -87,8 +149,12 @@ def article_url(value):
         raise ValueError(message)
     ok = bool(re.fullmatch(r'/s/[A-Za-z0-9_-]{6,64}', parts.path))
     if not ok and parts.path == '/s' and parts.query:
-        query = urllib.parse.parse_qs(parts.query)
-        ok = bool(query.get('__biz', [''])[0]) and query['mid'][0].isdigit()
+        # keep_blank_values：`mid=` 这种空值要看得见，不能因为 parse_qs 丢键再炸一次。
+        # 值一律用解析原样，不 strip：与旧库落库时的判据逐字一致（M1）。
+        query = urllib.parse.parse_qs(parts.query, keep_blank_values=True)
+        biz = str(query.get('__biz', [''])[0])
+        mid = str(query.get('mid', [''])[0])
+        ok = bool(biz) and mid.isdigit()
     if not ok:
         raise ValueError(message)
     return urllib.parse.urlunsplit(('https', parts.netloc, parts.path, parts.query, ''))
@@ -376,9 +442,11 @@ class WechatMpClient:
         self.quota = quota
         self.throttle = throttle or BodyThrottle()
         self.opener = opener
+        # 最近一次 appmsg_list 里链接不合格的单条：上层据此在回执里报失败条数（M3）。
+        self.isolated_items = []
 
     # ── 后台接口 ──────────────────────────────────────────────────────────
-    def _backend(self, path, params, cookie, token):
+    def _backend(self, path, params, cookie, token, timeout=None):
         self.quota.before()
         query = dict(params, token=token, lang='zh_CN')
         if 'f' not in query:
@@ -388,8 +456,13 @@ class WechatMpClient:
                    'Accept': 'application/json, text/plain, */*', 'Cookie': cookie,
                    'Referer': f'{BACKEND_HOST}/cgi-bin/home?t=home/index&lang=zh_CN&token={token}',
                    'X-Requested-With': 'XMLHttpRequest'}
+        # 出网前的最后一道闸：冷却等待与取凭据都可能把期限耗尽，这时不能只把超时压到
+        # 0.01 秒继续发 —— 要么不发（按超时如实收口），要么真的读完（M2）。
+        budget = request_timeout(BACKEND_TIMEOUT, timeout)
+        guard_deadline('后台')
         try:
-            raw = self.opener(url, headers, BACKEND_TIMEOUT)
+            # 请求级超时：后台单次 HTTP 最多 BACKEND_TIMEOUT，在任务期限里再压到剩余时间。
+            raw = self.opener(url, headers, budget)
         except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as exc:
             # 网络失败无法判断 ret，不计入 200013；直接如实报错，不重试。
             raise CredentialExpired('需重新登录后台：公众号后台没有返回可解析结果') from exc
@@ -445,7 +518,13 @@ class WechatMpClient:
         return found
 
     def appmsg_list(self, identifier, begin, count):
-        """fakeid → 文章列表。list_ex 不可用时回退 appmsgpublish（publish_page 需二次解析）。"""
+        """fakeid → 文章列表。list_ex 不可用时回退 appmsgpublish（publish_page 需二次解析）。
+
+        链接不合格的单条只隔离这一条，不拖垮整批；被隔离的单条放在
+        ``client.isolated_items``（每次调用先清空），供上层在回执里报出失败条数。
+        返回的列表仍只有可用条目，既有调用方签名与内容不变（M3）。
+        """
+        self.isolated_items = []
         cookie, token = self._credentials()
         data = self._backend('/cgi-bin/appmsg',
                              {'action': 'list_ex', 'fakeid': identifier, 'begin': int(begin),
@@ -468,7 +547,12 @@ class WechatMpClient:
             # 长链会被判「未知错误/失效的验证页」，抓不到正文。
             try:
                 link = article_url(raw_link)
-            except ValueError:
+            except ValueError as exc:
+                # 坏单条只隔离这一条，不拖垮整批；但必须**留下来**：上层要能报出
+                # 「另 N 条链接不合格已隔离」，不能静默消失（M3）。
+                title = html_module.unescape(str(item.get('title') or '')).strip()
+                self.isolated_items.append({'title': title, 'reason': str(exc),
+                                            'link': raw_link[:200]})
                 continue
             stamp = item.get('create_time') or item.get('update_time') or 0
             result.append({'title': html_module.unescape(str(item.get('title') or '')).strip(),
@@ -477,13 +561,17 @@ class WechatMpClient:
         return result
 
     # ── 正文（普通 HTTP，无 cookie） ─────────────────────────────────────
-    def fetch_article(self, url):
+    def fetch_article(self, url, timeout=None):
         url = article_url(url)
         self.throttle.wait()
         headers = {'User-Agent': DESKTOP_UA, 'Accept-Language': 'zh-CN,zh;q=0.9',
                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'}
+        # 节流等待同样可能跨过截止：期限已到就不发这次正文请求，按超时如实收口（M2）。
+        budget = request_timeout(BODY_TIMEOUT, timeout)
+        guard_deadline('正文')
         try:
-            raw = self.opener(url, headers, BODY_TIMEOUT)
+            # 请求级超时：不共享替换 opener，只算这一次该用多久。
+            raw = self.opener(url, headers, budget)
         except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as exc:
             raise ValueError('文章页抓取失败：普通 HTTP 请求没有拿到页面') from exc
         document = raw.decode('utf-8', 'replace') if isinstance(raw, bytes) else str(raw)

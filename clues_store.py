@@ -45,6 +45,13 @@ def source_clock(snapshot):
         value=p.get('timestamp')
         if type(value) in (float,int) and math.isfinite(value) and 0<value<=253402300799:
             return datetime.fromtimestamp(value,timezone.utc).isoformat(),'微信消息时间'
+    if snapshot.get('kind')=='aisa':
+        if p.get('published_at'):
+            try:
+                stamp=datetime.fromisoformat(p['published_at'].replace('Z','+00:00'))
+                if stamp.utcoffset() is not None:return stamp.astimezone(timezone.utc).isoformat(),'推特发布时间'
+            except (ValueError,TypeError,AttributeError):pass
+        return '', '来源未提供发布时间'
     if snapshot.get('kind')=='xradar':
         from clues_heat import bucket_time, capture_bucket
         try:
@@ -142,16 +149,49 @@ class Clues:
         return self._save(payload,snapshots,manual_heat=('heat' in payload))
 
     @serialized
-    def _save(self,payload,snapshots,producer_key=None,linked_event=None,observations=None,manual_heat=False):
+    def _save(self,payload,snapshots,producer_key=None,linked_event=None,observations=None,manual_heat=False,refresh_aisa=False):
         # WeChat plugin may pass per-message daily observations here at its existing
         # persist_candidate call; plugin wiring is a separate delivery. No key changes.
         thread_id=identity(payload['id'],'线索编号') if payload.get('id') else uuid.uuid4().hex
+        # AIsa 刷新语义需要一个稳定的「本轮自动生成的标题/摘要」基准，写进 evidence 条目，
+        # 下次刷新拿它比；不能拿最新条目的 after 当基准（见下面刷新分支）。
+        auto_generated={'title':payload.get('title',''),'summary':payload.get('summary','')} if refresh_aisa else None
         occurred=due_time(payload.get('occurred_at',''))
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             if producer_key:
                 prior=db.execute('SELECT thread_id FROM entries WHERE producer_key=?',(producer_key,)).fetchone()
-                if prior:return {'id':prior['thread_id'],'duplicate':True}
+                if prior:
+                    if not refresh_aisa or not producer_key.startswith('aisa:'):
+                        return {'id':prior['thread_id'],'duplicate':True}
+                    thread_id=prior['thread_id']
+                    previous=self._row(db,thread_id)
+                    latest=db.execute("SELECT data FROM entries WHERE thread_id=? AND entry_type='evidence' ORDER BY rowid DESC LIMIT 1",(thread_id,)).fetchone()
+                    latest_entry=json.loads(latest['data']) if latest else {}
+                    old_evidence=latest_entry.get('evidence',[])
+                    if old_evidence and snapshots and old_evidence[0].get('hash')==snapshots[0].get('hash'):
+                        return {'id':thread_id,'duplicate':True,'updated':False}
+                    # 同原始ID刷新指标，保留用户分类/核对/归档/重要度/手动热度等状态。
+                    # 「标题/摘要还是不是自动内容」只能跟**上一轮自动生成的值**比：最新条目的 after
+                    # 存的是合并后的当前值，人工标题一旦在第一次刷新后被写进 after，第二次刷新
+                    # 就会把 previous==after 误判成自动内容而覆盖（复核 M1）。
+                    # 旧数据没有 auto_fields（升级前的线索）：不能拿最新条目的 after 当自动基准——
+                    # 那个 after 里已经混进人工改过的值，第一次刷新就会把人工内容盖掉（复核 M1·c）。
+                    auto=latest_entry.get('auto_fields')
+                    if auto is None:
+                        auto=self._legacy_auto_baseline(db,thread_id)
+                    incoming_title=payload['title'] if previous['title']==auto.get('title') else previous['title']
+                    incoming_summary=payload['summary'] if previous['summary']==auto.get('summary') else previous['summary']
+                    # auto_fields 只写「这一轮真的采纳了的自动值」当下轮基准。判成人工的字段必须
+                    # 留在基准外，否则下一轮就会拿人工值当自动基准，把它盖掉。
+                    auto_generated={name:payload.get(name,'') for name in ('title','summary')
+                                    if auto.get(name) is not None and previous[name]==auto[name]}
+                    payload={**{k:previous[k] for k in FIELDS if k in previous},
+                             'id':thread_id,'revision':previous['revision'],
+                             'title':incoming_title,'summary':incoming_summary,
+                             'reason':'重复采集刷新来源指标','note':payload['summary']}
+                    if previous.get('tags_source')=='suggested':payload['tags']=None
+                    producer_key=None  # 原有唯一来源映射保留在首次entry，新版本不占第二个映射。
             row=db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone();before=self._row(db,thread_id) if row else None
             if payload.get('id') and not before:raise ValueError('线索不存在')
             if before and (type(payload.get('revision')) is not int or payload['revision']!=before['revision']):raise EventConflict('线索已有新内容，请刷新后再保存')
@@ -193,14 +233,83 @@ class Clues:
             elif known:
                 clock_label='本次依据时间（最近）'
             else:
-                clock_label='发生时间未知'
+                clock_label='来源未提供发布时间' if len(snapshots)==1 and snapshots[0].get('kind')=='aisa' else '发生时间未知'
             local=datetime.fromisoformat(clock).astimezone(ZONE) if clock else None
             entry_type='evidence' if snapshots else 'edit'
             entry={'revision':revision,'before':old,'after':fields,'note':note,'reason':reason,'evidence':snapshots,'clock_label':clock_label,'occurred_at':occurred}
+            # 空字典也要写：它标记「这一条是采集链路写的、已按新规则判过基准」，
+            # 下次刷新就不会再退回旧数据保守判定，人工字段继续受保护。
+            if auto_generated is not None and snapshots:entry['auto_fields']=auto_generated
             db.execute('INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,thread_id,json.dumps(entry,ensure_ascii=False),stamp,clock,str(local.year) if local else 'unknown',f'{local.month:02}' if local else '',entry_type,producer_key))
             if snapshots:
                 for item in observations or []:self._observe(db,thread_id,item)
-        return {'id':thread_id,'revision':revision,'duplicate':False}
+        result={'id':thread_id,'revision':revision,'duplicate':False}
+        if refresh_aisa:result.update(duplicate=bool(before),updated=bool(before))
+        return result
+
+    @staticmethod
+    def _collector_entry(entry):
+        """这条历史是不是采集链路自己写的。
+
+        人工保存只会挂知识库快照（document/wechat/xradar…）或不挂快照，不会挂 aisa 快照；
+        所以「带快照且快照全是采集来源」以外的更新条目，都算人工编辑记录。不区分来源平台：
+        任何非采集链路写入的条目都按人工处理。
+        """
+        evidence=entry.get('evidence') or []
+        return bool(evidence) and all(e.get('kind')=='aisa' for e in evidence)
+
+    def _legacy_auto_baseline(self,db,thread_id):
+        """旧线索（历史里没有 auto_fields）的自动基准：认不出来就当人工维护。
+
+        复核 M1·c：旧版第一次升级刷新会把人工摘要当自动值覆盖，因为它拿最新条目的 after
+        当基准，而那个 after 已经是「合并后的当前值」，里面就是人工内容。这里改成保守回落，
+        一个字段只有同时满足两条才认它是自动值：
+        1 该线索历史上没有任何人工编辑记录改过这个字段（edit 历史 / 非采集来源的更新条目）；
+        2 当前值能跟一份可靠还原的自动生成值对上：标题＝最近一条采集条目快照里的自动标题，
+          摘要＝最近一条采集条目里由采集链路写入的摘要（在没有人工改动记录的前提下它必然是自动值）。
+        任一条不满足就不写进基准，该字段按人工维护保留、不覆盖；指标数字照常刷新。
+        宁可少刷新一次文案，也不能盖掉人工内容。
+        """
+        history=[json.loads(r['data']) for r in db.execute('SELECT data FROM entries WHERE thread_id=? ORDER BY rowid ASC',(thread_id,))]
+        captured=[e for e in history if self._collector_entry(e)]
+        baseline={}
+        for name in ('title','summary'):
+            if any(not self._collector_entry(e) and e.get('before')
+                   and e['before'].get(name)!=(e.get('after') or {}).get(name) for e in history):
+                continue  # 有人工改过这个字段的记录：认人工，不覆盖
+            value=self._recoverable_auto_value(name,captured)
+            if value:baseline[name]=value
+        return baseline
+
+    def _recoverable_auto_value(self,name,captured):
+        """能从历史里可靠还原的自动生成值；还原不出来返回空串（就当人工，不覆盖）。"""
+        if not captured:
+            return ''   # 连一条采集链路写的条目都没有：还原不出自动值，按人工保留
+        if name=='title':
+            # 快照里的 title 是采集链路写入的自动标题，取最近一条采集快照的自动标题。
+            return captured[-1]['evidence'][0].get('title','')
+        for entry in reversed(captured):  # 摘要没有独立快照字段，取最近一条采集条目里写入的值
+            if (entry.get('after') or {}).get('summary'):
+                return entry['after']['summary']
+        return ''
+
+    def ingest_aisa(self,source,item):
+        # 正常_save仍负责事务/版本/证据/人工状态保护，仅为AIsa精确ID开刷新语义。
+        item=source._scrub(item)
+        candidate=source.to_clue_item(item)
+        platform=item['platform']
+        excerpt=(item.get('text') or candidate['summary'])[:4000]
+        snapshot={'kind':'aisa','source':'aisa','title':candidate['title'],
+                  'hash':digest(item),'start':0,'end':len(excerpt),'excerpt':excerpt,
+                  'captured_at':now(),'origin_url':item.get('url',''),
+                  'provenance':{'platform':platform,'original_id':source._item_id(item,platform),
+                                'published_at':item.get('created_at',''),'marker':candidate['provenance'],
+                                'link_label':item.get('link_label',''),'deeplink':item.get('deeplink',''),
+                                'metrics':{k:item[k] for k in ('views','likes','retweets','replies','hot_value','heat_score','score_text') if k in item}}}
+        payload={k:v for k,v in candidate.items() if k not in ('producer_key','provenance')}
+        # 一次采集只有分数，不能据此推断“上升/下降”趋势，保留人工趋势选择。
+        payload.update(heat='',heat_source='',reason='手动采集AIsa来源',note=candidate['summary'])
+        return self._save(source._scrub(payload),[source._scrub(snapshot)],candidate['producer_key'],refresh_aisa=True)
 
     @staticmethod
     def _observe(db,thread_id,item):
@@ -294,6 +403,9 @@ class Clues:
                 item=self._row(db,row['id'])
                 entry=db.execute("SELECT data,clock,created_at FROM entries WHERE thread_id=? AND entry_type='evidence' ORDER BY rowid DESC LIMIT 1",(row['id'],)).fetchone()
                 item['source_time']=entry['clock'] if entry else ''
+                data=json.loads(entry['data']) if entry else {}
+                item['source_time_label']=data.get('clock_label','')
+                item['source_platforms']=list(dict.fromkeys(e.get('provenance',{}).get('platform') for e in data.get('evidence',[]) if e.get('kind')=='aisa'))
                 item['latest_note']=json.loads(entry['data'])['note'] if entry else ''
                 sources=db.execute("SELECT DISTINCT json_extract(e.value,'$.source') source FROM entries x,json_each(x.data,'$.evidence') e WHERE x.thread_id=?",(row['id'],)).fetchall()
                 item['sources']=[r['source'] for r in sources];items.append(item)

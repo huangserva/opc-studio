@@ -9,6 +9,8 @@
 - 脱敏只在 ``_scrub`` 一处实现，并挂在每个对外/落库出口上：取数走 ``_finalize``、
   线索走 ``to_clue_item``、状态走 ``status``、落库走 ``_remember``。新增出口时挂
   ``_finalize``/``_scrub``，不靠逐字段记忆。
+- 脱敏范围是完整 Key **加上 Key 的连续片段**（前 16、后 16、中间切片等，见
+  ``_credential_pattern``）：上游回显截断值也算泄漏。
 - 未配置环境变量时优雅回退为不可用，任何取数失败（含解析、缓存读写）都不抛出未捕获异常。
 
 资源上限：响应体最多 ``MAX_RESPONSE_BYTES`` 字节、单次取 ``READ_CHUNK_BYTES`` 字节、
@@ -16,6 +18,8 @@
 路径）由单一墙钟 deadline ``MAX_TOTAL_SECONDS`` 约束；越线一律降级为安全回执。
 
 边界如实说明（只写已被测试证明的部分）：
+- 重定向：``urllib_transport`` 用自带 opener 禁掉自动跟随，301/302/303/307/308 直接按错误
+  返回；跳主机/跳端口/跳协议都不会向跳转目标发第二个请求，Authorization 不会外带。
 - 请求在受控 daemon 工作线程中执行，主线程 ``join(剩余时间)``；到点立即返回
   ``ResponseTooSlow``，并 ``shutdown``+``close`` 已登记/已捕获的连接，迟到的数据不写入
   返回值、不落缓存。已证明边界约为 **总预算 + 小量调度误差**（本机亚秒级预算的 9 种协议
@@ -33,6 +37,10 @@
 """
 import json
 import os
+import re
+import hashlib
+from email.utils import parsedate_to_datetime
+from urllib.parse import urlencode, urlsplit
 import socket
 import sqlite3
 import ssl
@@ -46,8 +54,20 @@ from urllib import error, request
 from collect_core import provenance
 
 DEFAULT_BASE_URL = 'https://api.aisa.one'
-DEFAULT_TIMEOUT = 15.0
+DEFAULT_TIMEOUT = 30.0
 MAX_COUNT = 100
+# 凭据片段脱敏下限（复核 M3）：Key 里任意位置的连续片段，只要长度 >= 这个值都要脱敏。
+# 短于它的片段不处理：6 个字符以下（例如 "sk-a"）会和普通文字撞车，脱敏反而破坏正文。
+SCRUB_FRAGMENT_CHARS = 6
+# 额外显式覆盖的前/后「已知截断长度」片段：日志与上游常按这些长度截断显示 Key。
+SCRUB_EDGE_CHARS = (6, 8, 12, 16, 24, 32)
+# n-gram 数量保护：异常长的 Key 不致于编出上万个候选串（真实网关 Key 远小于此）。
+SCRUB_MAX_KEY_CHARS = 256
+# 复核 M2：这个上限不是「超过就静默少洗一段」的软限，而是受支持长度的硬上限。
+# 长度超过它的凭据在发第一个请求前就被拒（见 _key_config_error）：产品不接受
+# 一份自己宣称保护不了、实际又静默失去中段片段保护的配置。
+KEY_TOO_LONG_ERROR = (f'AIsa Key 长度异常，超过 {SCRUB_MAX_KEY_CHARS} 字符，已拒绝使用；'
+                      '请检查环境变量 AISA_API_KEY 是否被拼接或污染')
 # 响应体硬上限：成功与错误两条路径都只读这么多字节，防止无界内存占用。
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 # 单次 read 的分块大小：保证任何一次读取都不会一次性吞下整个响应体。
@@ -59,8 +79,8 @@ MAX_TOTAL_SECONDS = 30.0
 # 超过此数的新请求直接安全降级（不新建线程），避免慢滴流场景下线程/FD 无界累积。
 MAX_LINGERING_REQUESTS = 8
 
-TWITTER_TWEETS_PATH = '/apis/v1/twitter/get_twitter_user_last_tweets'
-DOUYIN_HOT_PATH = '/apis/v1/tikhub/douyin/app/v3/fetch_brand_hot_search_list'
+TWITTER_TWEETS_PATH = '/apis/v1/twitter/user/last_tweets'
+DOUYIN_HOT_PATH = '/apis/v1/tikhub/douyin/app/v3/fetch_hot_search_list'
 XHS_INSPIRATION_PATH = '/apis/v1/tikhub/xiaohongshu/app_v2/get_creator_hot_inspiration_feed'
 
 MAX_UNWRAP_DEPTH = 8
@@ -284,6 +304,45 @@ def _abort(holder):
     threading.Thread(target=closer, name='aisa-abort', daemon=True).start()
 
 
+class RedirectRefused(error.HTTPError):
+    """3xx 跳转：不跟随，也不向跳转目标发第二个请求。"""
+
+
+class _RefuseRedirect(request.HTTPRedirectHandler):
+    """把标准库的自动跟随重定向换成「立即按错误返回」。
+
+    默认 ``urlopen`` 会跟随跳主机、跳端口、跳协议的 301/302/303/307/308，并且
+    ``redirect_request`` 只剔掉 Content-* 请求头——**Authorization 原样带到跳转目标**。
+    单 Key 网关不允许这种外带：只要网关（或中间设备）回一个跳转，凭据就送到别人那里。
+
+    ``build_opener`` 见到本类实例就不再装默认的 ``HTTPRedirectHandler``；两个处理器万一
+    共存时，较低的 ``handler_order``（新旧属性名都写）也保证先调我们。
+    """
+
+    handler_order = 400
+    _handler_order = 400
+
+    def _refuse(self, req, fp, code, msg, headers):
+        # 先关掉原响应再抛错：任何路径都不会向 Location 目标发出第二个请求。
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:  # noqa: BLE001 - 关闭失败不改变「不跟随」的结论
+                pass
+        raise RedirectRefused(req.full_url, code, msg, headers, None)
+
+    http_error_301 = http_error_302 = http_error_303 = http_error_307 = http_error_308 = _refuse
+
+
+# 产品自己的 opener：``request.urlopen`` 的全局 opener 会跟随重定向，这里换成不跟随的。
+_NO_REDIRECT_OPENER = request.build_opener(_RefuseRedirect())
+
+
+def _open(req, timeout):
+    """产品唯一的 HTTP 发起点：走不跟随重定向的 opener。测试在这里注入网络层。"""
+    return _NO_REDIRECT_OPENER.open(req, timeout=timeout)
+
+
 def _perform_request(method, url, headers, body, socket_timeout, deadline, holder):
     """真正发请求 + 读响应体。在受控工作线程里执行，成功与 HTTPError 都覆盖。
 
@@ -295,7 +354,7 @@ def _perform_request(method, url, headers, body, socket_timeout, deadline, holde
     _CONNECT_HOLDER.holder = holder
     try:
         try:
-            resp = request.urlopen(req, timeout=socket_timeout)
+            resp = _open(req, timeout=socket_timeout)
         except error.HTTPError as exc:
             holder['stream'] = exc
             try:
@@ -319,9 +378,13 @@ def _perform_request(method, url, headers, body, socket_timeout, deadline, holde
 
 
 def urllib_transport(method, url, headers, body, timeout):
-    """默认 transport：标准库 urllib.request。返回 (status, text)。
+    """默认 transport：标准库 urllib.request，但走**不跟随重定向**的 opener。返回 (status, text)。
 
     非 2xx 不抛异常，返回状态码让上层统一降级；网络错误仍抛出，由上层捕获。
+
+    重定向边界（复核 H1）：301/302/303/307/308 一律不跟随，直接按该状态码返回错误回执；
+    跳主机、跳端口、跳协议都不会向 Location 目标发出第二个请求，鉴权头也就不会外带。
+    其他 3xx（300/304/305/306）没有跳转语义，由默认错误处理抛 HTTPError，同样不触达目标。
 
     整次请求（DNS/连接/TLS/状态行/响应头/chunk 长度行/正文）由**一个**墙钟 deadline
     约束：请求在受控 daemon 工作线程里执行，主线程 `join(剩余时间)`，到点立即返回
@@ -446,6 +509,41 @@ def _first_list(payload, keys, depth=0):
     return None
 
 
+def _utc(value):
+    try:
+        text = str(value or '')
+        try:
+            stamp = datetime.fromisoformat(text.replace('Z', '+00:00'))
+        except ValueError:
+            stamp = parsedate_to_datetime(text)
+        if stamp.tzinfo is None or stamp.utcoffset() is None:
+            return ''
+        return stamp.astimezone(timezone.utc).isoformat()
+    except (ValueError, TypeError, OverflowError):
+        return ''
+
+
+def _web_url(value, hosts=()):
+    text = _text(value)[:2000]
+    try:
+        parts = urlsplit(text)
+        return text if (parts.scheme == 'https' and parts.hostname and not parts.username and not parts.password
+                    and (not hosts or any(parts.hostname == host or parts.hostname.endswith('.' + host) for host in hosts))) else ''
+    except ValueError:
+        return ''
+
+
+def _container(payload, field):
+    node = payload
+    for _ in range(MAX_UNWRAP_DEPTH):
+        if not isinstance(node, dict):
+            return {}
+        if field in node:
+            return node
+        node = node.get('data')
+    return {}
+
+
 def _media_urls(row):
     raw = row.get('media_urls')
     if not isinstance(raw, list):
@@ -459,6 +557,51 @@ def _media_urls(row):
     return urls
 
 
+def _key_config_error(key):
+    '''凭据本身不合法时给出中文配置错误；空值不算配置错误（按未配置优雅降级）。
+
+    复核 M2：长度超过 ``SCRUB_MAX_KEY_CHARS`` 的凭据一律拒绝使用。选拒绝使用而不是
+    「放宽滑窗继续用」的理由：片段脱敏的候选数量随 Key 长度线性增长，滑窗再放大既
+    拖慢每一个出口的脱敏，也没人验证过真实网关会发这么长的 Key；与其接受这份配置后
+    静默失去中段保护，不如在第一个请求前就报错。调用方据此不发任何请求，状态显示配置错误。
+    返回空串表示凭据长度合法。
+    '''
+    if key and len(key) > SCRUB_MAX_KEY_CHARS:
+        return KEY_TOO_LONG_ERROR
+    return ''
+
+
+def _credential_pattern(key):
+    """把 Key 编成「完整值 + 任意位置的连续片段 + 前/后已知长度片段」的匹配式。
+
+    策略（复核 M3）：
+    - 完整 Key 一定脱敏；
+    - Key 里**任意位置**、长度 ``>= SCRUB_FRAGMENT_CHARS`` 的连续切片都要脱敏——
+      实现上取 Key 的全部 ``SCRUB_FRAGMENT_CHARS`` 长度 n-gram，任何更长的连续片段
+      必然包含其中一个，所以一条匹配式就覆盖了前 16、后 16、中间切片等；
+    - 再显式补上前/后 ``SCRUB_EDGE_CHARS`` 这些「已知截断显示」长度（短于 n-gram 下限
+      时才有额外作用），以及短 Key（长度不足 n-gram 下限）的整段前后缀；
+    - 短于下限的片段不处理，避免把普通正文误伤。
+    - 长度超过 ``SCRUB_MAX_KEY_CHARS`` 的 Key 不会经由这条链路对外发请求：
+      ``_key_config_error`` 已在第一个请求前拒绝使用。这里仍保留完整值与首尾已知长度
+      片段，作为「这份字符串从别处涌进正文」时的兼底，但不为超长 Key 扩大滑窗。
+    只编译一次并按 Key 缓存；匹配到就整段换成 ``***``。
+    """
+    if not key:
+        return None
+    pieces = {key}
+    span = min(SCRUB_FRAGMENT_CHARS, len(key))
+    if len(key) <= SCRUB_MAX_KEY_CHARS:
+        pieces.update(key[start:start + span]
+                      for start in range(len(key) - span + 1))
+    for length in SCRUB_EDGE_CHARS:
+        if 0 < length < len(key):
+            pieces.add(key[:length])
+            pieces.add(key[-length:])
+    ordered = sorted(pieces, key=lambda piece: (-len(piece), piece))
+    return re.compile('|'.join(re.escape(piece) for piece in ordered))
+
+
 class AIsaSource:
     """AIsa 网关取数器。所有失败都降级为空结果，不抛出未捕获异常。"""
 
@@ -468,10 +611,16 @@ class AIsaSource:
         self.store = store
         self.transport = transport or urllib_transport
         self.api_key = api_key if api_key is not None else os.environ.get('AISA_API_KEY')
+        # 超长凭据（复核 M2）：不扩大滑窗、不发请求，只把实例标成配置错误；
+        # _call / status / 适配器 start 都会把这份中文错误回执给出去。
+        self.config_error = _key_config_error(self.api_key)
         self.base_url = (base_url or DEFAULT_BASE_URL).rstrip('/')
         self.timeout = DEFAULT_TIMEOUT
         self.last_error = ''
         self.cache_error = ''
+        # 脱敏匹配式按 Key 缓存：``_scrub`` 每个出口都会调用，不能每次重新编译。
+        self._pattern_key = None
+        self._pattern = None
         self._db_path = self._resolve_db_path(store)
         if self._db_path is not None:
             self._init_db()
@@ -596,17 +745,30 @@ class AIsaSource:
     # ── 网关调用 ───────────────────────────────────────────────────────────
     def _headers(self):
         headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-        if self.api_key:
+        if self.api_key and not self.config_error:
             headers['Authorization'] = f'Bearer {self.api_key}'
         return headers
 
-    def _scrub(self, value):
-        """递归脱敏任意结构里的 Key 明文。所有对外/落库出口统一走这里。"""
+    def _scrub_pattern(self):
         key = self.api_key
         if not key:
+            return None
+        if self._pattern_key != key:
+            self._pattern_key = key
+            self._pattern = _credential_pattern(key)
+        return self._pattern
+
+    def _scrub(self, value):
+        """递归脱敏任意结构里的 Key 明文**及其片段**。所有对外/落库出口统一走这里。
+
+        只替换完整 Key 不够：上游或日志可能回显截断值（前 16、后 16、中间切片），
+        片段同样算凭据泄漏。片段策略见 ``_credential_pattern``。
+        """
+        pattern = self._scrub_pattern()
+        if pattern is None:
             return value
         if isinstance(value, str):
-            return value.replace(key, '***')
+            return pattern.sub('***', value)
         if isinstance(value, list):
             return [self._scrub(entry) for entry in value]
         if isinstance(value, tuple):
@@ -621,6 +783,10 @@ class AIsaSource:
 
     def _call(self, method, path, body=None):
         """返回 (ok, data)。失败只记 last_error，绝不抛出。"""
+        if self.config_error:
+            # 超长凭据：在调用 transport 之前就返回，一个字节也不往外发。
+            self.last_error = self.config_error
+            return False, None
         if not self.api_key:
             self.last_error = '未配置 AISA_API_KEY 环境变量'
             return False, None
@@ -641,6 +807,10 @@ class AIsaSource:
             self.last_error = self._redact(f'网络异常：{type(exc).__name__}')
             return False, None
         code = _int(status, -1)
+        if 300 <= code < 400:
+            # 跳转一律按错误处理：不跟随，也就不会把 Authorization 带到第二个地址。
+            self.last_error = self._redact(f'AIsa 返回跳转（{code}），已拒绝跟随重定向，请核对网关地址')
+            return False, None
         if code in (401, 403):
             self.last_error = self._redact(f'AIsa 鉴权失败（{code}）')
             return False, None
@@ -656,17 +826,32 @@ class AIsaSource:
             # 深层嵌套 JSON 会触发 RecursionError，同样归为不可解析。
             self.last_error = 'AIsa 返回非 JSON 数据'
             return False, None
+        if isinstance(data, dict):
+            code = data.get('code')
+            inner = data.get('data')
+            if (code is not None and str(code) not in ('0', '200')
+                    or data.get('status') in ('error', 'failed')
+                    or isinstance(inner, dict) and (inner.get('success') is False
+                        or inner.get('status_code') not in (None, 0))):
+                self.last_error = 'AIsa 接口返回失败状态，请稍后核对'
+                return False, None
         self.last_error = ''
         return True, data
 
     # ── 三大取数方法 ───────────────────────────────────────────────────────
     def get_twitter_tweets(self, username, count=20):
         username = _text(username).lstrip('@')
+        if not re.fullmatch(r'[A-Za-z0-9_]{1,15}', username):
+            self.last_error = '推特账号格式无效'
+            return []
         limit = _bounded_count(count)
-        ok, data = self._call('POST', TWITTER_TWEETS_PATH, {'username': username, 'count': limit})
+        ok, data = self._call('GET', TWITTER_TWEETS_PATH + '?' + urlencode({'userName': username}))
         if not ok:
             return []
-        rows = _first_list(data, ('tweets', 'list', 'items', 'results')) or []
+        rows = _first_list(data, ('tweets', 'list', 'items', 'results'))
+        if rows is None:
+            self.last_error = '推特接口未返回推文列表'
+            return []
         items = []
         for row in rows[:limit]:
             if not isinstance(row, dict):
@@ -675,38 +860,54 @@ class AIsaSource:
             if not tweet_id:
                 continue
             items.append({
-                'platform': 'twitter',
-                'username': username,
-                'tweet_id': tweet_id,
+                'platform': 'twitter', 'username': username, 'tweet_id': tweet_id,
                 'text': _text(row.get('text') or row.get('full_text')),
-                'created_at': _text(row.get('created_at')),
-                'likes': _int(row.get('likes') if row.get('likes') is not None else row.get('favorite_count')),
-                'retweets': _int(row.get('retweets') if row.get('retweets') is not None else row.get('retweet_count')),
-                'media_urls': _media_urls(row),
+                'created_at': _utc(row.get('createdAt') or row.get('created_at')),
+                'likes': _int(row.get('likeCount', row.get('likes', row.get('favorite_count')))),
+                'retweets': _int(row.get('retweetCount', row.get('retweets', row.get('retweet_count')))),
+                'replies': _int(row.get('replyCount', row.get('reply_count'))),
+                'views': _int(row.get('viewCount', row.get('view_count'))),
+                'url': _web_url(row.get('url') or row.get('twitterUrl'), ('x.com', 'twitter.com')),
+                'link_label': '查看原帖', 'media_urls': _media_urls(row),
             })
+        if rows and not items:
+            self.last_error = '推特返回内容格式无法解析'
         return self._finalize(items)
 
     def fetch_douyin_hot_searches(self, limit=20):
         limit = _bounded_count(limit)
-        ok, data = self._call('GET', DOUYIN_HOT_PATH)
+        ok, data = self._call('GET', DOUYIN_HOT_PATH + '?board_type=0')
         if not ok:
             return []
-        rows = _first_list(data, ('list', 'word_list', 'items', 'results')) or []
+        rows = _first_list(data, ('word_list', 'list', 'items', 'results'))
+        if rows is None:
+            self.last_error = '抖音接口未返回实时热词列表'
+            return []
+        container = _container(data, 'word_list')
+        share = container.get('share_info') or {}
+        url = _web_url(share.get('share_url'), ('douyin.com', 'iesdouyin.com')) if isinstance(share, dict) else ''
         items = []
-        for index, row in enumerate(rows):
+        for row in rows:
             if not isinstance(row, dict):
                 continue
             word = _text(row.get('word') or row.get('sentence') or row.get('title'))
             if not word:
                 continue
+            rank = row.get('position', row.get('rank'))
+            rank = _int(rank, 0) if rank is not None else None
             items.append({
-                'platform': 'douyin',
-                'word': word,
-                'hot_value': _int(row.get('hot_value')),
-                'rank': _int(row.get('rank'), default=index + 1) or index + 1,
-                'label': _text(row.get('label')),
+                'platform': 'douyin', 'word': word,
+                'sentence_id': _safe_id(row.get('sentence_id') or row.get('id')),
+                'hot_value': _int(row.get('hot_value')), 'view_count': _int(row.get('view_count')),
+                'rank': rank if rank and rank > 0 else None, 'label': _text(row.get('label')),
+                'url': _web_url(row.get('url'), ('douyin.com', 'iesdouyin.com')) or url,
+                'link_label': '查看榜单（非单条原帖）', 'created_at': '',
             })
-        items.sort(key=lambda entry: (-entry['hot_value'], entry['rank']))
+        items.sort(key=lambda entry: (-entry['hot_value'], entry['rank'] or MAX_COUNT + 1))
+        # 非空却一条都解析不出来 = 上游换了结构，不能当成「今天 0 条热词」的成功空结果；
+        # 合法的空 word_list 走不到这里（rows 为空），仍按 0 条成功展示（复核 M2）。
+        if rows and not items:
+            self.last_error = '抖音返回内容格式无法解析'
         return self._finalize(items[:limit])
 
     def fetch_xiaohongshu_inspirations(self, limit=20):
@@ -714,22 +915,30 @@ class AIsaSource:
         ok, data = self._call('GET', XHS_INSPIRATION_PATH)
         if not ok:
             return []
-        rows = _first_list(data, ('inspirations', 'list', 'items', 'results')) or []
+        rows = _first_list(data, ('inspirations', 'list', 'items', 'results'))
+        if rows is None:
+            self.last_error = '小红书接口未返回灵感列表'
+            return []
         items = []
         for row in rows[:limit]:
             if not isinstance(row, dict):
                 continue
             title = _text(row.get('title'))
             topic_id = _safe_id(row.get('topic_id') or row.get('id'))
-            if not title and not topic_id:
+            if not topic_id:
                 continue
             items.append({
-                'platform': 'xiaohongshu',
-                'title': title,
-                'topic_id': topic_id,
-                'heat_score': _int(row.get('heat_score')),
+                'platform': 'xiaohongshu', 'title': title, 'topic_id': topic_id,
+                'hot_id': _safe_id(row.get('hot_id')),
+                'heat_score': _int(row.get('score', row.get('heat_score'))),
+                'score_text': _text(row.get('score_text')),
                 'view_count': _int(row.get('view_count')),
+                'url': '', 'created_at': '',
+                'deeplink': _text(row.get('deeplink'))[:4000],
+                'link_label': '仅 App 创作入口，无公开原文链接',
             })
+        if rows and not items:
+            self.last_error = '小红书返回内容格式无法解析'
         return self._finalize(items)
 
     # ── 线索转化 ───────────────────────────────────────────────────────────
@@ -738,7 +947,7 @@ class AIsaSource:
         if platform == 'twitter':
             return _safe_id(item.get('tweet_id'))
         if platform == 'douyin':
-            return _safe_id(item.get('word'))
+            return _safe_id(item.get('sentence_id')) or _safe_id(item.get('word'))
         if platform == 'xiaohongshu':
             return _safe_id(item.get('topic_id') or item.get('title'))
         return ''
@@ -753,26 +962,27 @@ class AIsaSource:
             raise ValueError('素材缺少编号，无法转化为线索')
         if platform == 'twitter':
             username = _text(item.get('username'))
-            title = f'【推特技术首提】@{username}: {_clip(item.get("text"), TITLE_CLIP)}'
+            title = f'【推特】@{username}: {_clip(item.get("text"), TITLE_CLIP)}'
             summary = (f'@{username} 于 {_text(item.get("created_at")) or "时间未知"} 发布；'
                        f'点赞 {_int(item.get("likes"))} · 转发 {_int(item.get("retweets"))}；'
-                       f'{_text(item.get("text"))}')
+                       f'{_clip(item.get("text"), 3000)}')
         elif platform == 'douyin':
             word = _text(item.get('word'))
             title = f'【抖音全网热搜】#{word} (热度 {_heat_label(item.get("hot_value"))})'
-            summary = (f'热搜第 {_int(item.get("rank"))} 位；热度 {_int(item.get("hot_value"))}；'
+            summary = (f'排名 {item.get("rank") if item.get("rank") else "未提供（特殊榜项）"}；热度 {_int(item.get("hot_value"))}；'
                        f'标签 {_text(item.get("label")) or "无"}')
         elif platform == 'xiaohongshu':
             title = f'【小红书灵感】{_text(item.get("title"))} (热度 {_int(item.get("heat_score"))})'
             summary = (f'话题 {_text(item.get("topic_id"))}；热度 {_int(item.get("heat_score"))}；'
-                       f'浏览 {_int(item.get("view_count"))}')
+                       f'{_text(item.get("score_text")) or "热度文案未提供"}；'
+                       f'{_text(item.get("link_label"))}')
         else:
             raise ValueError('未知平台，无法转化为线索')
         clue = {
             'title': title,
             'summary': summary,
             'categories': ['topics'],
-            'heat': 'rising',
+            'heat': '',
             'producer_key': f'aisa:{platform}:{item_id}',
             'provenance': provenance('aisa', platform, item_id),
         }
@@ -781,9 +991,10 @@ class AIsaSource:
     # ── 状态 ───────────────────────────────────────────────────────────────
     def status(self):
         """状态出口也走统一脱敏；缓存读失败已在 count/last_synced 内部降级。"""
+        detail = (self.config_error or 'AIsa 雷达网关就绪') if self.api_key else '未配置 AISA_API_KEY 环境变量'
         return self._scrub({
-            'available': bool(self.api_key),
-            'detail': 'AIsa 雷达网关就绪' if self.api_key else '未配置 AISA_API_KEY 环境变量',
+            'available': bool(self.api_key) and not self.config_error,
+            'detail': detail,
             'last_synced': self.last_synced(),
             'count': self.count(),
             'cache_error': self.cache_error,

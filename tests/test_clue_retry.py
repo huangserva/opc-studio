@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -155,6 +156,78 @@ class ClueRetryTests(unittest.TestCase):
 
     def test_new_run_does_not_reset_first_failed_at(self):
         self.test_second_failure_waits_60_minutes()
+
+    # ── R13：retry_queue 先做轻量过期收口 ────────────────────────────────
+
+    def traced_db(self):
+        statements = []
+        original = self.pipeline.db
+        @contextmanager
+        def db():
+            with original() as connection:
+                connection.set_trace_callback(statements.append)
+                yield connection
+        return patch.object(self.pipeline, 'db', db), statements
+
+    def test_retry_queue_settles_the_expired_window_before_reporting(self):
+        doc = self.add('r-queue-expire', '合成重试')
+        with module_time(_clue_source, time=lambda: 1000):
+            key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '失败', [])
+        with module_time(_clue_source, time=lambda: 87400):
+            entry = self.pipeline.retry_queue('synthetic')[0]
+        self.assertEqual((entry['state'], entry['next_retry_at']), ('needs_review', None))
+        self.assertEqual((self.retry_row(key)['state'], self.retry_row(key)['next_retry_at']), ('needs_review', None))
+        self.assertFalse(self.seen(doc))
+
+    def test_retry_queue_keeps_an_unexpired_batch_waiting_and_write_free(self):
+        doc = self.add('r-queue-wait', '合成重试')
+        with module_time(_clue_source, time=lambda: 1000):
+            self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '失败', [])
+        traced, statements = self.traced_db()
+        with traced, module_time(_clue_source, time=lambda: 2000):
+            entry = self.pipeline.retry_queue('synthetic')[0]
+        self.assertEqual((entry['state'], entry['next_retry_at']), ('waiting', datetime.fromtimestamp(2800, timezone.utc).isoformat()))
+        self.assertFalse(any('BEGIN IMMEDIATE' in s.upper() for s in statements), statements)
+
+    # ── R13-b：在途读队列 + 明确未发送 → 下一轮仍可重试 ──────────────────
+
+    def test_inflight_queue_read_then_not_sent_keeps_the_batch_retryable(self):
+        doc = self.add('r-inflight', '合成在途资料')
+        with module_time(_clue_source, time=lambda: 1000):
+            key = self.pipeline.defer_batch([doc], 'synthetic', 'a'*32, '合成失败', [])
+        with self.pipeline.db() as db:
+            db.execute('INSERT INTO recovery_grants VALUES(?,?,?,?,NULL,NULL)', (key, 'inflight-epoch', 90000, 110000))
+            db.execute('UPDATE failed_batches SET next_retry_at=90000 WHERE id=?', (key,))
+            db.execute('UPDATE retry_documents SET next_retry_at=90000 WHERE batch_id=?', (key,))
+        entered = threading.Event(); release = threading.Event()
+        class NotSent(ValueError): failure_kind = 'not_sent'
+        def model(identity, prompt, *args):
+            receipt = self.pipeline.root/'analysis-pi'/identity/'execution-receipt.json'
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text(json.dumps({'sent': False}))
+            entered.set(); self.assertTrue(release.wait(5), '合成执行器未被放行')
+            raise NotSent('合成未发送')
+        self.pipeline.call_pi = model
+        results = []; errors = []
+        def run():
+            try: results.append(self.run_analysis('b', incremental=True, deadline=300))
+            except Exception as exc: errors.append(exc)
+        with module_time(_clue_source, time=lambda: 100000, monotonic=lambda: 0):
+            worker = threading.Thread(target=run); worker.start()
+            self.assertTrue(entered.wait(5), '模型未进入调用')
+            self.assertTrue(self.pipeline.lock.locked())
+            during = self.pipeline.retry_queue('synthetic')
+            release.set(); worker.join(10)
+            self.assertFalse(worker.is_alive()); self.assertEqual(errors, [])
+            self.assertEqual([entry['state'] for entry in during], ['waiting'])
+            row = self.retry_row(key)
+            self.assertEqual((row['state'], row['next_retry_at'], row['attempts']), ('waiting', 90000, 1))
+            with self.pipeline.db() as db:
+                self.assertEqual(tuple(db.execute('SELECT claimed_at,claimed_run_id FROM recovery_grants WHERE batch_id=?', (key,)).fetchone()), (None, None))
+            self.assertEqual(len(self.pipeline.pending(ready_only=True, model='synthetic', run_id='c'*32)), 1)
+            self.model(self.response)
+            status, data = self.run_analysis('c', incremental=True, deadline=300)
+        self.assertEqual((status, data['processed']), ('succeeded', 1))
 
     def test_same_run_does_not_consume_batch_twice(self):
         doc = self.add('r-same', '合成重试')

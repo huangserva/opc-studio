@@ -26,32 +26,63 @@ const CLIP_TOLERANCE = 2;             // px，容掉亚像素误差
 const TOPIC_LIMIT = 60;
 const ANGLE_LABEL = '可写角度：';
 // 成对符号：切「可写角度」时不能从引号/括号中间下刀。
-// 单引号 ‘’ 也算引号，但只算独立成对的：it’s、don’t 里夹在字母中间的 ’ 是撇号，当普通字符看，不参与配对判定。
+// 单引号 ‘’ 也算引号，但只算真配成对的：it’s、don’t 里夹在字母中间的 ’、’em、’90s 这种词首省略撇号都是撇号，当普通字符看，不参与配对判定。
 const PAIR_OPEN = new Set(['「', '『', '《', '〈', '（', '(', '【', '〔', '［', '[', '“', '‘']);
 const PAIR_CLOSE = new Set(['」', '』', '》', '〉', '）', ')', '】', '〕', '］', ']', '”', '’']);
 // 闭符号该配哪个开符号；英文直引号 “ 与 ” 之外还有同一个字符既开又闭的 "，靠栈里那个 " 配成对。
 const PAIR_MATE = { '」': '「', '』': '『', '》': '《', '〉': '〈', '）': '（', ')': '(', '】': '【', '〕': '〔', '］': '［', ']': '[', '”': '“', '’': '‘', '"': '"' };
+// 弯引号分方向：只有左引号能开区间，只有右引号能闭区间，落单的右引号不会反过来当开引号用。
+// 所以 ’em 后面紧跟真开引号（把 ’em 写进‘标题’的海报）也不会把那个 ’ 错配成一对。
+const QUOTE_LEFT = new Set(['‘', '“']);
+const QUOTE_RIGHT = new Set(['’', '”']);
+const SINGLE_QUOTE = new Set(['‘', '’']);   // 只有单弯引号会当撇号用；“ ” 永远按引号算（“a’b” 里的 ” 不能被当成撇号）
+// 收尾降格（‘90s 一路没闭引号就当省略撇号）只认单弯左引号。双弯 “ 永远按引号算：
+// 落单就留在 unmatched，不能被降格成撇号——否则 “90s 这种未闭合双引号会被误判成已配平。
+const ELISION_LEFT = new Set(['‘']);
+const isQuoteGlyph = ch => QUOTE_LEFT.has(ch) || QUOTE_RIGHT.has(ch);
 // 后端用句号把四块分析拼在一起，所以只有顶层句号才是「可写角度」这块的结尾；引号/括号里的句号是条目内部。
 const SENTENCE_STOP = new Set(['。', '！', '？', '\n', '\r']);
 const ENTRY_STOP = new Set(['、']);
 const DANGLE_TAIL = /[的用和与而把在及或]$/;
 const WORD_CHAR = /[A-Za-z0-9]/;
-// 词中的撇号：’ 或 ‘ 两边紧贴英文字母/数字（it’s、don’t、rock’n’roll），不是引号。
-function isApostrophe(text, i) {
-  const ch = text[i];
-  if (ch !== '’' && ch !== '‘') return false;
+const DIGIT_CHAR = /[0-9]/;
+const LOWER_CHAR = /[a-z]/;
+const ABBREV_BODY = /^[a-z]{1,3}$/;      // ’n’、’em’、’til：两个撇号之间只夹一到三个小写字母
+// 词首省略撇号后面除了数字只认这张固定名单（’em、’til、’cause…），不按「短字母串」放行，免得把 ‘poster’ 这种真引号当成省略撇号。
+const ELISION_WORDS = new Set(['em', 'til', 'cause', 'cos', 'round', 'bout', 'neath', 'n']);
+// 词中的撇号：’ 或 ‘ 两边紧贴英文字母/数字（it’s、don’t、rock’n’roll）。只看左右一个字符，不往后扫。
+function isInnerApostrophe(text, i) {
   return WORD_CHAR.test(text.charAt(i - 1)) && WORD_CHAR.test(text.charAt(i + 1));
 }
-// 这个位置是不是参与配对判定的引号/括号符号；词中撇号返回 false，按普通字符处理。
-function isPairMark(text, i) {
-  const ch = text[i];
-  if (ch === '"') return true;
-  if (!PAIR_OPEN.has(ch) && !PAIR_CLOSE.has(ch)) return false;
-  return !isApostrophe(text, i);
+// 省略体的结束位置：数字开头（90s）或名单里的省略词（em、til、cause）。不是这两种形状返回 -1。
+function elisionBodyEnd(text, i) {
+  let end = i + 1;
+  while (end < text.length && DIGIT_CHAR.test(text.charAt(end))) end++;
+  if (end > i + 1) { while (end < text.length && LOWER_CHAR.test(text.charAt(end))) end++; return end; }   // ‘90s 的 s 也算在这个词里
+  let probe = i + 1;
+  while (probe < text.length && LOWER_CHAR.test(text.charAt(probe))) probe++;
+  return ELISION_WORDS.has(text.slice(i + 1, probe)) ? probe : -1;
 }
-// 这个位置是不是没收口的落单闭符号。
-function isLoneClose(text, i, kind) {
-  return kind[i] === 0 && isPairMark(text, i) && (PAIR_CLOSE.has(text[i]) || text[i] === '"');
+// 词首省略撇号：’em、’90s、rock ’n’ roll 左边那个 ’。前面不接字母/数字，后面紧跟数字或名单里的省略词。
+function isLeadingElision(text, i) {
+  return !WORD_CHAR.test(text.charAt(i - 1)) && elisionBodyEnd(text, i) >= 0;
+}
+// 空格缩略语右边那个撇号：rock ’n’ roll、rock ’em out。左边那个在扫描里已经定性成撇号了，
+// 这里只往回看 1~3 个小写字母确认是同一个缩略语，不递归、也不重扫后缀。
+function closesAbbreviation(text, i, apostropheAt) {
+  if (WORD_CHAR.test(text.charAt(i + 1))) return false;
+  let start = i - 1;
+  while (start >= 0 && LOWER_CHAR.test(text[start]) && i - start <= 3) start--;
+  const body = text.slice(start + 1, i);
+  return ABBREV_BODY.test(body) && apostropheAt[start] === true && !WORD_CHAR.test(text.charAt(start - 1));
+}
+// 本地形状就能定性的撇号：词中撇号、右半边词首省略撇号、空格缩略语的后半个撇号。
+// 词首的左引号（‘90s）不在这里判——它到底是省略撇号还是开引号，得看后面有没有闭引号，交给 pairScan 收尾时定性。
+function isApostrophe(text, i, apostropheAt) {
+  const ch = text[i];
+  if (!SINGLE_QUOTE.has(ch)) return false;
+  if (isInnerApostrophe(text, i)) return true;
+  return QUOTE_RIGHT.has(ch) && (isLeadingElision(text, i) || closesAbbreviation(text, i, apostropheAt || []));
 }
 let items = [], status = '', query = '', kind = '', view = 'source', counts = {}, pending = 0, busy = false;
 
@@ -115,23 +146,39 @@ function shortDate(value) {
   const when = new Date(value);
   return Number.isNaN(when.getTime()) ? '' : when.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', timeZone: 'Asia/Shanghai' });
 }
-// 每个位置「在不在成对符号内部」。只有真配成对的引号/括号才算内部：落单的半个引号既不保护后面的句号，
-// 也不算另一段的结尾。kind: +1 配对的开符号 / -1 配对的闭符号 / 0 普通字符或落单的半个；unmatched 是没收口的开符号。
+// 每个位置「在不在成对符号内部」。一次从左到右的线性扫描：栈里只放还没配上的开符号位置，配成就把两边记 kind。
+// 全程只走一遍字符：不递归、不回头重扫同一段后缀，也没有扫描长度上限。落单的半个引号既不保护后面的句号，
+// 也不算另一段的结尾。kind: +1 配对的开符号 / -1 配对的闭符号 / 0 普通字符或撇号；mate 是配对另一半的位置；
+// unmatched 是没收口的开符号；lone 是没收口的闭符号；apostropheAt 标出按撇号处理的位。
 function pairScan(text) {
-  const kind = new Array(text.length).fill(0), stack = [];
+  const kind = new Array(text.length).fill(0), mate = new Array(text.length).fill(-1);
+  const apostropheAt = new Array(text.length).fill(false), stack = [], lone = [];
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (!isPairMark(text, i)) continue;                            // 普通字符，或 it’s 里的撇号
+    if (isQuoteGlyph(ch)) {
+      if (isApostrophe(text, i, apostropheAt)) { apostropheAt[i] = true; continue; }   // 词中撇号、词首省略撇号、缩略语：普通字符
+      if (QUOTE_LEFT.has(ch)) { stack.push(i); continue; }                             // 左引号只能开区间，能不能配上收尾再定
+    } else if (!PAIR_OPEN.has(ch) && !PAIR_CLOSE.has(ch) && ch !== '"') {
+      continue;                                                                        // 普通字符
+    }
     if (PAIR_CLOSE.has(ch) || ch === '"') {
       const open = stack.length ? stack[stack.length - 1] : -1;
-      if (open >= 0 && PAIR_MATE[ch] === text[open]) { kind[open] = 1; kind[i] = -1; stack.pop(); continue; }
-      if (ch !== '"') continue;
+      if (open >= 0 && PAIR_MATE[ch] === text[open]) { kind[open] = 1; kind[i] = -1; mate[open] = i; mate[i] = open; stack.pop(); continue; }
+      if (ch !== '"') { lone.push(i); continue; }                                       // 配不上的右引号/闭括号：落单闭符号
     }
-    if (PAIR_OPEN.has(ch) || ch === '"') stack.push(i);
+    stack.push(i);
+  }
+  // 收尾：栈里剩下的是没配上的开符号。只有单弯左引号在省略撇号形状（‘90s、‘em）时才降成普通字符——
+  // 一路走到头都没有闭引号，它就不是引号。双弯 “ 永远按引号算，落单就留在 unmatched。
+  // ‘先留白 这种不是省略形状的仍是落单开引号，由上层在它之前收刀。
+  const unmatched = [];
+  for (const i of stack) {
+    if (ELISION_LEFT.has(text[i]) && elisionBodyEnd(text, i) >= 0) apostropheAt[i] = true;
+    else unmatched.push(i);
   }
   const depth = new Array(text.length + 1).fill(0);
   for (let i = 0; i < text.length; i++) depth[i + 1] = depth[i] + kind[i];
-  return { kind, depth, unmatched: stack };
+  return { kind, depth, unmatched, mate, lone, apostropheAt };
 }
 // 从 from 起取到下一个顶层终止符之前。句号、顿号都走这一套层级判定：成对符号内部的不算分隔。
 function topLevelSlice(text, from, stopAt) {
@@ -149,24 +196,17 @@ function topLevelSlice(text, from, stopAt) {
 function firstAngleEntry(text) {
   return topLevelSlice(String(text || ''), 0, ENTRY_STOP).trim();
 }
-// 最后一个没配对的开括号位置；从它之前收刀，就不会切出「绿三角这种半句。
-function unpairedOpenIndex(text) {
-  const { unmatched } = pairScan(text);
-  return unmatched.length ? unmatched[unmatched.length - 1] : -1;
-}
 // 引号/括号是不是都配上了（落单的半个开或闭都算没配上）。
 function pairsBalanced(text) {
-  const { kind, unmatched } = pairScan(text);
-  if (unmatched.length) return false;
-  for (let i = 0; i < text.length; i++) if (isLoneClose(text, i, kind)) return false;
-  return true;
+  const { unmatched, lone } = pairScan(text);
+  return !unmatched.length && !lone.length;
 }
 // 从第一个落单的引号/括号之前收刀，宁可少要一段，也不留半个引号。
 function dropUnpaired(text) {
-  const { kind, unmatched } = pairScan(text);
+  const { unmatched, lone } = pairScan(text);
   let cut = text.length;
   for (const i of unmatched) cut = Math.min(cut, i);
-  for (let i = 0; i < text.length; i++) if (isLoneClose(text, i, kind)) cut = Math.min(cut, i);
+  for (const i of lone) cut = Math.min(cut, i);
   return text.slice(0, cut);
 }
 // 顶层（引号/括号外）最后一个分句边界。
@@ -188,14 +228,24 @@ function trimDangle(text) {
   const clause = lastTopLevelClause(text);
   return trimPunct(clause > 0 ? text.slice(0, clause) : text.slice(0, -1));
 }
+// 超长截断的收刀点：刀口不能落在成对引号中间。配对关系按整条 entry 算，不看截完的半句——
+// 否则 ‘90s 怀旧…怀旧。再构图’ 这种长引号会因为另一半落在刀口外而被降成撇号，留下半边引号。
+// 落单的半个开引号、配对另一半在刀口外的引号，都从最靠后那个之前整段收刀。
+function clipCutIndex(text, limit) {
+  const { kind, mate, unmatched } = pairScan(text);
+  const cut = Math.min(text.length, limit);
+  let broken = -1;
+  for (const i of unmatched) if (i < cut) broken = Math.max(broken, i);
+  for (let i = 0; i < cut; i++) if (kind[i] === 1 && mate[i] >= cut) broken = Math.max(broken, i);
+  return broken >= 0 ? broken : cut;
+}
 function clipTopic(entry) {
   if (entry.length <= TOPIC_LIMIT) return entry;
-  let cut = entry.slice(0, TOPIC_LIMIT);
-  const open = unpairedOpenIndex(cut);
-  if (open >= 0) cut = cut.slice(0, open);          // 引号/括号装不下就整段去掉，不从中间切
+  let cut = entry.slice(0, clipCutIndex(entry, TOPIC_LIMIT));
   const clause = lastTopLevelClause(cut);
   if (clause >= Math.ceil(cut.length * 0.5)) cut = cut.slice(0, clause);   // 宁可退到上一个分句，也不留「……用」这种尾巴
   cut = trimPunct(cut);
+  if (!pairsBalanced(cut)) return '';                // 兜底：宁可退回类型加收下日期，也不留半边引号
   return cut ? cut + '…' : '';
 }
 function analysisTopic(line) {

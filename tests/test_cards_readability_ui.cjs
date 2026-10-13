@@ -456,6 +456,213 @@ test('落单的单引号：开引号退回类型加收下日期，闭引号只�
   assert.equal(d2.querySelector('.cd-group-head h2').textContent, '先留白', '只去掉落单的半个引号，不从它后面全丢：' + close);
 });
 
+// ---------------- R03 第三版：一次线性扫描定配对（smallfix-cards-metrics-c）
+
+// 直接跑 public/cards.js 里的真实函数，不经过 DOM，方便逐位检查扫描结果与计时。
+function cardsFns() {
+  const src = fs.readFileSync('public/cards.js', 'utf8');
+  const start = src.indexOf('const FILE_EXT ='), end = src.indexOf('function groupTitle(');
+  assert.ok(start >= 0 && end > start, 'cards.js 的函数区间变了，测试要跟着改');
+  return new Function(src.slice(start, end) + '\nreturn { isApostrophe, pairScan, pairsBalanced, dropUnpaired, analysisTopic, clipTopic };')();
+}
+
+// 扫描逐位标记：P 按撇号处理 / < 配对的开引号 / > 配对的闭引号 / X 落单的开或闭 / . 普通字符
+function scanMarks(pairScan, text) {
+  const { kind, unmatched, lone, apostropheAt } = pairScan(text);
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    out += apostropheAt[i] ? 'P' : kind[i] === 1 ? '<' : kind[i] === -1 ? '>'
+      : (unmatched.includes(i) || lone.includes(i)) ? 'X' : '.';
+  }
+  return out;
+}
+
+test('一次线性扫描的逐位判定：撇号、成对引号、落单符号各归各位', async t => {
+  const { pairScan, pairsBalanced, analysisTopic } = cardsFns();
+  const cases = [
+    ['rock ’n’ roll', '.....P.P.....'],                 // 空格缩略语两个撇号都不参与配对
+    ['it’s、don’t', '..P.....P.'],                    // 词中撇号
+    ['rock’n’roll', '....P.P....'],                    // 紧挨字母的撇号
+    ['‘90s 的翻红复刻', 'P.........'],                 // 后面没有闭引号 → 词首省略撇号
+    ['‘90s。再构图’的海报', '<.......>...'],       // 后面有闭引号 → 真开引号，句号在引号内
+    ['把 ’em 写进‘标题’的海报', '..P.....<..>...'],  // 词首撇号与真引号同现：那个 ’ 不参与闭合
+    ['’90s 搭配‘标题’的海报', 'P......<..>...'],
+    ['‘90s 里的‘怀旧’。再构图’的海报', '<......<..>....>...'],   // 嵌套：两层各自配对
+    ['先留白’。再构图的海报', '...X.......'],         // 落单闭引号仍算落单
+    ['‘先留白', 'X...'],                            // 不是省略形状的落单开引号
+    ['“a’b”c', '<.P.>.'],                          // “ ” 永远按引号算，只有 ’ 能当撇号
+    ['“先留白”', '<...>'],                        // 双弯引号照常配对
+    ['「先留白」', '<...>'],                        // 直角括号照常配对
+    ['‘ok。先留白’', '<......>'],                  // 名单外小写词开头的真引号也照常配对
+    ['把 ’em 当默认', '..P......'],
+    ['’90s’ 复古', 'P...X...'],                   // 词首撇号保留，落单的闭引号单独记出来
+    ['“90s。再构图的海报', 'X..........'],          // 未闭合双弯引号不降格成撇号，留 unmatched
+    ['“90s 搭配‘标题’。再构图的海报', 'X......<..>.......'],   // 双弯未闭合、里面的单引号照常配对
+    ['前缀“90s。再构图的海报', '..X..........'],
+    ['“90s。再构图”的海报', '<.......>...'],       // 成对的双弯引号照常配对
+  ];
+  for (const [text, want] of cases) assert.equal(scanMarks(pairScan, text), want, '扫描逐位判定错了：' + text);
+  assert.equal(pairsBalanced('rock ’n’ roll 的海报'), true);
+  assert.equal(pairsBalanced('‘90s 的翻红复刻'), true);
+  assert.equal(pairsBalanced('把 ’em 写进‘标题’的海报'), true);
+  assert.equal(pairsBalanced('‘先留白'), false);
+  assert.equal(pairsBalanced('先留白’'), false);
+  assert.equal(pairsBalanced('“90s。再构图的海报'), false);   // 落单的双弯引号必须报未配平
+  assert.equal(pairsBalanced('“90s。再构图”的海报'), true);
+  assert.equal(analysisTopic('可写角度：‘90s 的翻红复刻、备用角度。'), '‘90s 的翻红复刻');
+  assert.equal(analysisTopic('可写角度：rock ’n’ roll 的海报、备用角度。'), 'rock ’n’ roll 的海报');
+});
+
+test('词首省略撇号与空格缩略语不当引号：整条角度照常取', async t => {
+  // 旧码把 ‘90s 当成没封口的开引号（标题空掉），把 rock ’n’ roll 截成 rock。
+  const cases = [
+    ['‘90s 的翻红复刻', '可写角度：‘90s 的翻红复刻、备用角度。'],
+    ['’90s 的翻红复刻', '可写角度：’90s 的翻红复刻、备用角度。'],
+    ['rock ’n’ roll 的海报', '可写角度：rock ’n’ roll 的海报、备用角度。'],
+    ['rock ’em out 的排版', '可写角度：rock ’em out 的排版、备用角度。'],
+    ['把 ’til 结尾的短句写进主标', '可写角度：把 ’til 结尾的短句写进主标、备用角度。'],
+    ['‘90s 复古滤镜 配 冷调底色', '可写角度：‘90s 复古滤镜 配 冷调底色、备用角度。'],
+    ['把 ’em 当默认风格 don’t 收尾', '可写角度：把 ’em 当默认风格 don’t 收尾、备用角度。'],
+  ];
+  for (const [want, line] of cases) {
+    const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+    const title = d.querySelector('.cd-group-head h2').textContent;
+    assert.equal(title, want, '词首省略撇号/空格缩略语不是引号，不能因此丢掉整条角度：' + line);
+    assert.equal(d.querySelector('.cd-group-summary .cd-group-line').textContent, line, '原分析一个字没改');
+  }
+});
+
+test('省略撇号不误伤真引号：数字与名单外的小写词仍按成对引号算', async t => {
+  const cases = [
+    ['‘90s’ 复古滤镜', '可写角度：‘90s’ 复古滤镜、备用角度。'],
+    ['‘em’ 那个词怎么排版', '可写角度：‘em’ 那个词怎么排版、备用角度。'],
+    ['‘ok。先留白’的检查表', '可写角度：‘ok。先留白’的检查表、备用角度。'],
+    ['‘poster’ 这个词怎么排', '可写角度：‘poster’ 这个词怎么排、备用角度。'],
+    ['‘90s 复古 don’t 收尾的海报', '可写角度：‘90s 复古 don’t 收尾的海报、备用角度。'],
+  ];
+  for (const [want, line] of cases) {
+    const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+    const title = d.querySelector('.cd-group-head h2').textContent;
+    assert.equal(title, want, '成对引号里的句号/空格不能被当成省略撇号：' + line);
+    assert.equal((title.match(/‘/g) || []).length, (title.match(/’/g) || []).length, '单引号不能不成对：' + title);
+  }
+});
+
+test('复核反例：数字或省略词开头的真正成对引号，标题必须完整', async t => {
+  // 第一轮复核 M1 的六例：词首形状和省略撇号一样，但后面有能配上的闭引号，是真引号，不能截断。
+  const cases = [
+    ['‘90s。再构图’的海报', '可写角度：‘90s。再构图’的海报、备用角度。'],
+    ['‘90s 的复古。再构图’的海报', '可写角度：‘90s 的复古。再构图’的海报、备用角度。'],
+    ['‘em。再构图’的海报', '可写角度：‘em。再构图’的海报、备用角度。'],
+    ['‘cause and effect。关系图’的海报', '可写角度：‘cause and effect。关系图’的海报、备用角度。'],
+    ['‘90s、复古’的海报', '可写角度：‘90s、复古’的海报、备用角度。'],
+    ['‘90s；复古’的海报', '可写角度：‘90s；复古’的海报、备用角度。'],
+    ['‘90s 里的‘怀旧’。再构图’的海报', '可写角度：‘90s 里的‘怀旧’。再构图’的海报、备用角度。'],   // 返修 b 新增的嵌套例
+  ];
+  for (const [want, line] of cases) {
+    const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+    const title = d.querySelector('.cd-group-head h2').textContent;
+    assert.equal(title, want, '成对引号里的句号、顿号、分号都不是分隔：' + line);
+    assert.equal((title.match(/‘/g) || []).length, (title.match(/’/g) || []).length, '单引号不能不成对：' + title);
+    assert.equal(d.querySelector('.cd-group-summary .cd-group-line').textContent, line, '原分析一个字没改');
+  }
+});
+
+test('返修 c 反例：词首撇号与真引号同现时不能错配，标题必须完整', async t => {
+  // 本次复核 M1：’em、’til、’90s 这种词首撇号后面紧跟真正的开引号，不能被错配成一对。
+  const cases = [
+    ['把 ’em 写进‘标题’的海报', '把'],
+    ['把 ’til 搭配‘标题’的海报', '把'],
+    ['’90s 搭配‘标题’的海报', ''],
+    ['把 ’em 写进‘poster’的海报', '把'],
+    ['把 ’em 搭配‘90s。复古’的海报', '把'],
+  ];
+  for (const [angle, wrongOnB] of cases) {
+    const line = '可写角度：' + angle + '、备用角度。';
+    const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+    const title = d.querySelector('.cd-group-head h2').textContent;
+    assert.equal(title, angle, '词首撇号不参与闭合，整条角度要完整保留：' + line);
+    assert.notEqual(title, wrongOnB, '不能退回返修 b 的错配结果：' + line);
+    assert.equal(d.querySelector('.cd-group-summary .cd-group-line').textContent, line, '原分析一个字没改');
+  }
+});
+
+test('返修 d 反例：未闭合的双弯引号永远按引号算，不降格成撇号', async t => {
+  // 本次复核 M1：数字或名单词开头的未闭合双引号被当成省略撇号，标题留下半边 “90s。
+  // 基座对这几例都退到下一个标题层级，修后必须一致。
+  const cases = [
+    ['“90s。再构图的海报', '图片 · 10/10 收下'],
+    ['“2026 年留白。再构图的海报', '图片 · 10/10 收下'],
+    ['“em。再构图的海报', '图片 · 10/10 收下'],
+    ['“90s 搭配‘标题’。再构图的海报', '图片 · 10/10 收下'],
+    ['前缀“90s。再构图的海报', '前缀'],
+    ['“先留白。再构图的海报', '图片 · 10/10 收下'],
+  ];
+  for (const [angle, want] of cases) {
+    const line = '可写角度：' + angle + '、备用角度。';
+    const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+    const title = d.querySelector('.cd-group-head h2').textContent;
+    assert.equal(title, want, '未闭合双引号不能被降格成撇号：' + line);
+    assert.ok(!title.includes('“') && !title.includes('”'), '组标题里不能留半边双引号：' + title);
+    assert.equal(d.querySelector('.cd-group-summary .cd-group-line').textContent, line, '原分析一个字没改');
+  }
+  // 复核的超长未闭合双引号：712 字符，也不能给 “90s 怀旧… 这种半边双引号。
+  const longDouble = '“90s ' + '怀旧'.repeat(350) + '。再构图的海报';
+  assert.equal(longDouble.length, 712, '探针长度变了要重算：' + longDouble.length);
+  const { d: d2 } = await fixture(t, { items: [card({ analysis_line: '可写角度：' + longDouble + '、备用。' })] });
+  const title2 = d2.querySelector('.cd-group-head h2').textContent;
+  assert.ok(!title2.includes('“') && !title2.includes('”'), '超长未闭合双引号不能留半边引号：' + title2.slice(0, 80));
+  assert.equal(title2, '图片 · 10/10 收下', '装不下就退回下一个标题层级：' + title2.slice(0, 80));
+  // 成对的双弯引号照常完整保留。
+  const paired = '可写角度：“90s。再构图”的海报、备用角度。';
+  const { d: d3 } = await fixture(t, { items: [card({ analysis_line: paired })] });
+  assert.equal(d3.querySelector('.cd-group-head h2').textContent, '“90s。再构图”的海报', '成对的双弯引号仍要完整保留');
+});
+
+test('落单引号原有行为不回退：开引号退回类型加收下日期，闭引号只丢那个符号', async t => {
+  for (const line of ['可写角度：‘先留白。再构图的海报、备用角度。', '可写角度：「先留白。再构图的海报、备用角度。']) {
+    const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+    const title = d.querySelector('.cd-group-head h2').textContent;
+    assert.equal(title, '图片 · 10/10 收下', '不是省略形状的落单开引号仍退回下一个标题层级：' + line);
+    assert.ok(!title.includes('‘') && !title.includes('「'), '组标题里不能留半个引号：' + title);
+  }
+  const { d } = await fixture(t, { items: [card({ analysis_line: '可写角度：先留白’。再构图的海报。' })] });
+  assert.equal(d.querySelector('.cd-group-head h2').textContent, '先留白', '落单闭引号只丢那个符号：先留白’。再构图的海报。');
+});
+
+test('超长角度里的长引号装不下：整段去掉或退回下一层，不留半边引号', async t => {
+  // 复核 L1 探针：722 字符，闭引号落在 600 字符以外，也不给 ‘90s 怀旧… 这种半边引号。
+  const angle = '‘90s ' + '怀旧'.repeat(350) + '。再构图’的海报';
+  const line = '可写角度：' + angle + '、备用。';
+  assert.equal(line.length, 722, '探针长度变了要重算：' + line.length);
+  const { d } = await fixture(t, { items: [card({ analysis_line: line })] });
+  const title = d.querySelector('.cd-group-head h2').textContent;
+  assert.equal((title.match(/‘/g) || []).length, (title.match(/’/g) || []).length, '组标题不能留半边引号：' + title.slice(0, 80));
+  assert.equal(title, '图片 · 10/10 收下', '引号段整段装不下就退回下一个标题层级：' + title.slice(0, 80));
+  assert.equal(d.querySelector('.cd-group-summary .cd-group-line').textContent, line, '原分析一个字没改');
+  // 引号段前面还有分句可留时，从引号前收刀，不留半边引号。
+  const line2 = '可写角度：' + '怀旧'.repeat(20) + '，‘90s ' + '怀旧'.repeat(30) + '。再构图’的海报、备用。';
+  const { d: d2 } = await fixture(t, { items: [card({ analysis_line: line2 })] });
+  const title2 = d2.querySelector('.cd-group-head h2').textContent;
+  assert.ok(title2.endsWith('…'), '超长仍要截断加省略号：' + title2);
+  assert.equal((title2.match(/‘/g) || []).length, (title2.match(/’/g) || []).length, '截断后不能留半边引号：' + title2);
+});
+
+test('性能：多个词首省略撇号不反复重扫，n=2000 也在线性时间内返回', async t => {
+  // 本次复核 M2：返修 b 在 135 字符上 3 秒不返回、10015 字符直接栈溢出。
+  // 实测新版 n=2000 约 7ms；阈值放到 250ms（目标 50ms 的 5 倍）避免机器偶发。
+  const { analysisTopic } = cardsFns();
+  for (const n of [24, 200, 2000]) {
+    const line = '可写角度：' + '‘90s '.repeat(n) + '复古海报、备用角度。';
+    const started = process.hrtime.bigint();
+    const topic = analysisTopic(line);
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    assert.ok(topic.length > 0, 'n=' + n + ' 不能拿不到角度');
+    assert.ok(topic.length <= 61, 'n=' + n + ' 标题仍要截到 60 字加省略号：' + topic.length);
+    assert.ok(ms < 250, '线性扫描不该随省略撇号个数爆炸：n=' + n + '（' + line.length + ' 字符）实测 ' + ms.toFixed(1) + 'ms');
+  }
+});
+
 test('证据编号、原文摘录与指纹在收起摘要后仍然看得到', async t => {
   const { d } = await fixture(t);
   const ref = d.querySelector('.cd-ref');

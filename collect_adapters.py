@@ -9,6 +9,12 @@
 读状态不调用它们的抓取入口，也不新建定时任务。
 """
 import json
+import os
+import fcntl
+import sqlite3
+import threading
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from collect_core import Adapter, PlannedAdapter, provenance
@@ -285,7 +291,7 @@ class ClueSourceAdapter(Adapter):
 
 
 class AIsaRadarAdapter(Adapter):
-    """全网情报雷达（AIsa）。取数委托给独立的 aisa_source 模块，这里只看状态。"""
+    """全网情报雷达（AIsa）。手动触发由独立模块取数，幂等回执/工作区文件锁保护计费。"""
 
     platform = 'aisa'
     label = '全网情报雷达 (AIsa)'
@@ -294,6 +300,192 @@ class AIsaRadarAdapter(Adapter):
 
     def __init__(self, source):
         self.source = source
+
+    def _job_db(self):
+        store = self.source.store
+        if store is None or not getattr(store, 'workspace', None):
+            raise ValueError('AIsa 采集未配置工作区')
+        root = Path(store.workspace) / 'aisa'
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        root.chmod(0o700)
+        path = root / 'manual-jobs.db'
+        db = sqlite3.connect(path, timeout=3)
+        db.row_factory = sqlite3.Row
+        db.execute('CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, config TEXT NOT NULL, data TEXT NOT NULL)')
+        db.execute("CREATE INDEX IF NOT EXISTS jobs_state ON jobs(json_extract(data,'$.status'))")
+        db.commit()
+        path.chmod(0o600)
+        return db
+
+    @staticmethod
+    def _config(payload):
+        if not isinstance(payload, dict) or set(payload) - {'platform', 'handles', 'limit', 'request_id'}:
+            raise ValueError('AIsa 采集参数无效')
+        platform = payload.get('platform')
+        handles = payload.get('handles', [])
+        limit = payload.get('limit', 20)
+        identity = payload.get('request_id')
+        if platform not in ('twitter', 'douyin', 'xiaohongshu'):
+            raise ValueError('请选择推特、抖音或小红书')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('条数须为 1–100 的整数')
+        if not isinstance(identity, str) or not re.fullmatch(r'[a-f0-9]{32}', identity):
+            raise ValueError('本次采集标识无效，请刷新页面')
+        if not isinstance(handles, list) or len(handles) > 5 or any(not isinstance(x, str) for x in handles):
+            raise ValueError('一次最多采集 5 个推特账号')
+        handles = [x.strip().lstrip('@').lower() for x in handles]
+        if any(not re.fullmatch(r'[A-Za-z0-9_]{1,15}', x) for x in handles):
+            raise ValueError('推特账号只能使用字母、数字或下划线，最多15字')
+        handles = list(dict.fromkeys(handles))
+        if platform == 'twitter' and not handles:
+            raise ValueError('请填写至少一个推特账号')
+        if platform != 'twitter' and handles:
+            raise ValueError('此平台不接受推特账号参数')
+        return identity, {'platform': platform, 'handles': handles, 'limit': limit}
+
+    def job(self, identity=''):
+        if identity and (not isinstance(identity, str) or not re.fullmatch(r'[a-f0-9]{32}', identity)):
+            raise ValueError('采集任务编号无效')
+        from contextlib import closing
+        with closing(self._job_db()) as db:
+            row = db.execute('SELECT data FROM jobs WHERE id=?', (identity,)).fetchone() if identity else db.execute('SELECT data FROM jobs ORDER BY rowid DESC LIMIT 1').fetchone()
+        if row is None:
+            if identity:
+                raise ValueError('采集任务不存在')
+            return {'status': 'idle',
+                    'available': bool(self.source.api_key) and not self.source.config_error}
+        job = self.source._scrub(json.loads(row['data']))
+        if job.get('status') in ('queued', 'running'):
+            lockfile = Path(self.source.store.workspace) / 'aisa' / 'manual.lock'
+            fd = os.open(lockfile, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return job
+                # 重新读取，防止旧running快照读完后任务刚刚成功结束。
+                with closing(self._job_db()) as db:
+                    current = db.execute('SELECT data FROM jobs WHERE id=?', (job['job_id'],)).fetchone()
+                job = self.source._scrub(json.loads(current['data']))
+                if job['status'] in ('queued', 'running'):
+                    job.update(status='interrupted', errors=['上次采集已中断，不自动重试'], finished_at=datetime.now(timezone.utc).isoformat())
+                    self._write_job(job)
+            finally:
+                os.close(fd)
+        return job
+
+    def _write_job(self, job):
+        from contextlib import closing
+        with closing(self._job_db()) as db:
+            db.execute('UPDATE jobs SET data=? WHERE id=?',
+                       (json.dumps(self.source._scrub(job), ensure_ascii=False), job['job_id']))
+            db.commit()
+
+    def start(self, payload):
+        identity, config = self._config(payload)
+        material = json.dumps(config, sort_keys=True)
+        if self.source.api_key and self.source.api_key in material:
+            raise ValueError('采集参数不得包含凭证')
+        from contextlib import closing
+        with closing(self._job_db()) as db:
+            row = db.execute('SELECT config,data FROM jobs WHERE id=?', (identity,)).fetchone()
+        if row:
+            if row['config'] != material:
+                raise ValueError('同一次采集标识不能更换参数')
+            return {**self.job(identity), 'reused': True}
+        if self.source.config_error:
+            # 超长凭据（复核 M2）：在启动采集、发第一个请求之前就报清楚的中文配置错误。
+            raise ValueError(self.source.config_error)
+        if not self.source.api_key:
+            raise ValueError('AIsa 尚未配置，请先安全配置环境变量')
+        lockfile = Path(self.source.store.workspace) / 'aisa' / 'manual.lock'
+        fd = os.open(lockfile, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            active = self.job()
+            if active.get('status') in ('queued', 'running'):
+                return {**active, 'reused': True}
+            raise ValueError('已有 AIsa 采集正在启动，请稍后查看') from None
+        handed_off = False
+        try:
+            with closing(self._job_db()) as db:
+                db.execute('BEGIN IMMEDIATE')
+                row = db.execute('SELECT config,data FROM jobs WHERE id=?', (identity,)).fetchone()
+                if row:
+                    if row['config'] != material:
+                        raise ValueError('同一次采集标识不能更换参数')
+                    return {**self.source._scrub(json.loads(row['data'])), 'reused': True}
+                # 只有获得同一工作区文件锁后，才确认上次不存在执行者；不按年龄重发。
+                for old in db.execute("SELECT id,data FROM jobs WHERE json_extract(data,'$.status') IN ('queued','running')").fetchall():
+                    data = json.loads(old['data'])
+                    if data.get('status') in ('queued', 'running'):
+                        data.update(status='interrupted', errors=['上次采集已中断，不自动重试'], finished_at=datetime.now(timezone.utc).isoformat())
+                        db.execute('UPDATE jobs SET data=? WHERE id=?', (json.dumps(self.source._scrub(data), ensure_ascii=False), old['id']))
+                job = {'job_id': identity, **config, 'status': 'queued', 'completed': 0,
+                       'total': len(config['handles']) if config['platform'] == 'twitter' else 1,
+                       'fetched': 0, 'added': 0, 'duplicates': 0, 'updated': 0, 'failed': 0,
+                       'errors': [], 'created_at': datetime.now(timezone.utc).isoformat(),
+                       'finished_at': '', 'reused': False}
+                db.execute('INSERT INTO jobs VALUES(?,?,?)', (identity, material, json.dumps(self.source._scrub(job), ensure_ascii=False)))
+                db.commit()
+            try:
+                worker = threading.Thread(target=self._run_job, args=(job, fd), name='aisa-manual', daemon=True)
+                worker.start()
+                handed_off = True
+            except Exception:
+                job.update(status='error', errors=['采集任务未能启动，请稍后重新发起'])
+                self._write_job(job)
+                raise ValueError('采集任务未能启动，请稍后重新发起') from None
+            return {**self.source._scrub(job), 'reused': False}
+        finally:
+            if not handed_off:
+                os.close(fd)
+
+    def _run_job(self, job, fd):
+        try:
+            job['status'] = 'running'
+            self._write_job(job)
+            sources = job['handles'] if job['platform'] == 'twitter' else ['']
+            for handle in sources:
+                if job['platform'] == 'twitter':
+                    items = self.source.get_twitter_tweets(handle, job['limit'])
+                elif job['platform'] == 'douyin':
+                    items = self.source.fetch_douyin_hot_searches(job['limit'])
+                else:
+                    items = self.source.fetch_xiaohongshu_inspirations(job['limit'])
+                if self.source.last_error and not items:
+                    job['failed'] += 1
+                    message = self.source.last_error
+                    if '404' in message:
+                        message = '采集接口暂不可用（404），请稍后核对'
+                    elif 'URLError' in message or 'Timeout' in message:
+                        message = '采集网络连接失败或超时，请稍后再试'
+                    job['errors'].append(message[:200])
+                job['fetched'] += len(items)
+                for item in items:
+                    try:
+                        result = self.source.store.clues.ingest_aisa(self.source, item)
+                        job['duplicates' if result['duplicate'] else 'added'] += 1
+                        job['updated'] += bool(result.get('updated'))
+                    except Exception:
+                        job['failed'] += 1
+                        job['errors'].append('一条采集结果保存失败，已保留此前成功结果')
+                job['completed'] += 1
+                self._write_job(job)
+                if '429' in self.source.last_error:
+                    break  # 限流不重试，也不继续下一个账号。
+            job['status'] = 'partial' if job['failed'] and (job['added'] + job['duplicates']) else 'error' if job['failed'] else 'done'
+        except Exception:
+            job['status'] = 'partial' if job['added'] + job['duplicates'] else 'error'
+            job['errors'].append('采集任务异常结束，已保留此前成功结果')
+        finally:
+            job['finished_at'] = datetime.now(timezone.utc).isoformat()
+            try:
+                self._write_job(job)
+            finally:
+                os.close(fd)
 
     def sources(self):
         """AIsa 是单 Key 网关，没有可枚举的订阅源。"""
@@ -318,6 +510,7 @@ class AIsaRadarAdapter(Adapter):
             record = self.source.status()
         except Exception as exc:  # noqa: BLE001 - 状态读取失败要如实说，不编造
             return {'available': False, 'detail': f'读取状态失败：{type(exc).__name__}'}
+        # 配置错误（例如 Key 超长）时 available=False，detail 直接把中文原因显示到页面上。
         return {'available': bool(record.get('available')),
                 'count': public_count(record.get('count')),
                 'detail': public_text(record.get('detail'))[:200],
