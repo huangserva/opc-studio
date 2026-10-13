@@ -26,8 +26,8 @@
 - 停用：`launchctl bootout gui/$(id -u)/com.$USER.orca-article-studio-watch`。
 
 ## 派工
-- **全部交给 Codex（黄总 2026-10-13 起，优先于下文各工人条款）**：后续实施和检查一律派 Codex，不再派 Pi、CodeBuddy、Antigravity、OpenCode（Pi 只做完在途的第 13 轮返修合并单）。固定 4 个 Codex 窗口：实施 term_2d118173、term_503c695f；检查 term_6f63337a、term_b0904322（后两个经黄总同意 2026-10-13 新开）。实施窗口与检查窗口不混用，同一条线的实施与检查必须用不同窗口。注意：term_2d118173 属于另一个 worktree 登记，`worker-start --terminal` 会被拒（"does not belong to worktree"），派工前先确认；目前实际可派的实施窗口只有 term_503c695f。
-- 工人不要停：任何工人交付并审查完，立即从 `coordination/work-queue.md` 派下一项；队列空了要补充。
+- **全部交给 Codex（黄总 2026-10-13 起，优先于下文各工人条款）**：后续实施和检查一律派 Codex，不再派 Pi、CodeBuddy、Antigravity、OpenCode（Pi 只做完在途的第 13 轮返修合并单）。固定 4 个 Codex 窗口：实施 term_2d118173、term_503c695f；检查 term_6f63337a、term_b0904322（后两个经黄总同意 2026-10-13 新开）。实施窗口与检查窗口不混用，同一条线的实施与检查必须用不同窗口。注意：term_2d118173 属于另一个 worktree 登记，`worker-start --terminal` 会被拒（"does not belong to worktree"），派工前先确认；经黄总同意 2026-10-13 再新开实施窗口 term_50d22cfc；目前可派实施窗口：term_503c695f、term_50d22cfc。
+- **做完一轮就停（黄总 2026-10-13，取代原「工人不要停／队列空了要补充」）**：当前轮次收口（合并→重启→复验→提交推送）后暂停派工，不自行发掘或补充新任务。下一步做什么，由黄总先定目标、策略和衡量指标，再按它立项派工；一次只把一件事做好。
 - Pi 用本地显卡部署的模型，token 不限，优先多派给 Pi。
 - Pi 每派一份新合同前，先在它空闲时发 `/new` 开新会话（合同自带全部上下文）。同一会话连续压缩时摘要越滚越长，超过摘要输出上限就会「压缩失败」（2026-10-10 查明）；`~/.pi/agent/settings.json` 已设 `compaction.reserveTokens=65536`，改设置后需 `/reload` 或重开 Pi 才生效。
 - 固定班底，不乱开窗口（黄总 2026-10-12）：同一条线的连续返修/复验派回原窗口（`worker-start --task <id> --terminal <handle>`），保留经验；原窗口失效才新开，并在 `coordination/work-queue.md` 的「班底」段记下替换。实施与复核始终用不同窗口。闲置旧窗口不擅自关闭。

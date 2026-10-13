@@ -1014,6 +1014,76 @@ class Store(content.ContentMixin):
             else:
                 block['url'] = self.asset_url(slug, rev, block['file'])
             return block
+        def rich_inline_pair(left_html, right_html):
+            # 只解析经过现有白名单的 HTML；diff 标记由服务端生成，不放宽正文白名单。
+            # 在解码后的文本节点切字符，实体与标签不会被切开，标记不会跨越标签边界。
+            class Fragment(HTMLParser):
+                def __init__(self, markup):
+                    super().__init__(convert_charrefs=True)
+                    self.events, self.stack, self.text = [], [], []
+                    self.feed(safe_html(markup)[0])
+                    self.close()
+                    while self.stack:
+                        self.end(self.stack.pop())
+                    self.plain = ''.join(self.text).rstrip('\n')
+
+                def end(self, tag):
+                    self.events.append(('html', '</' + tag + '>'))
+                    if tag in ('p', 'div', 'li', 'h1', 'h2', 'h3', 'blockquote'):
+                        self.events.append(('break', '\n'))
+                        self.text.append('\n')
+
+                def handle_starttag(self, tag, attrs):
+                    extra = ''.join(' ' + name + '="' + escape(value or '', quote=True) + '"'
+                                    for name, value in attrs)
+                    self.events.append(('html', '<' + tag + extra + '>'))
+                    if tag == 'br':
+                        self.events.append(('break', '\n'))
+                        self.text.append('\n')
+                    elif tag != 'hr':
+                        self.stack.append(tag)
+
+                def handle_endtag(self, tag):
+                    # 旧存档可能漏闭标签；只关闭实际打开的标签，并补齐内层闭合。
+                    if tag in self.stack:
+                        while self.stack:
+                            opened = self.stack.pop()
+                            self.end(opened)
+                            if opened == tag:
+                                break
+
+                def handle_data(self, data):
+                    self.events.append(('text', data))
+                    self.text.append(data)
+
+                def marked(self, ranges, marker):
+                    parts, offset, index = [], 0, 0
+                    for kind, value in self.events:
+                        if kind == 'html':
+                            parts.append(value)
+                            continue
+                        if kind == 'break':
+                            offset += len(value)
+                            continue
+                        start = offset
+                        end = start + len(value)
+                        while offset < end:
+                            while index < len(ranges) and ranges[index][1] <= offset:
+                                index += 1
+                            changed = index < len(ranges) and ranges[index][0] <= offset
+                            cut = min(end, ranges[index][1] if changed else
+                                      ranges[index][0] if index < len(ranges) else end)
+                            text = escape(value[offset - start:cut - start])
+                            parts.append('<' + marker + '>' + text + '</' + marker + '>' if changed else text)
+                            offset = cut
+                    return ''.join(parts)
+
+            left, right = Fragment(left_html), Fragment(right_html)
+            operations = difflib.SequenceMatcher(None, left.plain, right.plain, autojunk=False).get_opcodes()
+            removed = [(x, y) for tag, x, y, _, _ in operations if tag != 'equal' and x < y]
+            added = [(u, v) for tag, _, _, u, v in operations if tag != 'equal' and u < v]
+            return left.marked(removed, 'del'), right.marked(added, 'ins'), left.plain == right.plain
+
         for op, i, j, k, l in matcher.get_opcodes():
             if op == 'equal':
                 continue
@@ -1026,6 +1096,10 @@ class Store(content.ContentMixin):
                     old.append(escape(left[x:y]) if tag == 'equal' else '<del>' + escape(left[x:y]) + '</del>')
                     new.append(escape(right[u:v]) if tag == 'equal' else '<ins>' + escape(right[u:v]) + '</ins>')
                 change['inline_before'], change['inline_after'] = ''.join(old), ''.join(new)
+                rich_before, rich_after, same_text = rich_inline_pair(
+                    change['before'][0]['html'], change['after'][0]['html'])
+                change['rich_inline_before'], change['rich_inline_after'] = rich_before, rich_after
+                change['format_changed'] = same_text and change['before'][0]['html'] != change['after'][0]['html']
             changes.append(change)
         def cover(m, rev):
             return {**m['cover'], 'url': self.asset_url(slug, rev, m['cover']['file'])} if m['cover'] else None

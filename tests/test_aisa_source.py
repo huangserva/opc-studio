@@ -4,6 +4,7 @@
 不消耗任何付费额度，不读取也不打印真实 Key（测试里的 canary 均为自造）。
 """
 import builtins
+import importlib
 import gzip
 import io
 import json
@@ -34,6 +35,7 @@ from aisa_source import (DOUYIN_HOT_PATH, TWITTER_TWEETS_PATH, XHS_INSPIRATION_P
 from collect_adapters import AIsaRadarAdapter, build_adapters
 from collect_core import PlannedAdapter
 from isolation_patches import module_time
+from _network_guard import offline_network
 
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'aisa'
@@ -41,36 +43,27 @@ SECRET = 'test-placeholder-secret'
 # 复核用的自造 canary（不是真实 Key）：任何对外表面出现它都算泄密。
 CANARY = 'test-placeholder-canary'
 
-# ── 零外网护栏 ─────────────────────────────────────────────────────────────
-# 本文件所有用例都必须离线：除本机回环外，任何域名解析/连接一律抛 AssertionError。
-# 与复核证据里的 conftest 护栏同构（此处内联，避免新增白名单外文件）。
-_real_socket = socket.socket
-_real_getaddrinfo = socket.getaddrinfo
-_LOCAL_HOSTS = (None, '', '127.0.0.1', '::1', 'localhost')
+# 不在导入时改全局 socket。unittest 的模块生命周期和 pytest 的模块 fixture
+# 各自持有作用域，双重进入也由共享管理器正确叠加及还原。
+_unittest_guard = None
 
 
-class _NetworkGuard(_real_socket):
-    def connect(self, address):
-        host = address[0] if isinstance(address, tuple) and address else None
-        port = address[1] if isinstance(address, tuple) and len(address) > 1 else None
-        # 放行本机回环，但封死假代理端口 9（与复核护栏一致）。
-        if host in _LOCAL_HOSTS and port != 9:
-            return super().connect(address)
-        raise AssertionError('ZERO_EXTERNAL_NETWORK')
-
-    def connect_ex(self, address):
-        self.connect(address)
-        return 0
+def setUpModule():
+    global _unittest_guard
+    _unittest_guard = offline_network()
+    _unittest_guard.__enter__()
 
 
-def _guarded_getaddrinfo(host, *args, **kwargs):
-    if host in _LOCAL_HOSTS:
-        return _real_getaddrinfo(host, *args, **kwargs)
-    raise AssertionError('ZERO_EXTERNAL_NETWORK')
+def tearDownModule():
+    global _unittest_guard
+    _unittest_guard.__exit__(None, None, None)
+    _unittest_guard = None
 
 
-socket.socket = _NetworkGuard
-socket.getaddrinfo = _guarded_getaddrinfo
+@pytest.fixture(autouse=True, scope='module')
+def _pytest_network_guard():
+    with offline_network():
+        yield
 
 
 def load(name):
@@ -688,15 +681,19 @@ def test_sqlite_read_and_write_failures_keep_fetched_data(tmp_path):
         assert KEY not in json.dumps([items, status, source.last_error, repr(source), str(source)])
 
 
-def test_proxy_environment_cannot_escape_socket_guard(tmp_path):
-    with patch.dict(os.environ, {'HTTP_PROXY': 'http://127.0.0.1:9',
-                                 'HTTPS_PROXY': 'http://127.0.0.1:9',
-                                 'ALL_PROXY': 'http://127.0.0.1:9', 'NO_PROXY': '',
-                                 'http_proxy': 'http://127.0.0.1:9',
-                                 'https_proxy': 'http://127.0.0.1:9'}):
-        source = mod.AIsaSource(api_key=KEY, base_url='https://review.invalid')
-        assert source.get_twitter_tweets('u') == []
-        assert 'AssertionError' in source.last_error
+class ProxyNetworkGuardTests(unittest.TestCase):
+    def test_proxy_environment_cannot_escape_socket_guard(self):
+        # 此用例自行持有作用域：直接调用、unittest discover、pytest 均有护栏。
+        with offline_network(), patch.dict(os.environ, {
+                'HTTP_PROXY': 'http://127.0.0.1:9',
+                'HTTPS_PROXY': 'http://127.0.0.1:9',
+                'ALL_PROXY': 'http://127.0.0.1:9', 'NO_PROXY': '',
+                'http_proxy': 'http://127.0.0.1:9',
+                'https_proxy': 'http://127.0.0.1:9',
+                'all_proxy': 'http://127.0.0.1:9', 'no_proxy': ''}):
+            source = mod.AIsaSource(api_key=KEY, base_url='https://review.invalid')
+            self.assertEqual(source.get_twitter_tweets('u'), [])
+            self.assertIn('AssertionError', source.last_error)
 
 
 @pytest.mark.parametrize('encoded', [False, True])

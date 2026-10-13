@@ -104,3 +104,10 @@ mark{background:#fff3ad;color:inherit;padding:0 2px;border-radius:3px}
 #paper [data-space=normal],#comparison [data-space=normal]{margin:.9em 0}
 #paper [data-space=loose],#comparison [data-space=loose]{margin:1.6em 0}
 #paper .article-body hr,#comparison hr{border:none;border-top:2px solid #dfe4ee;margin:30px 0}
+
+/* 对比视图的增删标记不盖掉作者指定的文字色/高亮；插入仍用下划线区分。 */
+#comparison .rich-inline-diff ins{text-decoration:underline;text-underline-offset:3px}
+#comparison .rich-inline-diff [data-color] ins,
+#comparison .rich-inline-diff [data-color] del{color:inherit}
+#comparison .rich-inline-diff [data-hl] ins,
+#comparison .rich-inline-diff [data-hl] del{background:transparent;color:inherit}

@@ -236,8 +236,9 @@ async function showComparison(before,after) {
   if(diff.title_changed)changes+=`<section class="change"><div class="change-caption">标题修改</div><div class="diff-columns"><div class="removed"><h2>${escapeHTML(diff.title_before)}</h2></div><div class="added"><h2>${escapeHTML(diff.title_after)}</h2></div></div></section>`;
   if(diff.cover_changed)changes+=`<section class="change"><div class="change-caption">封面修改</div><div class="diff-columns"><div class="removed">${diff.cover_before?blockHTML(diff.cover_before):'无封面'}</div><div class="added">${diff.cover_after?blockHTML(diff.cover_after):'无封面'}</div></div></section>`;
   for(const [i,c] of diff.changes.entries()){
-    const label=c.type==='insert'?'新增内容':c.type==='delete'?'删除内容':'修改内容';
-    changes+=`<section class="change"><div class="change-caption"><span>${String(i+1).padStart(2,'0')}</span>${label}</div><div class="diff-columns"><div class="removed">${c.inline_before??(c.before.map(blockHTML).join('')||'<span class="empty-side">无内容</span>')}</div><div class="added">${c.inline_after??(c.after.map(blockHTML).join('')||'<span class="empty-side">无内容</span>')}</div></div></section>`;
+    const label=c.type==='insert'?'新增内容':c.type==='delete'?'删除内容':c.format_changed?'格式修改':'修改内容';
+    const inline=(side)=>c[`rich_inline_${side}`]!=null?`<div class="rich-inline-diff">${c[`rich_inline_${side}`]}</div>`:c[`inline_${side}`]??(c[side].map(blockHTML).join('')||'<span class="empty-side">无内容</span>');
+    changes+=`<section class="change"><div class="change-caption"><span>${String(i+1).padStart(2,'0')}</span>${label}</div><div class="diff-columns"><div class="removed">${inline('before')}</div><div class="added">${inline('after')}</div></div></section>`;
   }
   $('#comparison').innerHTML=`<div class="compare-heading"><span class="eyebrow">VERSION COMPARISON</span><h2>每一次修改，都看得见</h2><p>${diff.changes.length+(diff.title_changed?1:0)+(diff.cover_changed?1:0)+(diff.studio_changed?1:0)} 处变化 · 包括正文、排版和图片</p></div><div class="compare-selectors"><label>修改前<select id="compare-before">${options(before)}</select></label><span>与</span><label>修改后<select id="compare-after">${options(after)}</select></label></div>${changes||'<div class="empty">这两个版本的正文、图片与排版一致。</div>'}`;
   $('#compare-before').onchange=()=>showComparison($('#compare-before').value,$('#compare-after').value).catch(e=>toast(e.message));

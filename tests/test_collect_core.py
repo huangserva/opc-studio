@@ -1,11 +1,14 @@
 """通用采集模块。夹具在临时目录里，网络套接字封死，不读钥匙串，不打真实平台。"""
 import json
+import subprocess
+import sys
 import os
 import socket
 import tempfile
 import threading
 import unittest
 from contextlib import contextmanager
+from _network_guard import NetworkGuard
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,27 +40,134 @@ class FakeSettings:
 
 @contextmanager
 def seal_network(allowed_ports=()):
-    """测试期间禁止对外连接。只放行本机测试服务自己的端口。"""
-    real = socket.socket
-    blocked = []
+    """只放行本机测试服务自己的端口；共享护栏退出不覆盖其他活跃作用域。"""
+    with NetworkGuard(allowed_ports=allowed_ports, error=OSError,
+                      message='测试封死了网络') as guard:
+        yield guard.blocked
 
-    class Guard(real):
-        def connect(self, address):
-            host, port = (address[0], address[1]) if isinstance(address, tuple) and len(address) > 1 else (address, None)
-            if host in ('127.0.0.1', '::1') and port in allowed_ports:
-                return super().connect(address)
-            blocked.append(address)
-            raise OSError(f'测试封死了网络：{address}')
 
-        def connect_ex(self, address):
-            self.connect(address)
-            return 0
+class NetworkGuardOrderTests(unittest.TestCase):
+    def run_sequence(self, sequence):
+        """新进程保证真实首次导入，检查退出后的 socket 与 DNS 原身份。"""
+        script = """import contextlib, importlib, socket, unittest
+original = (socket.socket, socket.getaddrinfo)
+collect = importlib.import_module('test_collect_core')
+def assert_proxy_blocked():
+    with socket.socket() as sock:
+        try:
+            sock.connect(('127.0.0.1', 9))
+        except AssertionError as exc:
+            assert str(exc) == 'ZERO_EXTERNAL_NETWORK', str(exc)
+        else:
+            raise AssertionError('PROXY_GUARD_LOST')
+def run_proxy(aisa):
+    result = unittest.TestResult()
+    aisa.ProxyNetworkGuardTests('test_proxy_environment_cannot_escape_socket_guard').run(result)
+    assert result.wasSuccessful(), result.errors + result.failures
+""" + sequence + """
+assert (socket.socket, socket.getaddrinfo) == original, 'GUARD_NOT_FULLY_RESTORED'
+"""
+        env = os.environ.copy()
+        for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
+                     'http_proxy', 'https_proxy', 'all_proxy'):
+            env.pop(name, None)
+        env['AISA_API_KEY'] = ''
+        root = Path(__file__).resolve().parents[1]
+        env['PYTHONPATH'] = os.pathsep.join((str(root / 'tests'), str(root),
+                                           env.get('PYTHONPATH', '')))
+        completed = subprocess.run([sys.executable, '-c', script], cwd=root,
+                                   env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
-    socket.socket = Guard
-    try:
-        yield blocked
-    finally:
-        socket.socket = real
+    def test_import_guard_inside_seal_then_exit_seal(self):
+        self.run_sequence("""
+seal = collect.seal_network(); seal.__enter__()
+aisa = importlib.import_module('test_aisa_source')
+# 修前模块在导入时安装；兼容旧入口以让同一常驻回归能证明修前行为失败。
+guard = getattr(aisa, 'offline_network', contextlib.nullcontext)()
+with guard:
+    seal.__exit__(None, None, None)
+    assert_proxy_blocked()
+    run_proxy(aisa)
+""")
+
+    def test_reverse_import_and_exit_order(self):
+        self.run_sequence("""
+aisa = importlib.import_module('test_aisa_source')
+with aisa.offline_network():
+    with collect.seal_network():
+        pass
+    assert_proxy_blocked()
+    run_proxy(aisa)
+""")
+
+    def test_double_nested_seals_preserve_outer_guard(self):
+        self.run_sequence("""
+aisa = importlib.import_module('test_aisa_source')
+with aisa.offline_network():
+    with collect.seal_network():
+        with collect.seal_network():
+            pass
+    assert_proxy_blocked()
+    run_proxy(aisa)
+""")
+
+    def test_import_alone_does_not_install_socket_or_dns(self):
+        self.run_sequence("""
+importlib.import_module('test_aisa_source')
+assert (socket.socket, socket.getaddrinfo) == original
+""")
+
+    def test_reentrant_same_guard_and_exception_restore(self):
+        self.run_sequence("""
+aisa = importlib.import_module('test_aisa_source')
+guard = aisa.offline_network()
+try:
+    with guard:
+        with guard:
+            assert_proxy_blocked()
+        assert_proxy_blocked()
+        raise ValueError('scope failure')
+except ValueError:
+    pass
+""")
+
+    def test_active_policies_intersect_and_outer_seal_survives(self):
+        with seal_network() as blocked:
+            from _network_guard import offline_network
+            with offline_network():
+                with self.assertRaises(OSError):
+                    with socket.socket() as sock:
+                        sock.connect(('127.0.0.1', 12345))
+            with self.assertRaises(OSError):
+                with socket.socket() as sock:
+                    sock.connect_ex(('127.0.0.1', 12345))
+        self.assertEqual(blocked, [('127.0.0.1', 12345)] * 2)
+
+    def test_non_loopback_socket_and_dns_are_blocked_before_io(self):
+        from _network_guard import offline_network
+        with offline_network():
+            with self.assertRaisesRegex(AssertionError, '^ZERO_EXTERNAL_NETWORK$'):
+                socket.getaddrinfo('review.invalid', 443)
+            for operation in ('connect', 'connect_ex'):
+                with self.subTest(operation=operation):
+                    with self.assertRaisesRegex(AssertionError, '^ZERO_EXTERNAL_NETWORK$'):
+                        with socket.socket() as sock:
+                            getattr(sock, operation)(('192.0.2.1', 443))
+
+    def test_allowlisted_loopback_really_connects(self):
+        with socket.socket() as server:
+            server.bind(('127.0.0.1', 0))
+            server.listen(2)
+            port = server.getsockname()[1]
+            with seal_network((port,)):
+                for operation in ('connect', 'connect_ex'):
+                    with self.subTest(operation=operation), socket.socket() as client:
+                        result = getattr(client, operation)(('127.0.0.1', port))
+                        if operation == 'connect_ex':
+                            self.assertEqual(result, 0)
+                        connection, _ = server.accept()
+                        connection.close()
 
 
 class ProvenanceTests(unittest.TestCase):
