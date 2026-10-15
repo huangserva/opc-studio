@@ -1,0 +1,15 @@
+{
+  "timezone": "Asia/Shanghai",
+  "start_hour": 6,
+  "end_hour": 23,
+  "baseline_hour": 6,
+  "collector_timeout_seconds": 600,
+  "coverage_min": 0.95,
+  "fault_after_rounds": 2,
+  "max_age_hours": 24,
+  "lowfan": {"followers_max": 10000, "age_max_hours": 6, "views_min": 50000, "likes_min": 200},
+  "new_fast": {"age_min_hours": 0.25, "views_min": 2500, "views_per_hour": 3500},
+  "hourly_delta": {"views_per_hour": 5000},
+  "upgrade_views": 100000,
+  "shadow": {"new_rates": [2500, 5000], "lowfan_hours": [3, 12]}
+}

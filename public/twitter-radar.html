@@ -1076,6 +1076,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  max-height: 118px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .vip-chip {
   padding: 6px 14px;
@@ -1128,6 +1131,46 @@
 }
 
 
+/* Burst Signal Alert Bar */
+.vip-signal-bar {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: #78350f;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+.vip-signal-bar .signal-tag {
+  background: #f59e0b;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-right: 6px;
+  letter-spacing: 0.3px;
+}
+.vip-signal-bar .signal-condition {
+  color: #92400e;
+  font-size: 13px;
+}
+.vip-signal-bar .signal-condition strong {
+  color: #b45309;
+}
+.vip-signal-bar .signal-time {
+  font-size: 12.5px;
+  color: #b45309;
+  font-weight: 600;
+}
+
 /* One-row metrics bar - strictly horizontal */
 .tweet-metrics-bar, .vip-metrics-bar {
   display: flex !important;
@@ -1164,9 +1207,222 @@
   color: #92400e !important;
 }
 
+/* Real-time Refresh Toast Notification */
+#radar-toast-container {
+  position: fixed;
+  top: 72px;
+  right: 28px;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.radar-toast {
+  pointer-events: auto;
+  min-width: 320px;
+  max-width: 480px;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 12px 18px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+  border: 1px solid #e2e8f0;
+}
+.radar-toast.success {
+  border-left: 4px solid #10b981;
+  background: #f0fdf4;
+  color: #065f46;
+}
+.radar-toast.info {
+  border-left: 4px solid #3b82f6;
+  background: #eff6ff;
+  color: #1e40af;
+}
+.radar-toast.warning {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+/* 时间未知提示 */
+.feed-unknown-note {
+  margin: 12px 0 4px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* B2-b：每小时新增列 + 值得跟/不值得 */
+.tweet-monitor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #166534;
+}
+.tweet-monitor-label {
+  font-weight: 700;
+  color: #14532d;
+}
+.tweet-monitor-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+.tweet-monitor-value.is-hint {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #92400e;
+}
+.tweet-monitor-hit {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #166534;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.verdict-group {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.verdict-btn {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.verdict-btn:hover { background: #f1f5f9; }
+.verdict-btn.verdict-worth.active { background: #16a34a; border-color: #16a34a; color: #ffffff; }
+.verdict-btn.verdict-not_worth.active { background: #64748b; border-color: #64748b; color: #ffffff; }
+.verdict-btn[data-busy="1"] { opacity: 0.6; cursor: progress; }
+.tweet-card.tweet-focus, .vip-tweet-card.tweet-focus, .embedded-tweet-card.tweet-focus {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.18);
+}
+
+/* 数据回执与状态条 */
+.radar-receipt-row {
+  padding: 10px 32px 0;
+}
+.radar-read-receipt {
+  display: block;
+  font-size: 12px;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  line-height: 1.6;
+}
+.radar-read-receipt.is-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+.radar-data-banner {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.radar-banner-line {
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.radar-banner-line.warn {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.radar-banner-line.danger {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+/* 标旧帖 */
+.tweet-stale-badge {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px dashed #cbd5e1;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.stale-card { border-left: 4px solid #cbd5e1 !important; }
+.stale-card .embedded-tweet-text,
+.stale-card .tweet-text { color: #64748b; }
+/* 无证据话题 */
+.topic-no-evidence-card { border-left-color: #cbd5e1; }
+.topic-no-evidence {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+  font-weight: 600 !important;
+}
+.topic-title-no-evidence {
+  color: #94a3b8 !important;
+  font-style: normal;
+}
+.blogger-chip-empty {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  cursor: default;
+  font-weight: 600;
+}
+.blogger-chip-current {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  cursor: default;
+  font-weight: 700;
+}
+.vip-chip-invalid,
+.vip-chip-static,
+.tweet-link-btn.disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.tweet-link-btn.disabled { text-decoration: none; background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+.dossier-x-btn.disabled { background: #94a3b8; cursor: default; }
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
 </style>
 </head>
 <body>
+<div id="radar-toast-container"></div>
 
 <aside class="sidebar">
   <a class="brand" href="/"><span class="brand-icon">▤</span><span>内容工作台<small>CONTENT STUDIO</small></span></a>
@@ -1186,7 +1442,7 @@
     <a href="/schedules.html">◴ 定时任务</a>
     <a class="selected" href="/twitter-radar.html" aria-current="page">🛰️ 选题雷达</a>
   </nav>
-  <div class="local-note"><span></span>已穿透 AIsa 实时推特流</div>
+  <div class="local-note"><span></span>数据源：本地采集快照 JSON</div>
 </aside>
 
 <main class="main">
@@ -1199,9 +1455,13 @@
     <div class="topbar-actions">
       <a href="/leads.html" class="btn btn-secondary">线索中心 ↗</a>
       <a href="/intel.html" class="btn btn-secondary">情报采集 ↗</a>
-      <button id="btn-refresh-radar" class="btn btn-primary">刷新实时雷达</button>
+      <button id="btn-refresh-radar" class="btn btn-primary" title="只读取服务器上已保存的采集快照 JSON（public/twitter-radar-bundle.json），不会触发新的全网采集">📥 读取最新数据</button>
     </div>
   </header>
+
+  <div class="radar-receipt-row">
+    <span id="radar-read-receipt" class="radar-read-receipt">数据回执：等待读取…</span>
+  </div>
 
   <div class="radar-scroll-area">
     <!-- Header Banner -->
@@ -1215,10 +1475,13 @@
           ⏱️ 热帖时效：<strong>≤ 48 小时</strong> (超期自动淘汰)
         </div>
         <div class="decay-badge">
-          📅 话题窗口：<strong>≤ 7 天</strong> (滚动迭代更新)
+          📅 话题窗口：<strong>≤ 48 小时</strong> (与子帖窗口一致，滚动迭代更新)
         </div>
       </div>
     </div>
+
+    <!-- 数据回执状态条：离线旧数据 / 采集不完整 / 读取失败 -->
+    <div id="radar-data-banner" class="radar-data-banner" hidden></div>
 
     <!-- Mode Switcher Tabs -->
     <div class="mode-switcher-bar">
@@ -1249,7 +1512,7 @@
     <!-- VIEW 1: TOPIC CLUSTERS VIEW (话题与爆款文章放在一起) -->
     <div id="clusters-view-section">
       <div class="section-title-row">
-        <h2>🏆 7 天爆款话题战役与文章聚合 <span class="section-note">（话题爆了＝大家讲同一个话题，内容都在拿 50K/100K+ 爆款）</span></h2>
+        <h2>🏆 48 小时爆款话题战役与文章聚合 <span class="section-note">（窗口 = 话题子帖实际窗口 48 小时；没有支持帖的话题只显示「暂无证据」，不再显示带数字的旧摘要）</span></h2>
       </div>
       <div class="topics-grid" id="topics-list"></div>
     </div>
@@ -1258,23 +1521,15 @@
     <!-- VIEW: SPECIAL FOCUS VIP BLOGGERS (⭐ 特别关注博主爆款) -->
     <div id="vip-view-section" style="display: none;">
       <div class="section-title-row" id="vip-feed-container">
-        <h2>⭐ 特别关注博主爆款 <span class="section-note">（黄总 @servasyy_ai 809 位关注池全量筛选 · 动态聚合所有 300赞+ & 50K+ 爆款博主）</span></h2>
+        <h2>⭐ 特别关注博主爆款 <span class="section-note" id="vip-pool-note">（名单与条数取自当前采集快照，不写死）</span></h2>
       </div>
 
       <!-- VIP Blogger Chips Row -->
       <div class="vip-blogger-selector-bar">
-        <div style="font-size: 13px; color: #92400e; margin-bottom: 8px; font-weight: 700;">👑 809 位关注池中产生最新爆款的博主矩阵（点击快速聚焦个人最新爆款）：</div>
+        <div id="vip-chips-title" style="font-size: 13px; color: #92400e; margin-bottom: 8px; font-weight: 700;">👑 关注池名单加载中…</div>
         <div class="vip-blogger-chips-row" id="vip-blogger-chips">
-          <button class="vip-chip active" data-user="all">🌟 全部特关博主 (<span id="vip-total-count">4</span>条今日爆款)</button>
-          <button class="vip-chip" data-user="dotey">👑 宝玉 @dotey (3条今日)</button>
-          <button class="vip-chip" data-user="lxfater">👑 铁锤人 @lxfater (1条今日)</button>
-          <button class="vip-chip" data-user="gkxspace">👑 余温 @gkxspace</button>
-          <button class="vip-chip" data-user="huangyun_122">👑 黄赟 @huangyun_122</button>
-          <button class="vip-chip" data-user="oran_ge">👑 Orange AI @oran_ge</button>
-          <button class="vip-chip" data-user="servasyy_ai">👑 黄总 @servasyy_ai</button>
-          <button class="vip-chip" data-user="Khazix0918">👑 卡兹克 @Khazix0918</button>
-          <button class="vip-chip" data-user="geekbb">👑 Geek @geekbb</button>
-        </div>
+              <button class="vip-chip active" data-user="all">🌟 全部特关博主 (<span id="vip-total-count">0</span>条今日爆款)</button>
+            </div>
       </div>
 
       <!-- Filter & Sorting Hub for VIP -->
@@ -1284,7 +1539,7 @@
           <div class="filter-hub-label">⏱️ 时效窗口筛选：</div>
           <div class="filter-hub-buttons">
             <button class="vip-time-btn active" data-time="today">🔥 只看今日爆款 (24h鲜活 · 严格今日出炉)</button>
-            <button class="vip-time-btn" data-time="all_48h">⏱️ 近 48 小时窗口 (昨日至今全量 · 14条)</button>
+            <button class="vip-time-btn" data-time="all_48h">⏱️ 近 48 小时窗口 (昨日至今全量 · 条数按当前数据计算)</button>
           </div>
           <div class="filter-tip-badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a;">
             🎯 爆款硬核门槛：❤️ 点赞 300+ 且 👁️ 曝光 50K+
@@ -1323,7 +1578,7 @@
     <!-- VIEW 2: LOW-FAN VIRAL FEED VIEW (严格 <=10k 粉丝 · 分页 30 条 · 仅 2 页) -->
     <div id="feed-view-section" style="display: none;">
       <div class="section-title-row" id="tweets-feed-container">
-        <h2>⚡ 低粉逆袭爆款精选单篇 <span class="section-note">（已彻底排除 >10k 大V天然流量，精选 60 条，分为 2 页，每页 30 条）</span></h2>
+        <h2>⚡ 低粉逆袭爆款精选单篇 <span class="section-note" id="feed-pool-note">（已排除高粉大V；条数与页数按当前数据计算）</span></h2>
       </div>
 
       <!-- Filter & Sorting Hub -->
@@ -1338,8 +1593,8 @@
         <div class="filter-hub-row time-filter-row">
           <div class="filter-hub-label">⏱️ 时效红线窗口：</div>
           <div class="filter-hub-buttons">
-            <button class="time-btn active" data-time="24h">🔥 24小时极速爆发 (优先主打 · 当下正热 · 35条)</button>
-            <button class="time-btn" data-time="48h">⚡ 48小时有效生命期 (最大窗口 · 严格淘汰>48h · 60条)</button>
+            <button class="time-btn active" data-time="24h">🔥 24小时极速爆发 (优先主打 · 当下正热)</button>
+            <button class="time-btn" data-time="48h">⚡ 48小时有效生命期 (最大窗口 · 严格淘汰&gt;48h)</button>
           </div>
           <div class="filter-tip-badge">
             🛡️ 纯粹 AI 过滤 · 严禁政治负能量 · 24h 鲜活爆发置顶
@@ -1374,6 +1629,7 @@
 
       <!-- Tweets List (Paginated, 30 per page) -->
       <div class="tweets-feed-list" id="tweets-feed"></div>
+      <div id="feed-unknown-note" class="feed-unknown-note" hidden></div>
 
       <!-- Pagination Control (Page 1 & Page 2) -->
       <div class="pagination-bar" id="pagination-bar"></div>
@@ -1384,19 +1640,13 @@
       <!-- Blogger Selector & Search -->
       <div class="blogger-selector-bar">
         <div class="blogger-search-wrapper">
-          <input type="text" id="blogger-search-input" class="blogger-search-box" placeholder="🔍 快速搜索关注池 809 位博主（输入名字、Handle或关键词实时联想）...">
+          <input type="text" id="blogger-search-input" class="blogger-search-box" placeholder="🔍 快速搜索关注池博主（输入名字、Handle或关键词实时联想）...">
           <div id="blogger-search-results" class="blogger-search-results"></div>
         </div>
 
-        <div style="font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 600;">⚡ 5大恒定赛道精选核心博主（点击秒级切入深度剖析）：</div>
+        <div id="blogger-chips-title" style="font-size: 13px; color: #64748b; margin-bottom: 8px; font-weight: 600;">⚡ 近 48 小时有热帖的博主（按曝光取前 8，点击秒级切入深度剖析）：</div>
         <div class="blogger-chips-row">
-          <button class="blogger-chip active" data-handle="shitunote">💻 十途笔记 (8.4万Token分水岭·10h前)</button>
-          <button class="blogger-chip" data-handle="aidavid125">🤖 AI David (5.8万本地125B·5h前)</button>
-          <button class="blogger-chip" data-handle="0xlangeai">⭐ 蓝哥AI (5.1万REA逆向·6h前)</button>
-          <button class="blogger-chip" data-handle="listudio">💰 李工作室 (4.7万视频起号·6h前)</button>
-          <button class="blogger-chip" data-handle="coldniko">⭐ ColdNiko (4.2万Strata推理·23h前)</button>
-          <button class="blogger-chip" data-handle="Dicklong1999">🤖 Dicklong (12.4万Gemini生图·31h前)</button>
-          <button class="blogger-chip" data-handle="xaiwind">💻 xaiwind (5.9万Word平替·24h前)</button>
+          <span class="blogger-chip blogger-chip-empty">📭 热门博主列表读取中…（显示以当前采集快照为准）</span>
         </div>
       </div>
 

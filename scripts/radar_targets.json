@@ -1,0 +1,213 @@
+{
+  "schema_version": "radar-targets-1",
+  "expected_count": 51,
+  "source": "public/twitter-radar.js DATA_BUNDLE.vip_bloggers（2026-10-15 提取一次，之后以本文件为准）",
+  "note": "推特雷达每小时扫描的唯一名单（M7）。覆盖率分母 = expected_count；不得按爆款动态追加。新增/删除账号只改本文件。",
+  "updated_at": "2026-10-15T00:00:00Z",
+  "targets": [
+    {
+      "handle": "gkxspace",
+      "name": "余温"
+    },
+    {
+      "handle": "lxfater",
+      "name": "铁锤人"
+    },
+    {
+      "handle": "dotey",
+      "name": "宝玉"
+    },
+    {
+      "handle": "Khazix0918",
+      "name": "数字生命卡兹克"
+    },
+    {
+      "handle": "vista8",
+      "name": "向阳乔木"
+    },
+    {
+      "handle": "gefei55",
+      "name": "哥飞"
+    },
+    {
+      "handle": "lijigang",
+      "name": "李继刚"
+    },
+    {
+      "handle": "xiaohu",
+      "name": "小互"
+    },
+    {
+      "handle": "GitHub_Daily",
+      "name": "GitHubDaily"
+    },
+    {
+      "handle": "AYi_AInotes",
+      "name": "AYi"
+    },
+    {
+      "handle": "Lonely__MH",
+      "name": "Lonely"
+    },
+    {
+      "handle": "aehyok",
+      "name": "AI少年"
+    },
+    {
+      "handle": "MinLiBuilds",
+      "name": "实践哥 Li"
+    },
+    {
+      "handle": "RealYDT",
+      "name": "阿良｜AI 工作流"
+    },
+    {
+      "handle": "gengdaJ",
+      "name": "逸尘"
+    },
+    {
+      "handle": "cgnot996",
+      "name": "铁柱AGI"
+    },
+    {
+      "handle": "Astronaut_1216",
+      "name": "叫我阿杭"
+    },
+    {
+      "handle": "berryxia",
+      "name": "Berryxia.AI"
+    },
+    {
+      "handle": "GoSailGlobal",
+      "name": "Jason Zhu"
+    },
+    {
+      "handle": "lifesinger",
+      "name": "Frank Wang 玉伯"
+    },
+    {
+      "handle": "fankaishuoai",
+      "name": "范凯说AI"
+    },
+    {
+      "handle": "manateelazycat",
+      "name": "Andy Stewart"
+    },
+    {
+      "handle": "bozhou_ai",
+      "name": "泊舟"
+    },
+    {
+      "handle": "jinchenma_ai",
+      "name": "金尘马"
+    },
+    {
+      "handle": "yaohui12138",
+      "name": "超级个体｜柿子"
+    },
+    {
+      "handle": "Tao_Builds",
+      "name": "TaoBuilds"
+    },
+    {
+      "handle": "0xlangeai",
+      "name": "蓝哥AI"
+    },
+    {
+      "handle": "shitunote",
+      "name": "马识途"
+    },
+    {
+      "handle": "aidavid125",
+      "name": "大卫叔的AI旅程"
+    },
+    {
+      "handle": "GeekCatX",
+      "name": "知识猫AI实验室"
+    },
+    {
+      "handle": "FiniYang",
+      "name": "Fini.Yang"
+    },
+    {
+      "handle": "Leobai825",
+      "name": "天策"
+    },
+    {
+      "handle": "94vanAI",
+      "name": "𝟡𝟜 ᴾᴸᴬʸᶠᴼᴿᴳᴱ"
+    },
+    {
+      "handle": "yhslgg",
+      "name": "老杨啊 | AI产品商业化"
+    },
+    {
+      "handle": "servasyy_ai",
+      "name": "黄总 (servasyy)"
+    },
+    {
+      "handle": "Saccc_c",
+      "name": "Sac"
+    },
+    {
+      "handle": "Michaelzsguo",
+      "name": "Michael Guo"
+    },
+    {
+      "handle": "Adam38363368936",
+      "name": "Adam也叫吉米"
+    },
+    {
+      "handle": "MaxForAI",
+      "name": "MaxForAI"
+    },
+    {
+      "handle": "jakevin7",
+      "name": "Jakevin"
+    },
+    {
+      "handle": "ooeli_eth",
+      "name": "OōEli.eth"
+    },
+    {
+      "handle": "Dicklong1999",
+      "name": "liftoff"
+    },
+    {
+      "handle": "HiTw93",
+      "name": "Tw93"
+    },
+    {
+      "handle": "Gorden_Sun",
+      "name": "Gorden Sun"
+    },
+    {
+      "handle": "nemoisme",
+      "name": "nemo"
+    },
+    {
+      "handle": "jinglian",
+      "name": "前端哥Liam"
+    },
+    {
+      "handle": "MANISH1027512",
+      "name": "古一"
+    },
+    {
+      "handle": "yihui_indie",
+      "name": "Yihui"
+    },
+    {
+      "handle": "lianyanshe",
+      "name": "链研社｜AI First🔶💧"
+    },
+    {
+      "handle": "AI_Jasonyu",
+      "name": "鱼总聊AI"
+    },
+    {
+      "handle": "xiaomovps",
+      "name": "小墨同学"
+    }
+  ]
+}

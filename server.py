@@ -1402,6 +1402,10 @@ class Handler(BaseHTTPRequestHandler):
             if parts.path.startswith('/api/x-official/'):
                 from publishing.x_official import get_route
                 return get_route(self, parts, query)
+            if parts.path == '/api/radar/monitor':
+                # 雷达页「每小时新增」列：文件缺失/损坏/过期都在模块内收敛，这里不改既有校验。
+                from radar_page_api import monitor_view
+                return self.reply(200, monitor_view(store.workspace))
             if parts.path == '/api/sources/wechat/status':
                 return self.reply(200, store.wechat_source.status())
             if parts.path == '/api/sources/wechat/results':
@@ -1733,6 +1737,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if segments == ['api', 'radar', 'feedback']:
+                # 值得跟/不值得：复用本函数既有的来源校验与 body 限制，非法 payload 一律 400；
+                # 反馈文件损坏时返回 409 且原文件一字节不动（FeedbackCorrupt 是 ValueError 的子类，必须先判）。
+                from radar_page_api import FeedbackCorrupt, monitor_view, save_feedback
+                try:
+                    snapshot = monitor_view(self.server.store.workspace)['tweets'].get(
+                        str(payload.get('tweet_id'))) if isinstance(payload, dict) else None
+                    record = save_feedback(self.server.store.workspace, payload, snapshot=snapshot)
+                except FeedbackCorrupt as exc:
+                    return self.reply(409, {'error': str(exc), 'code': 'FEEDBACK_CORRUPT'})
+                except ValueError as exc:
+                    return self.reply(400, {'error': str(exc)})
+                except OSError:
+                    return self.reply(500, {'error': '反馈未保存，请稍后重试'})
+                return self.reply(200, record)
             if segments == ['api', 'collect', 'aisa', 'run']:
                 return self.reply(202, self.server.store.collect.adapter('aisa').start(payload))
             if segments[:2] == ['api', 'x-official']:
