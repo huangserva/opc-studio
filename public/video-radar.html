@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>视频爆款雷达 · 内容工作台</title>
+<link rel="stylesheet" href="style.css">
+<style>
+/* 视频榜 C2 页面：所有外部文本一律 textContent 写入，不做 HTML 字符串拼接 */
+.video-radar-wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 60px; }
+.vr-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.vr-head h1 { font-size: 22px; margin: 0; }
+.vr-head .vr-sub { color: #64748b; font-size: 13px; }
+.vr-status { margin: 10px 0 14px; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.7; }
+.vr-status.is-ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+.vr-status.is-missing, .vr-status.is-corrupt { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; }
+.vr-status .vr-stale-flag { color: #b91c1c; font-weight: 700; }
+.vr-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.vr-tab { font-size: 13px; font-weight: 700; padding: 8px 16px; border-radius: 999px; border: 1px solid #cbd5e1;
+          background: #ffffff; color: #475569; cursor: pointer; }
+.vr-tab:hover { background: #f1f5f9; }
+.vr-tab.active { background: #0f172a; border-color: #0f172a; color: #ffffff; }
+.vr-tab .vr-tab-stale { color: #b91c1c; margin-left: 6px; }
+.vr-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #ffffff;
+            border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.vr-table th, .vr-table td { padding: 9px 10px; border-bottom: 1px solid #f1f5f9; text-align: left; vertical-align: top; }
+.vr-table th { background: #f8fafc; font-size: 12px; color: #475569; white-space: nowrap; }
+.vr-table tr:last-child td { border-bottom: none; }
+.vr-rank { width: 34px; color: #94a3b8; font-weight: 700; }
+.vr-title { font-weight: 600; color: #0f172a; word-break: break-word; }
+.vr-title a { color: #1d4ed8; text-decoration: none; }
+.vr-title a:hover { text-decoration: underline; }
+.vr-no-link { color: #475569; }
+.vr-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vr-dim { color: #94a3b8; }
+.vr-flags { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.vr-flag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid #cbd5e1; color: #475569; }
+.vr-flag.is-lowfan { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+.vr-flag.is-weak { background: #f1f5f9; border-color: #cbd5e1; color: #475569; }
+.vr-flag.is-douyin { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
+.vr-flag.is-xhs { background: #fff1f2; border-color: #fecdd3; color: #9f1239; }
+.vr-actions { white-space: nowrap; }
+.vr-btn { font-size: 12px; font-weight: 700; padding: 4px 10px; margin-right: 4px; border-radius: 999px;
+          border: 1px solid #cbd5e1; background: #ffffff; color: #475569; cursor: pointer; }
+.vr-btn:hover { background: #f1f5f9; }
+.vr-btn.active { color: #ffffff; }
+.vr-btn[data-verdict="worth"].active { background: #16a34a; border-color: #16a34a; }
+.vr-btn[data-verdict="not_worth"].active { background: #64748b; border-color: #64748b; }
+.vr-btn[data-verdict="irrelevant"].active { background: #b45309; border-color: #b45309; }
+.vr-btn[data-busy="1"] { opacity: 0.6; cursor: progress; }
+.vr-empty { padding: 42px 20px; text-align: center; color: #64748b; background: #ffffff;
+            border: 1px dashed #cbd5e1; border-radius: 10px; }
+.vr-foot { margin-top: 16px; font-size: 12px; color: #94a3b8; line-height: 1.8; }
+#vr-toast-container { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+.vr-toast { background: #0f172a; color: #ffffff; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+            max-width: 340px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.24); }
+.vr-toast .vr-toast-title { font-weight: 700; margin-bottom: 2px; }
+.vr-toast.is-warning { background: #b91c1c; }
+.vr-toast.is-success { background: #15803d; }
+.vr-toplink { font-size: 13px; font-weight: 700; color: #1d4ed8; text-decoration: none; }
+
+/* ===== 覆盖主应用 style.css 的全局 body 规则（不改 style.css）=====
+   style.css 里 `body{display:grid;grid-template-columns:254px minmax(0,1fr);height:100vh;overflow:hidden}`
+   会把本页内容塞进 254px 那一列、并把纵向滚动锁死（滚轮 scrollY 恒为 0）。
+   用 body.vr-page 提高特异性覆盖（同时压过 style.css 里 @media(max-width:1150px/760px) 的两条 body 规则）：
+   回到普通文档流、占满宽度、页面自身可上下滚动。 */
+body.vr-page { display: block; height: auto; min-height: 100vh; overflow: visible;
+               grid-template-columns: none; margin: 0; }
+/* 表格横向滚动壳：窄视口时表格不再撑破页面，而是壳内横向滚动 */
+.vr-table-scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; border-radius: 10px; }
+.vr-table-scroll .vr-table { min-width: 1120px; }
+/* 标题列最小宽度：长标题正常换行，不会一字一行 */
+.vr-title { min-width: 300px; }
+@media (max-width: 760px) { .vr-title { min-width: 200px; } .video-radar-wrap { padding: 14px 12px 48px; } }
+</style>
+</head>
+<body class="vr-page">
+<div class="video-radar-wrap">
+  <div class="vr-head">
+    <h1>🎬 视频爆款雷达</h1>
+    <span class="vr-sub" id="vr-keyword">关键词 —</span>
+    <span class="vr-sub" id="vr-generated">数据时间 —</span>
+    <a class="vr-toplink" href="/twitter-radar.html">← 回到推特雷达</a>
+  </div>
+
+  <div class="vr-status is-missing" id="vr-status">正在读取视频榜数据…</div>
+
+  <div class="vr-tabs" id="vr-tabs">
+    <button type="button" class="vr-tab active" data-list="xiaohongshu">小红书（每小时）</button>
+    <button type="button" class="vr-tab" data-list="douyin_realtime">抖音每小时热榜</button>
+    <button type="button" class="vr-tab" data-list="douyin_daily">抖音日榜（数据约晚 1–2 天）</button>
+  </div>
+
+  <div id="vr-body"></div>
+
+  <div class="vr-foot">
+    数据来源：<code>workspace/video-radar/page.json</code>（采集侧每轮原子写）。小红书与抖音每小时热榜超过 <strong>70 分钟</strong>没有成功采集即标记「数据已过期」；抖音日榜超过 <strong>30 小时</strong>同样标记（它本来就晚 1–2 天）。播放与粉丝来自抖音热点宝榜单（近 1 小时），只有 <code>dy_multi</code> 补充来源拿不到这两项时显示「—」。
+    点赞「近一小时涨速」是最近两次观察的赞增量 ÷ 实际间隔小时，只看过一次时显示「—」。
+    所有「null」字段显示「—」，不显示 0。
+  </div>
+</div>
+<div id="vr-toast-container"></div>
+<script src="video-radar.js"></script>
+</body>
+</html>

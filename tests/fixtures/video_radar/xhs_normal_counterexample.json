@@ -1,0 +1,153 @@
+{
+  "source": "010_xhs_r1_latest_p3.json",
+  "sample_time": 1792107993.596985,
+  "records": [
+    {
+      "path": "data.data.items[13].note",
+      "value": {
+        "title": "AI还是太不靠谱了，特别是即梦AI做的图片",
+        "collected_count": 3,
+        "comments_count": 3,
+        "images_list": [
+          {
+            "height": 1720,
+            "width": 1180,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326901p3nl6005p4q74n48e7t5ve0vd8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=a8520d8dd1c4a7ca6da996a4c8663e58&t=6ad165db",
+            "url": "https://sns-na-i11.xhscdn.com/1040g2sg326901p3nl6005p4q74n48e7t5ve0vd8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=a8520d8dd1c4a7ca6da996a4c8663e58&t=6ad165db"
+          },
+          {
+            "height": 1704,
+            "width": 1178,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326901p3nl60g5p4q74n48e7tqa3bk3g?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=cd0c2dbf3f0d55d4590667abb449c6a3&t=6ad165db",
+            "url": ""
+          },
+          {
+            "height": 1723,
+            "width": 1178,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326901p3nl6105p4q74n48e7th01j62g?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=803af4c5a5c70f09a47ca37c9bb102e2&t=6ad165db",
+            "url": ""
+          },
+          {
+            "height": 1712,
+            "url": "",
+            "width": 1178,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326901p3nl61g5p4q74n48e7tabn2pr0?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=843567bcfe51e4d5a652bc5756883313&t=6ad165db"
+          }
+        ],
+        "type": "normal",
+        "user": {
+          "userid": "649a392e00000000110038fd",
+          "nickname": "透～～"
+        },
+        "id": "6ace24fd000000000a0217b3",
+        "timestamp": 1791894781,
+        "xsec_token": "FIXTURE_TOKEN_19",
+        "update_time": 1791894825000,
+        "liked_count": 4,
+        "desc": "#鬼灭之刃  #驯服AI  #我和AI有话说  #已崩溃",
+        "shared_count": 0,
+        "last_update_time": 0
+      }
+    },
+    {
+      "path": "data.data.items[16].note",
+      "value": {
+        "shared_count": 3,
+        "title": "海报系列提示词",
+        "collected_count": 14,
+        "comments_count": 1,
+        "type": "normal",
+        "images_list": [
+          {
+            "height": 2304,
+            "url": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268rm3na4c6g5pusr8ijlh2vf9a7to8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=e71829496108bf315df7bfbaed598317&t=6ad165db",
+            "width": 1728,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268rm3na4c6g5pusr8ijlh2vf9a7to8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=e71829496108bf315df7bfbaed598317&t=6ad165db"
+          },
+          {
+            "height": 2304,
+            "width": 1728,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268rm3na4c605pusr8ijlh2vg91qq68?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=4506f41e3fb9c35cff41a10275038aaf&t=6ad165db",
+            "url": ""
+          },
+          {
+            "height": 2304,
+            "url": "",
+            "width": 1728,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268rm3na4c4g5pusr8ijlh2v6pa13h0?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=bc09cad00b3327dfca0ea6e9d8ba63d4&t=6ad165db"
+          },
+          {
+            "height": 2304,
+            "width": 1728,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268rm3na4c1g5pusr8ijlh2vsf8rs0o?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=9d999ad954796963523c5be4ca9432e1&t=6ad165db",
+            "url": ""
+          },
+          {
+            "height": 2304,
+            "url": "",
+            "width": 1728,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268rm3na4c5g5pusr8ijlh2vrn2mthg?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=3e9e90fdc6db98ded0ce180560a1fbaf&t=6ad165db"
+          }
+        ],
+        "user": {
+          "nickname": "小红豆AIGC",
+          "userid": "67dcda25000000000e02c45f"
+        },
+        "id": "6ace00110000000012034b45",
+        "timestamp": 1791885329,
+        "xsec_token": "FIXTURE_TOKEN_20",
+        "update_time": 1791885933000,
+        "liked_count": 16,
+        "desc": "谁还不知道海报系列提示词，跟着我学起来吧#海报制作  #ai关键词  #AI生成  #创意海报  ✅全套通用正向提示词",
+        "last_update_time": 0
+      }
+    },
+    {
+      "path": "data.data.items[18].note",
+      "value": {
+        "shared_count": 1,
+        "title": "Codex怎么自动剪视频",
+        "collected_count": 8,
+        "comments_count": 0,
+        "type": "normal",
+        "images_list": [
+          {
+            "height": 2400,
+            "width": 1440,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268eq73258205ngqrfcg87njj9jui38?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=1037368d4075a968f58371c8abb9959b&t=6ad165db",
+            "url": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268eq73258205ngqrfcg87njj9jui38?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=1037368d4075a968f58371c8abb9959b&t=6ad165db"
+          },
+          {
+            "height": 2400,
+            "url": "",
+            "width": 1440,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268eq732582g5ngqrfcg87nj5udeb08?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=b861c98af3561f98f129395292a95966&t=6ad165db"
+          },
+          {
+            "height": 2400,
+            "url": "",
+            "width": 1440,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268eq73258305ngqrfcg87njd3p013g?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=c321e95b749ec6629c6990fa50ded8cc&t=6ad165db"
+          },
+          {
+            "height": 2400,
+            "width": 1440,
+            "url_size_large": "https://sns-na-i11.xhscdn.com/notes_pre_post/1040g3k03268eq732583g5ngqrfcg87njsb483hg?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=6811b7f08bdd8d10924928c83d88692e&t=6ad165db",
+            "url": ""
+          }
+        ],
+        "user": {
+          "userid": "5e1adbd90000000001001ef3",
+          "nickname": "Codex手记"
+        },
+        "id": "6acd96ca00000000150169f3",
+        "timestamp": 1791858379,
+        "xsec_token": "FIXTURE_TOKEN_21",
+        "update_time": 1791858421000,
+        "liked_count": 12,
+        "desc": "很多人剪一条一分钟的口播，光调字幕、配背景音乐就得耗半个多小时，经常熬到半夜。现在有 AI了，像 Codex 就能做剪辑",
+        "last_update_time": 0
+      }
+    }
+  ]
+}

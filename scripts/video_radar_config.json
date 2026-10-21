@@ -1,0 +1,71 @@
+{
+  "keyword": "AI",
+  "min_likes": 10,
+  "relevant_terms": [
+    "人工智能",
+    "大模型",
+    "智能体",
+    "AIGC",
+    "提示词",
+    "数字人",
+    "ChatGPT",
+    "DeepSeek",
+    "Claude",
+    "Gemini",
+    "豆包",
+    "即梦",
+    "可灵",
+    "Sora",
+    "Midjourney",
+    "Codex",
+    "Cursor",
+    "LLM",
+    "Qwen",
+    "LibTV",
+    "OiiOii"
+  ],
+  "request_timeout_seconds": 30,
+  "round_timeout_seconds": 600,
+  "snapshot_retention_days": 30,
+  "negative_ai_prefixes": [
+    "并非",
+    "不是",
+    "没有",
+    "未用",
+    "非",
+    "无"
+  ],
+  "negative_ai_production_terms": [
+    "画面",
+    "生成",
+    "合成",
+    "制作",
+    "特效",
+    "参与",
+    "痕迹"
+  ],
+  "negative_ai_real_capture_terms": [
+    "实拍",
+    "真实拍摄"
+  ],
+  "ai_creation_activity_patterns": [
+    "我ai玩和平",
+    "ai作者团",
+    "ai创作浪潮计划",
+    "ai创作者浪潮计划",
+    "ai创作者成长计划",
+    "ai导演扶持计划",
+    "ai搞事业howto",
+    "ai浪潮创作计划",
+    "ai创作大赛",
+    "ai创作团",
+    "ai反常识howto",
+    "howto用ai抢救一切",
+    "ai进化生活howto"
+  ],
+  "generic_ai_tag_pattern": "[#＃]ai(?!\\w)",
+  "negative_ai_boundary": {
+    "mode": "end_or_non_word",
+    "extra_word_chars": []
+  }
+}

@@ -1406,6 +1406,10 @@ class Handler(BaseHTTPRequestHandler):
                 # 雷达页「每小时新增」列：文件缺失/损坏/过期都在模块内收敛，这里不改既有校验。
                 from radar_page_api import monitor_view
                 return self.reply(200, monitor_view(store.workspace))
+            if parts.path == '/api/video-radar/page':
+                # 视频榜页面数据：missing/corrupt 都在模块内收敛成 200，这里不改既有校验。
+                from video_radar_page_api import page_view
+                return self.reply(200, page_view(store.workspace))
             if parts.path == '/api/sources/wechat/status':
                 return self.reply(200, store.wechat_source.status())
             if parts.path == '/api/sources/wechat/results':
@@ -1745,6 +1749,19 @@ class Handler(BaseHTTPRequestHandler):
                     snapshot = monitor_view(self.server.store.workspace)['tweets'].get(
                         str(payload.get('tweet_id'))) if isinstance(payload, dict) else None
                     record = save_feedback(self.server.store.workspace, payload, snapshot=snapshot)
+                except FeedbackCorrupt as exc:
+                    return self.reply(409, {'error': str(exc), 'code': 'FEEDBACK_CORRUPT'})
+                except ValueError as exc:
+                    return self.reply(400, {'error': str(exc)})
+                except OSError:
+                    return self.reply(500, {'error': '反馈未保存，请稍后重试'})
+                return self.reply(200, record)
+            if segments == ['api', 'video-radar', 'feedback']:
+                # 值得跟/不值得/不相关：沿用本函数既有的来源校验与 body 限制，坏 payload 400、
+                # 反馈文件损坏 409（FeedbackCorrupt 是 ValueError 子类，必须先判）、写失败 500。
+                from video_radar_page_api import FeedbackCorrupt, save_feedback
+                try:
+                    record = save_feedback(self.server.store.workspace, payload)
                 except FeedbackCorrupt as exc:
                     return self.reply(409, {'error': str(exc), 'code': 'FEEDBACK_CORRUPT'})
                 except ValueError as exc:

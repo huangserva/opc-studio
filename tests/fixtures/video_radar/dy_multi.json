@@ -1,0 +1,489 @@
+{
+  "code": 200,
+  "data": [
+    {
+      "status_code": 0,
+      "business_data": [
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7697066547844976049",
+              "desc": "别害怕AI，学会驾驭它。#ai学习 #学ai #玩转ai #ai效果太酷了",
+              "create_time": 1792112960,
+              "author": {
+                "uid": "3999342148194323",
+                "nickname": "龙虾小子",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p3-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=aXw%2B1PtjhF%2FmsCd17si3%2BN91cPs%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p3-sign.douyinpic.com/tos-cn-i-0813c000-ce/o4EeLA9AIEAfmQGiAqAwMYginCFkM80DXcR31w~noop.webp?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062_large&l=20261016094403C635377D17D27930C085&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=IUDKBrhAE4QmDuXXXGJ000K98b8%3D",
+                    "https://p11-sign.douyinpic.com/tos-cn-i-0813c000-ce/o4EeLA9AIEAfmQGiAqAwMYginCFkM80DXcR31w~noop.webp?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062_large&l=20261016094403C635377D17D27930C085&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=vgP2VlNOC1ozB3AstmbMEiBJIBA%3D",
+                    "https://p3-sign.douyinpic.com/tos-cn-i-0813c000-ce/o4EeLA9AIEAfmQGiAqAwMYginCFkM80DXcR31w~noop.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062_large&l=20261016094403C635377D17D27930C085&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=1UwSx7Il1LyA%2FTRTHxqRvwGi8Y0%3D"
+                  ],
+                  "width": 1080,
+                  "height": 1440
+                },
+                "height": 1440,
+                "width": 1080,
+                "duration": 0
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7697066547844976049/?region=US&mid=7682002405705779209&u_code=0&did=MS4wLjABAAAAGmn_RuOHyzTAIUNmbLAWqpgkdivOpAJ5P_tY4XIRo2Wr-nEQ5Ua7YlSlF7L-6H7R&iid=MS4wLjABAAAAHGg3NiX7OGrG3XI--lmd5vDjrlwq5VdsEd1xfHBrBy4IZHh4N2z8itZD6wrHd8mU&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=.xAHvhCr6P5TndUuZQwHDL7cj26PVkbiuLqrzhPA48M-&share_version=320900&ts=1792115044&from_aid=615883&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7697066547844976049",
+                "comment_count": 0,
+                "digg_count": 0,
+                "play_count": 0,
+                "share_count": 0,
+                "collect_count": 0
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7697066547844976049/?region=US&mid=7682002405705779209&u_code=0&did=MS4wLjABAAAAGmn_RuOHyzTAIUNmbLAWqpgkdivOpAJ5P_tY4XIRo2Wr-nEQ5Ua7YlSlF7L-6H7R&iid=MS4wLjABAAAAHGg3NiX7OGrG3XI--lmd5vDjrlwq5VdsEd1xfHBrBy4IZHh4N2z8itZD6wrHd8mU&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=.xAHvhCr6P5TndUuZQwHDL7cj26PVkbiuLqrzhPA48M-&share_version=320900&ts=1792115044&from_aid=615883&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 0,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696921490323943401",
+              "desc": "#分居跟分床睡那个更可怕 掐死他的心都有😱😱",
+              "create_time": 1792079186,
+              "author": {
+                "uid": "4406464366257118",
+                "nickname": "Ai一直都在NI",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793318400&x-signature=JdeqOoasK1IuDkhqDaq4HOShl0A%3D&from=327834062",
+                      "https://p95-zjwztc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793318400&x-signature=8G1FhHV7afRgY1ANbX4ORzKUHN8%3D&from=327834062",
+                      "https://p5-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793318400&x-signature=nIBmsMajCdzYzAGhZps4CfDkyWI%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p11-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__1320x2315_f8069060b7c32991880cea620a0e6c98_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTMvb1lCSFFUZnFBdHRIMWlBQTIyd0NBYUNSaWFJQTlFTWdlckRBVlEmdHBsPXRwbHYtd2Z0YjRrcjFpOS12cWUyLWNhZS1mYWwmZnJvbT1hd2VtZS5wYWNrLmJpeg%3D%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794701371&x-signature=97q6dDDU2dCVBr%2BSD5SBfm%2B4kZI%3D",
+                    "https://p26-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__1320x2315_f8069060b7c32991880cea620a0e6c98_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTMvb1lCSFFUZnFBdHRIMWlBQTIyd0NBYUNSaWFJQTlFTWdlckRBVlEmdHBsPXRwbHYtd2Z0YjRrcjFpOS12cWUyLWNhZS1mYWwmZnJvbT1hd2VtZS5wYWNrLmJpeg%3D%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794701371&x-signature=OSo%2B2hBgJfyRmaFtJkWgXF0LzGw%3D",
+                    "https://p9-sign.douyinpic.com/tos-cn-i-0813/oYBHQTfqAttH1iAA22wCAaCRiaIA9EMgerDAVQ~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062&l=202610160809304BE10197A13C189B91F0&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793318400&x-signature=igG8nUQoxbafc1a%2FcwTPWlfzDsE%3D"
+                  ],
+                  "width": 540,
+                  "height": 948
+                },
+                "height": 2315,
+                "width": 1320,
+                "duration": 15000
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7696921490323943401/?region=CN&mid=7393001252140763967&u_code=lafkgila&did=MS4wLjABAAAAwxm-foMY04QK6IOpOzithFCHa-LuIJdEIilOmPB99eCQCVeZC-5e9DSs0pKuABvC&iid=MS4wLjABAAAAyoq5AF32--j49PijIZ-wXgnmUaPWxwTb1i8veEEb6sC8drD52-YRw44YfBpD_itq&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=WJibcM.zq2PEzPVswNWpf.yk9ocBMfV2cOAWkbDhAFY-&share_version=400700&ts=1792109371&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696921490323943401",
+                "comment_count": 531,
+                "digg_count": 493,
+                "play_count": 0,
+                "share_count": 1982,
+                "collect_count": 168
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7696921490323943401/?region=CN&mid=7393001252140763967&u_code=lafkgila&did=MS4wLjABAAAAwxm-foMY04QK6IOpOzithFCHa-LuIJdEIilOmPB99eCQCVeZC-5e9DSs0pKuABvC&iid=MS4wLjABAAAAyoq5AF32--j49PijIZ-wXgnmUaPWxwTb1i8veEEb6sC8drD52-YRw44YfBpD_itq&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=WJibcM.zq2PEzPVswNWpf.yk9ocBMfV2cOAWkbDhAFY-&share_version=400700&ts=1792109371&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 15000,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696878014311095528",
+              "desc": "#AI梯田红装演讲氛围感 #抖音ai创作 #抖音玩法合伙人计划@我要上热门 @DOU+小助手 @上热门🔥🔥🔥",
+              "create_time": 1792069062,
+              "author": {
+                "uid": "3469692663764004",
+                "nickname": "秋菊姐AI视频",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p95-zjwztc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=gNmCvqv352xPysX2d%2F4DgbRagbE%3D&from=327834062",
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=a8Pjgd1pCA0ofyqhWl6clYJEGmw%3D&from=327834062",
+                      "https://p5-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=TxsOw%2F%2FCz98KiMu27Fmfg%2FW%2B%2F3I%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p26-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__752x1344_20320020fa54dc21bf3183173fae7783_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&definition=540_966&file_size=72256&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAxL284WDFPV2JMQUFBOUFla2NnRWk0YXpOQmhmR1ZqY0dpQUFDRFFJJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794705180&x-signature=%2Bq5gBk76h%2BxsWIV0ochDYslkbnU%3D",
+                    "https://p5-ex-gddgtc-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__752x1344_20320020fa54dc21bf3183173fae7783_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&definition=540_966&file_size=72256&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAxL284WDFPV2JMQUFBOUFla2NnRWk0YXpOQmhmR1ZqY0dpQUFDRFFJJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794705180&x-signature=%2FAsuTm%2BMEdLW2fVZsgb6M47HubM%3D",
+                    "https://p3-sign.douyinpic.com/tos-cn-i-0813c001/o8X1OWbLAAA9AekcgEi4azNBhfGVjcGiAACDQI~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062&l=202610160912593BFE01391601923EED9A&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=mA9xl6XbiX%2BJf4Yy6wdCCt70vgA%3D"
+                  ],
+                  "width": 540,
+                  "height": 966
+                },
+                "height": 1344,
+                "width": 752,
+                "duration": 30000
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7696878014311095528/?region=CN&mid=7686275673710775090&u_code=1bhlkcbg0a0j&did=MS4wLjABAAAACWQf-zL5CRRLJ8pSltBKgIyUsCKEjNN0HlNSZfm83Fo&iid=MS4wLjABAAAA3ybP9jUwDFYrdaEiMCMdH6Ze9A_yQUulsYsYuz-1MRCtfE17E2Q6oyGvLpOpenQX&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=L7rUVSIQjo7OaxiKpnSF7sitUfOf6EDZZOOxHhg5TIU-&share_version=400700&ts=1792113180&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696878014311095528",
+                "comment_count": 10,
+                "digg_count": 306,
+                "play_count": 0,
+                "share_count": 4,
+                "collect_count": 126
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7696878014311095528/?region=CN&mid=7686275673710775090&u_code=1bhlkcbg0a0j&did=MS4wLjABAAAACWQf-zL5CRRLJ8pSltBKgIyUsCKEjNN0HlNSZfm83Fo&iid=MS4wLjABAAAA3ybP9jUwDFYrdaEiMCMdH6Ze9A_yQUulsYsYuz-1MRCtfE17E2Q6oyGvLpOpenQX&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=L7rUVSIQjo7OaxiKpnSF7sitUfOf6EDZZOOxHhg5TIU-&share_version=400700&ts=1792113180&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 30000,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696830445077400866",
+              "desc": "国内的AI产生不了生产力 国内AI无法产生生产力#AI #AI创业",
+              "create_time": 1792068900,
+              "author": {
+                "uid": "64649225844",
+                "nickname": "AI圆桌派（采访100位用AI赚钱创业者",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p95-zjwztc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=gNmCvqv352xPysX2d%2F4DgbRagbE%3D&from=327834062",
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=a8Pjgd1pCA0ofyqhWl6clYJEGmw%3D&from=327834062",
+                      "https://p5-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=TxsOw%2F%2FCz98KiMu27Fmfg%2FW%2B%2F3I%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p26-sign.douyinpic.com/tos-cn-i-dy/169edccd7fcd4f00aa7fbbbdb628340e~tplv-dy-resize-walign-adapt-aq:540:q75.webp?biz_tag=aweme_video&card_type=153&column_n=0&from=327834062&l=20261016093905ED784F088E8394934A30&lk3s=138a59ce&s=PackSourceEnum_SEARCH&sc=cover&se=false&x-expires=1793322000&x-signature=w13FNJ56Z0SeOk6QxAGtmETZ%2Fv0%3D",
+                    "https://p11-sign.douyinpic.com/tos-cn-i-dy/169edccd7fcd4f00aa7fbbbdb628340e~tplv-dy-resize-walign-adapt-aq:540:q75.webp?biz_tag=aweme_video&card_type=153&column_n=0&from=327834062&l=20261016093905ED784F088E8394934A30&lk3s=138a59ce&s=PackSourceEnum_SEARCH&sc=cover&se=false&x-expires=1793322000&x-signature=6h8kLW3Xe%2FyeyqdWwVwzRqc2szU%3D",
+                    "https://p9-sign.douyinpic.com/tos-cn-i-dy/169edccd7fcd4f00aa7fbbbdb628340e~tplv-dy-resize-walign-adapt-aq:540:q75.webp?biz_tag=aweme_video&card_type=153&column_n=0&from=327834062&l=20261016093905ED784F088E8394934A30&lk3s=138a59ce&s=PackSourceEnum_SEARCH&sc=cover&se=false&x-expires=1793322000&x-signature=31YZM4mziiTQp01lhaSDuGDwQQo%3D",
+                    "https://p26-sign.douyinpic.com/tos-cn-i-dy/169edccd7fcd4f00aa7fbbbdb628340e~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_video&card_type=153&column_n=0&from=327834062&l=20261016093905ED784F088E8394934A30&lk3s=138a59ce&s=PackSourceEnum_SEARCH&sc=cover&se=false&x-expires=1793322000&x-signature=INpfdmBDmBzYT0MsjWgkpTuDO%2BY%3D"
+                  ],
+                  "width": 540,
+                  "height": 720
+                },
+                "height": 1920,
+                "width": 1080,
+                "duration": 158734
+              },
+              "share_url": "https://www.iesdouyin.com/share/video/7696830445077400866/?region=CN&mid=7696830437175348010&u_code=0&did=MS4wLjABAAAAJ67Uh_bXsSy1Ds705qu9G0DYUWc35RdSK_r0TUHYuRR73Wa7zqwynJvujUKQhwRO&iid=MS4wLjABAAAANwkJuWIRFOzg5uCpDRpMj4OX-QryoDgn-yYlXQnRwQQ&with_sec_did=1&video_share_track_ver=&titleType=title&share_sign=KH2H8BOmZyL4RPJqOfBp1sI5YKd7RvZVvSd5C5UZyD0-&share_version=290000&ts=1792114746&from_aid=581610&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696830445077400866",
+                "comment_count": 85,
+                "digg_count": 956,
+                "play_count": 0,
+                "share_count": 263,
+                "collect_count": 273
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/video/7696830445077400866/?region=CN&mid=7696830437175348010&u_code=0&did=MS4wLjABAAAAJ67Uh_bXsSy1Ds705qu9G0DYUWc35RdSK_r0TUHYuRR73Wa7zqwynJvujUKQhwRO&iid=MS4wLjABAAAANwkJuWIRFOzg5uCpDRpMj4OX-QryoDgn-yYlXQnRwQQ&with_sec_did=1&video_share_track_ver=&titleType=title&share_sign=KH2H8BOmZyL4RPJqOfBp1sI5YKd7RvZVvSd5C5UZyD0-&share_version=290000&ts=1792114746&from_aid=581610&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 158734,
+              "aweme_type": 0,
+              "image_list": null,
+              "media_type": 4,
+              "item_title": "国内的AI产生不了生产力"
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696808635850514939",
+              "desc": "中国医疗实力前15城市，不同AI给出不一样答案，看看哪个你认可？#医疗实力 #城市排名 #AI对比 #城市科普 #中国城市",
+              "create_time": 1792065780,
+              "author": {
+                "uid": "76110950551",
+                "nickname": "大美数据📊",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p96-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=fezYBe41tX0t3ztZNKwdcJ6M9SY%3D&from=327834062",
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=a8Pjgd1pCA0ofyqhWl6clYJEGmw%3D&from=327834062",
+                      "https://p11-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=3dGLR49TBcZc3GlkMVlmYg8JD5Y%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p26-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__1079x1878_38d1c29a362265f67abedd746e00da83_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAwLWNlL29ZMUZmQUVORVk5ZUQ1QTZyZjJ2UUlJWXFuQWpZRG9IMEFFd0FFJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706991&x-signature=ud59Z8i3nU00H6%2Bw%2BJqrlpX5dlo%3D",
+                    "https://p3-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__1079x1878_38d1c29a362265f67abedd746e00da83_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAwLWNlL29ZMUZmQUVORVk5ZUQ1QTZyZjJ2UUlJWXFuQWpZRG9IMEFFd0FFJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706991&x-signature=b34HrRu87oEz6E0nBkmFBGfxvh8%3D",
+                    "https://p26-sign.douyinpic.com/tos-cn-i-0813c000-ce/oY1FfAENEY9eD5A6rf2vQIIYqnAjYDoH0AEwAE~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062&l=20261016094310ACA040DE2259723BF44B&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=WjIssx8y7XPmj7ugE1773kPAlnY%3D"
+                  ],
+                  "width": 540,
+                  "height": 940
+                },
+                "height": 1878,
+                "width": 1079,
+                "duration": 28000
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7696808635850514939/?region=CN&mid=7549961703321094962&u_code=lbc4e909&did=MS4wLjABAAAAm2YaQdRsPiZfxJrkBN90Hq3Kn2M4f60f9EFknsnZzrnT6WKDk4D8VajkKFVjX9AN&iid=MS4wLjABAAAAMnjM4wnv0nj0_VxQ4ZlOiToMdTnVz6llsPxJ-3mp3str99UAYDCKCgrk2DlAxq6s&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=KupO2olRHlt5yH5WjrXZj2minAMQ2d5u27z6hygFpGA-&share_version=400700&ts=1792114991&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696808635850514939",
+                "comment_count": 1332,
+                "digg_count": 518,
+                "play_count": 0,
+                "share_count": 31,
+                "collect_count": 95
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7696808635850514939/?region=CN&mid=7549961703321094962&u_code=lbc4e909&did=MS4wLjABAAAAm2YaQdRsPiZfxJrkBN90Hq3Kn2M4f60f9EFknsnZzrnT6WKDk4D8VajkKFVjX9AN&iid=MS4wLjABAAAAMnjM4wnv0nj0_VxQ4ZlOiToMdTnVz6llsPxJ-3mp3str99UAYDCKCgrk2DlAxq6s&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=KupO2olRHlt5yH5WjrXZj2minAMQ2d5u27z6hygFpGA-&share_version=400700&ts=1792114991&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 28000,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696851927401580273",
+              "desc": "新鸭绿江大桥今天通车，全长3026米，双向4车道",
+              "create_time": 1792062989,
+              "author": {
+                "uid": "104434890316",
+                "nickname": "Ai村长",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p96-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=fezYBe41tX0t3ztZNKwdcJ6M9SY%3D&from=327834062",
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=a8Pjgd1pCA0ofyqhWl6clYJEGmw%3D&from=327834062",
+                      "https://p26-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=RT4RoeC7A6GQICLnG4sqjNtehCo%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p9-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__720x1324_d00d263abfb7c18f172eb5fec364f658_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAwLWNlL29FRUFJb0RmTGdORVNWQTlJdDBxNEFGWVFBdURmRHdFQTVyaVFDJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706681&x-signature=x89HjIBs0gjdOQwHnggVBXqSUqk%3D",
+                    "https://p26-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__720x1324_d00d263abfb7c18f172eb5fec364f658_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAwLWNlL29FRUFJb0RmTGdORVNWQTlJdDBxNEFGWVFBdURmRHdFQTVyaVFDJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706681&x-signature=MM8PAS5WGk%2Bw6%2BJw5%2FnYGRGXLoY%3D",
+                    "https://p3-sign.douyinpic.com/tos-cn-i-0813c000-ce/oEEAIoDfLgNESVA9It0q4AFYQAuDfDwEA5riQC~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062&l=20261016093801297BA58527EE44429A01&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=smoqSmhvtQxZj3un1pH8s2cU8t4%3D"
+                  ],
+                  "width": 540,
+                  "height": 994
+                },
+                "height": 1324,
+                "width": 720,
+                "duration": 20000
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7696851927401580273/?region=CN&mid=7531725891051768616&u_code=0&did=MS4wLjABAAAAPw8k6yLZbaewpmKI4yJozrrnA8AmCBictVMb_Z8i7mA&iid=MS4wLjABAAAAmbRpNVf41b7xrxbCGXJ0Uxt7nQAd6jvwuN4FEZqsoxhHWkVRaIqvdElqf8anWS-5&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=hTk3ZkPB1ul0UmER2ag87tfJR0F_xtp7xW0DzLbxoqM-&share_version=400700&ts=1792114681&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696851927401580273",
+                "comment_count": 494,
+                "digg_count": 7389,
+                "play_count": 0,
+                "share_count": 548,
+                "collect_count": 1040
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7696851927401580273/?region=CN&mid=7531725891051768616&u_code=0&did=MS4wLjABAAAAPw8k6yLZbaewpmKI4yJozrrnA8AmCBictVMb_Z8i7mA&iid=MS4wLjABAAAAmbRpNVf41b7xrxbCGXJ0Uxt7nQAd6jvwuN4FEZqsoxhHWkVRaIqvdElqf8anWS-5&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=hTk3ZkPB1ul0UmER2ag87tfJR0F_xtp7xW0DzLbxoqM-&share_version=400700&ts=1792114681&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 20000,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696758409543487140",
+              "desc": "我能不能好好活下去#ai",
+              "create_time": 1792041216,
+              "author": {
+                "uid": "730521179011672",
+                "nickname": "Aivio",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p11-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=3dGLR49TBcZc3GlkMVlmYg8JD5Y%3D&from=327834062",
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=a8Pjgd1pCA0ofyqhWl6clYJEGmw%3D&from=327834062",
+                      "https://p9-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=bXMr1w4AkH0E4vXlFd1M2wSVNCY%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p9-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__1170x1548_7efc85f3233eb4d56674cf4d427af8fd_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&column_n=0&definition=540_714&file_size=28955&rc=bWlkPXRvcy1jbi1pLTA4MTMvbzhOMHl5QmZFaUFCSUtDYXVBaURBWUFBQTJEaVBlTFExTlBEZzUmdHBsPXRwbHYtd2Z0YjRrcjFpOS12cWUyLWNhZS1mYWwmZnJvbT1hd2VtZS5wYWNrLmJpeg%3D%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706812&x-signature=4g%2FoCSjxG%2FoGZJx8sm8lf25bLgw%3D",
+                    "https://p11-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__1170x1548_7efc85f3233eb4d56674cf4d427af8fd_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&column_n=0&definition=540_714&file_size=28955&rc=bWlkPXRvcy1jbi1pLTA4MTMvbzhOMHl5QmZFaUFCSUtDYXVBaURBWUFBQTJEaVBlTFExTlBEZzUmdHBsPXRwbHYtd2Z0YjRrcjFpOS12cWUyLWNhZS1mYWwmZnJvbT1hd2VtZS5wYWNrLmJpeg%3D%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706812&x-signature=967i2kOEmjOsG2Mozc%2B4uMZRpKE%3D",
+                    "https://p9-sign.douyinpic.com/tos-cn-i-0813/o8N0yyBfEiABIKCauAiDAYAAA2DiPeLQ1NPDg5~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062&l=2026101609401111E65A3BAD573D3B3992&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=aTE0WaxeO1Jtri5I574mPPLazT8%3D"
+                  ],
+                  "width": 540,
+                  "height": 714
+                },
+                "height": 1548,
+                "width": 1170,
+                "duration": 147000
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7696758409543487140/?region=CN&mid=7682032965085678342&u_code=41a078m6mfi5&did=MS4wLjABAAAA0gKv5P2ROHC6o6UYGDc7MMcoiVwFbf5f5Yy13atT_n7mUdcjg9uxKXmUY7_-4-1_&iid=MS4wLjABAAAA9SovgtVTHiV37_eIvBpj7JgxRmej6XOfGVHx6TbTjTzMX-29VFfblfbSobRtWn9r&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=ddV5.GVNLgiQljS8VAs1mED5VymlsQ9GXFqBM3O9DLQ-&share_version=400700&ts=1792114812&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696758409543487140",
+                "comment_count": 16447,
+                "digg_count": 46843,
+                "play_count": 0,
+                "share_count": 16853,
+                "collect_count": 6891
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7696758409543487140/?region=CN&mid=7682032965085678342&u_code=41a078m6mfi5&did=MS4wLjABAAAA0gKv5P2ROHC6o6UYGDc7MMcoiVwFbf5f5Yy13atT_n7mUdcjg9uxKXmUY7_-4-1_&iid=MS4wLjABAAAA9SovgtVTHiV37_eIvBpj7JgxRmej6XOfGVHx6TbTjTzMX-29VFfblfbSobRtWn9r&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=ddV5.GVNLgiQljS8VAs1mED5VymlsQ9GXFqBM3O9DLQ-&share_version=400700&ts=1792114812&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 147000,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        },
+        {
+          "data": {
+            "aweme_info": {
+              "aweme_id": "7696721450535423333",
+              "desc": "不能dp的上游是open吧。#ai问答工具 #DeepSeek #deepseek用不了",
+              "create_time": 1792032610,
+              "author": {
+                "uid": "1033151747993748",
+                "nickname": "厂仔学ai",
+                "follower_count": 0,
+                "share_info": {
+                  "share_url": ""
+                },
+                "create_time": 0,
+                "cover_url": [
+                  {
+                    "url_list": [
+                      "https://p95-zjwztc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=gNmCvqv352xPysX2d%2F4DgbRagbE%3D&from=327834062",
+                      "https://p5-ex-gddgtc-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=a8Pjgd1pCA0ofyqhWl6clYJEGmw%3D&from=327834062",
+                      "https://p5-sign.douyinpic.com/obj/c8510002be9a3a61aad2?lk3s=138a59ce&x-expires=1793322000&x-signature=TxsOw%2F%2FCz98KiMu27Fmfg%2FW%2B%2F3I%3D&from=327834062"
+                    ],
+                    "width": 720,
+                    "height": 720
+                  }
+                ]
+              },
+              "video": {
+                "cover": {
+                  "url_list": [
+                    "https://p26-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__876x920_86e660b04b4cb095ea0b540b344fb5ff_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAwLWNlL29FOXE3MzhmQUFBbkE5OXR3RUZyMFBvRHVmVkt1eURFRUFDRFFJJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706720&x-signature=rYDMhq%2FRlLAt1k6vkXQvvx8jjOw%3D",
+                    "https://p3-sign.douyinpic.com/tos-cn-i-wftb4kr1i9/_offtrans__876x920_86e660b04b4cb095ea0b540b344fb5ff_5a23bf74fe2d436b13ce3e6ccebe224a8039e14d6e6a4ae6321b455c1307a689_vvic~tplv-wftb4kr1i9-origin.image?biz_tag=aweme_cover&card_type=303&cdn_type=1&column_n=0&rc=bWlkPXRvcy1jbi1pLTA4MTNjMDAwLWNlL29FOXE3MzhmQUFBbkE5OXR3RUZyMFBvRHVmVkt1eURFRUFDRFFJJnRwbD10cGx2LXdmdGI0a3IxaTktdnFlMi1jYWUtZmFsJmZyb209YXdlbWUucGFjay5iaXo%3D&s=PackSourceEnum_SEARCH_SIN&sc=cover&x-expires=1794706720&x-signature=9uOQr%2FBCg%2FtgYxSyP9FuqxIjASw%3D",
+                    "https://p26-sign.douyinpic.com/tos-cn-i-0813c000-ce/oE9q738fAAAnA99twEFr0PoDufVKuyDEEACDQI~tplv-dy-resize-walign-adapt-aq:540:q75.jpeg?biz_tag=aweme_images&card_type=303&column_n=0&from=327834062&l=20261016093839B7A1B871C634619F93D2&lk3s=138a59ce&s=PackSourceEnum_SEARCH_SIN&sc=cover&se=false&x-expires=1793322000&x-signature=%2BDP2tfuIjNbNOKBPPMCDX%2BLPmEs%3D"
+                  ],
+                  "width": 540,
+                  "height": 568
+                },
+                "height": 920,
+                "width": 876,
+                "duration": 19000
+              },
+              "share_url": "https://www.iesdouyin.com/share/note/7696721450535423333/?region=CN&mid=7656260622182730534&u_code=144dm7c85&did=MS4wLjABAAAAHnI3iuUK-TNrE5MFhbbMZnZaYpwaCwwRpBhUNgjiBUs&iid=MS4wLjABAAAAU4wgfTdLxplZrFHTODLZGZDNnPp8Q5CdAs3mutjE2wYCSEwp-lYd3qif3NYJOQbp&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=G9t29d4iZFktE8A.R9f2Vf.n7WhSPTqnJLyDFkYCoi0-&share_version=400600&ts=1792114720&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D",
+              "statistics": {
+                "aweme_id": "7696721450535423333",
+                "comment_count": 644,
+                "digg_count": 959,
+                "play_count": 0,
+                "share_count": 408,
+                "collect_count": 128
+              },
+              "share_info": {
+                "share_url": "https://www.iesdouyin.com/share/note/7696721450535423333/?region=CN&mid=7656260622182730534&u_code=144dm7c85&did=MS4wLjABAAAAHnI3iuUK-TNrE5MFhbbMZnZaYpwaCwwRpBhUNgjiBUs&iid=MS4wLjABAAAAU4wgfTdLxplZrFHTODLZGZDNnPp8Q5CdAs3mutjE2wYCSEwp-lYd3qif3NYJOQbp&with_sec_did=1&video_share_track_ver=&titleType=title&schema_type=37&share_sign=G9t29d4iZFktE8A.R9f2Vf.n7WhSPTqnJLyDFkYCoi0-&share_version=400600&ts=1792114720&from_aid=1128&from_ssr=1&share_track_info=%7B%22link_description_type%22%3A%22%22%7D"
+              },
+              "duration": 19000,
+              "aweme_type": 68,
+              "image_list": null,
+              "media_type": 2,
+              "item_title": ""
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

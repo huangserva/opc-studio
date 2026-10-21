@@ -1,0 +1,533 @@
+{
+  "code": 200,
+  "data": {
+    "code": 0,
+    "success": true,
+    "search_id": "6e5a056c434d4d92@28c583c51ba646c5",
+    "search_session_id": "c9e04c6fe30c4cc2bc9e4e77c7e02777",
+    "data": {
+      "items": [
+        {
+          "note": {
+            "update_time": 1792104933000,
+            "last_update_time": 1792104889,
+            "id": "6ad0d877000000000a01cc38",
+            "type": "video",
+            "collected_count": 13,
+            "user": {
+              "nickname": "濯尘",
+              "userid": "62a85c0b000000001b027baa"
+            },
+            "shared_count": 7,
+            "comments_count": 20,
+            "video_duration": "5:07",
+            "liked_count": 40,
+            "desc": "🏮 可灵AI「看见微光」公益影像大赛 · 原创参赛作品《落幕》 大学生，零基础用AI做视频， 一个人从剧本写到配乐，改",
+            "xsec_token": "FIXTURE_TOKEN_01",
+            "title": "零基础做AI视频，我一个人做了部5分钟的电影",
+            "images_list": [
+              {
+                "height": 1086,
+                "url": "https://sns-na-i11.xhscdn.com/1040g008326c4e552l0705ol8bg5msuta362pd80?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=420f8178a5d766f5e22f43b675c06433&t=6ad165b5",
+                "width": 1448,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g008326c4e552l0705ol8bg5msuta362pd80?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=420f8178a5d766f5e22f43b675c06433&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792071799
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792104720000,
+            "id": "6ad0efad000000001b02cb8a",
+            "last_update_time": 1792104679,
+            "type": "video",
+            "collected_count": 0,
+            "user": {
+              "nickname": "怒赚一百yi",
+              "userid": "694de45b000000003702f164"
+            },
+            "shared_count": 0,
+            "comments_count": 1,
+            "video_duration": "0:11",
+            "liked_count": 1,
+            "desc": "无业想做AI带货 或者考虑副业发展的 有需要的宝子可交流分享 #数字人直播  #自媒体风口  #AI数字人  #AI工具",
+            "xsec_token": "FIXTURE_TOKEN_02",
+            "images_list": [
+              {
+                "height": 1280,
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326bn3qgtkae05qadshdttsb47gf8kb0?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=30bdbf55b999d75d97ad001bf9f6600c&t=6ad165b5",
+                "width": 720,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326bn3qgtkae05qadshdttsb47gf8kb0?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=30bdbf55b999d75d97ad001bf9f6600c&t=6ad165b5"
+              }
+            ],
+            "title": "AI带货赛道 0基础全套工作流",
+            "timestamp": 1792077741
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792105200000,
+            "id": "6ad1356d0000000013033400",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 1,
+            "user": {
+              "nickname": "上海爷叔的美国生活指南",
+              "userid": "67956aca000000000d00a60e"
+            },
+            "shared_count": 0,
+            "comments_count": 0,
+            "video_duration": "2:04",
+            "liked_count": 1,
+            "desc": "AI终于成为美国裁员的头号理由！#美国生活  #移民美国  #AI搞事业howto  #人工智能会取代人类吗  #美国创",
+            "xsec_token": "FIXTURE_TOKEN_03",
+            "title": "AI当道，你的饭碗还能撑多久？",
+            "images_list": [
+              {
+                "height": 1020,
+                "width": 764,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/oss-ae/notes/1040g3ug326bvoqp1mg005psldb5399gebr3spe8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=72e8911cd4fc733de309c95b9cc19c5c&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/oss-ae/notes/1040g3ug326bvoqp1mg005psldb5399gebr3spe8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=72e8911cd4fc733de309c95b9cc19c5c&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792105200
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792096099000,
+            "id": "6ad0e93f000000000a024251",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 10,
+            "user": {
+              "nickname": "阿楠的工具库",
+              "userid": "5eda28cd000000000100567b"
+            },
+            "shared_count": 1,
+            "comments_count": 2,
+            "video_duration": "1:40",
+            "liked_count": 12,
+            "desc": "近期，这种AI网红真的火爆全网，怪诞的发型、反差的穿搭，再配一张一本正经的脸，一下子就让人记住了。其实，这种AI网红制作",
+            "xsec_token": "FIXTURE_TOKEN_04",
+            "title": "AI网红火爆外网！1分钟教你打造原创网红！",
+            "images_list": [
+              {
+                "height": 1684,
+                "width": 1263,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bmbn0tkc0g5nmq536g8ljriv6ji50?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=e3c8547c1a8fdf0f9272b2361eaa1649&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bmbn0tkc0g5nmq536g8ljriv6ji50?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=e3c8547c1a8fdf0f9272b2361eaa1649&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792076095
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792075560000,
+            "last_update_time": 0,
+            "id": "6ad0e6df00000000010098b5",
+            "type": "video",
+            "collected_count": 1,
+            "user": {
+              "userid": "635e9e5300000000180292ce",
+              "nickname": "赛博老爸"
+            },
+            "shared_count": 1,
+            "comments_count": 0,
+            "video_duration": "1:50",
+            "liked_count": 2,
+            "desc": "AI新人创业都会经历的8道坎，大部分人卡在第5道。每一道坎都能劝退无数人 #AI  #创业  #FDE",
+            "xsec_token": "FIXTURE_TOKEN_05",
+            "images_list": [
+              {
+                "height": 1448,
+                "width": 1086,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bmdkrvkc0g5oqujp9m54menuhtvdg?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=b0f289e166da3eb889c7328854eac479&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bmdkrvkc0g5oqujp9m54menuhtvdg?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=b0f289e166da3eb889c7328854eac479&t=6ad165b5"
+              }
+            ],
+            "title": "AI创业8道坎，你卡在第几关？",
+            "timestamp": 1792075487
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792075437000,
+            "last_update_time": 0,
+            "id": "6ad0e6230000000002010042",
+            "type": "video",
+            "collected_count": 38,
+            "user": {
+              "nickname": "刘量AI",
+              "userid": "5d19ffa800000000100375a8"
+            },
+            "shared_count": 1,
+            "comments_count": 2,
+            "video_duration": "2:11",
+            "xsec_token": "FIXTURE_TOKEN_06",
+            "liked_count": 37,
+            "desc": "#AI  #AIAgent  #Vibecoding  #AI编程  #AI教程  #AI工具  #AI应用  #Min",
+            "title": "啥也不会如何用AI Agent弯道超车？3大方向",
+            "images_list": [
+              {
+                "height": 1920,
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326bma9rul6l05n8pvuk46td81j1nlq8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=729e1f139b14332ec4826a904bba3e79&t=6ad165b5",
+                "width": 1440,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326bma9rul6l05n8pvuk46td81j1nlq8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=729e1f139b14332ec4826a904bba3e79&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792075299
+          }
+        },
+        {
+          "note": {
+            "shared_count": 1,
+            "video_duration": "2:32",
+            "collected_count": 5,
+            "comments_count": 0,
+            "type": "video",
+            "images_list": [
+              {
+                "height": 1791,
+                "url": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326blhj5k58105pfs3g00sm9hn7et3vo?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=9dc341d10e767e20f5b586e232a3838f&t=6ad165b5",
+                "width": 2388,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326blhj5k58105pfs3g00sm9hn7et3vo?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=9dc341d10e767e20f5b586e232a3838f&t=6ad165b5"
+              }
+            ],
+            "user": {
+              "userid": "65fc1c000000000003025931",
+              "nickname": "新华日报"
+            },
+            "id": "6ad0e211000000001802f58a",
+            "timestamp": 1792074258,
+            "xsec_token": "FIXTURE_TOKEN_07",
+            "liked_count": 15,
+            "desc": "2026物理AI与世界模型大会宣传片正式发布！从江苏出发，看见物理AI如何建模真实世界。建模物理世界，智启美好未来",
+            "update_time": 1792074440000,
+            "last_update_time": 0
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792074209000,
+            "id": "6ad0e0cc000000000200c424",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 4,
+            "user": {
+              "userid": "6267ed0e00000000210297ec",
+              "nickname": "Luna Sourcing China"
+            },
+            "shared_count": 1,
+            "comments_count": 4,
+            "video_duration": "3:57",
+            "liked_count": 27,
+            "desc": "I thought AI had pretty much solved the language barrier whe",
+            "xsec_token": "FIXTURE_TOKEN_08",
+            "title": "Sorry I asked you to come to China…",
+            "images_list": [
+              {
+                "height": 1441,
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326blgc6g5ge05oj7tk78d5vckp0hcp0?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=c943c43151bd6e1aa86b24cfc685c57b&t=6ad165b5",
+                "width": 1080,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326blgc6g5ge05oj7tk78d5vckp0hcp0?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=c943c43151bd6e1aa86b24cfc685c57b&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792073932
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792072877000,
+            "last_update_time": 1792072825,
+            "id": "6ad0c4670000000012037792",
+            "type": "video",
+            "collected_count": 0,
+            "user": {
+              "userid": "6a6ef54b0000000013021003",
+              "nickname": "追根传媒"
+            },
+            "shared_count": 0,
+            "comments_count": 0,
+            "video_duration": "0:48",
+            "xsec_token": "FIXTURE_TOKEN_09",
+            "desc": "《被AI裁掉的员工》第1集 AI应用后，裁员居然是这个原因#工作里的AI时刻  #剧情反转再反转  #AI剧情片  #人",
+            "liked_count": 2,
+            "title": "《被AI裁掉的员工》第1集 AI应用后，裁员居然是这个原因#工作里的AI时刻 #",
+            "images_list": [
+              {
+                "height": 1491,
+                "url": "https://sns-na-i11.xhscdn.com/spectrum/1040g0k0326bi5nblk6005qjeul5ks4030cbj7l8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=0320af87e433b09b8a7acf6b3fe9880b&t=6ad165b5",
+                "width": 1988,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/spectrum/1040g0k0326bi5nblk6005qjeul5ks4030cbj7l8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=0320af87e433b09b8a7acf6b3fe9880b&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792066663
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792071115000,
+            "id": "6ad0d1a70000000015000cbd",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 2,
+            "user": {
+              "nickname": "牙牙乐",
+              "userid": "6535bebe000000000301ceaf"
+            },
+            "shared_count": 1,
+            "comments_count": 0,
+            "video_duration": "1:52",
+            "liked_count": 5,
+            "desc": "1956年，科学家围绕“人工智能”开展会议研 讨，一个新领域由此起步。#达特茅斯会议  #人工智能  #AI进化生活ho",
+            "xsec_token": "FIXTURE_TOKEN_10",
+            "images_list": [
+              {
+                "height": 1919,
+                "width": 1440,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326bjptaglh2g5p9lnqv0rjlfrtummjg?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=a4c320ca51623b1416bf7cd0d61bc679&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326bjptaglh2g5p9lnqv0rjlfrtummjg?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=a4c320ca51623b1416bf7cd0d61bc679&t=6ad165b5"
+              }
+            ],
+            "title": "达特茅斯会议 | 人工智能为何诞生于此？",
+            "timestamp": 1792070055
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792070018000,
+            "id": "6ad0d0130000000014002578",
+            "last_update_time": 1792069979,
+            "type": "video",
+            "collected_count": 1,
+            "user": {
+              "userid": "6141f0ed000000000201cf03",
+              "nickname": "Crystal｜AI与人才"
+            },
+            "shared_count": 0,
+            "comments_count": 0,
+            "video_duration": "0:50",
+            "liked_count": 0,
+            "xsec_token": "FIXTURE_TOKEN_11",
+            "desc": "AI开始接手越来越多具体工作以后，我越来越觉得，一个人的职场价值正在被重新定价。 过去，“会做”本身就是稀缺能力。 会写",
+            "images_list": [
+              {
+                "height": 1255,
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326bjjpp450705oa1u3mgjjo3nd0v6eg?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=39543ad2d65c31e481322cf84bb93429&t=6ad165b5",
+                "width": 940,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326bjjpp450705oa1u3mgjjo3nd0v6eg?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=39543ad2d65c31e481322cf84bb93429&t=6ad165b5"
+              }
+            ],
+            "title": "AI越来越强，公司以后凭什么给你高薪？",
+            "timestamp": 1792069651
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792066930000,
+            "last_update_time": 0,
+            "id": "6ad0c4ea000000001802889d",
+            "type": "video",
+            "collected_count": 9,
+            "user": {
+              "nickname": "AlphaGBM",
+              "userid": "642fdb2200000000140134c3"
+            },
+            "shared_count": 3,
+            "comments_count": 0,
+            "video_duration": "6:42",
+            "liked_count": 8,
+            "desc": "#howto用AI抢救一切  #AI进化生活howto  #人工智能  #alphaGBM  #股市",
+            "xsec_token": "FIXTURE_TOKEN_12",
+            "title": "黄仁勋：主权AI至关重要，若不符合价值观将",
+            "images_list": [
+              {
+                "height": 1441,
+                "url": "https://sns-na-i11.xhscdn.com/1040g008326bi58db4q005p1frch52d63jhvtom8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=e6b44d020543f39b585d1aa132d71561&t=6ad165b5",
+                "width": 1080,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g008326bi58db4q005p1frch52d63jhvtom8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=e6b44d020543f39b585d1aa132d71561&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792066794
+          }
+        },
+        {
+          "note": {
+            "video_duration": "0:30",
+            "collected_count": 9,
+            "comments_count": 0,
+            "images_list": [
+              {
+                "height": 720,
+                "width": 960,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326bh9lfb4qn0456p9tjbsbr90okkmr0?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=0b34f9bc44bf729dad9f9825a7aac8f8&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326bh9lfb4qn0456p9tjbsbr90okkmr0?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=0b34f9bc44bf729dad9f9825a7aac8f8&t=6ad165b5"
+              }
+            ],
+            "type": "video",
+            "id": "6ad0c10c000000000a02218c",
+            "user": {
+              "nickname": "黎明幸存者手记",
+              "userid": "569c26be1c07df6cf3292f69"
+            },
+            "timestamp": 1792065804,
+            "update_time": 1792065863000,
+            "liked_count": 20,
+            "desc": "别小看这只迷你四足机器人Kame， 体型小巧，却藏着惊人的行动力， 未来，微型机器人或将走进我们生活的每一个角落。 Do",
+            "xsec_token": "FIXTURE_TOKEN_13",
+            "shared_count": 3,
+            "last_update_time": 0
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792064362000,
+            "id": "6ad0bb3100000000180392ea",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 12,
+            "user": {
+              "userid": "6a61b28f000000000f038c00",
+              "nickname": "环球科技最前线"
+            },
+            "shared_count": 4,
+            "comments_count": 0,
+            "video_duration": "0:30",
+            "liked_count": 19,
+            "xsec_token": "FIXTURE_TOKEN_14",
+            "desc": "库克确认国行苹果AI十月底上线，底层合作方正是几个月前疯传的阿里千问大模型。实时翻译、写作助手， 照片一键消除路人三大刚",
+            "title": "国行苹果AI终于要来了！",
+            "images_list": [
+              {
+                "height": 1440,
+                "url": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bh31jel8105qj1ma7jv300l5v17g8?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=cbd25ac03e35902bddcb22d0bccc3e05&t=6ad165b5",
+                "width": 1080,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bh31jel8105qj1ma7jv300l5v17g8?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=cbd25ac03e35902bddcb22d0bccc3e05&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792064305
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792064271000,
+            "last_update_time": 0,
+            "id": "6ad0bad9000000000a025da9",
+            "type": "video",
+            "collected_count": 2,
+            "user": {
+              "nickname": "Joe,生命与智能",
+              "userid": "6aa7f6b40000000013020c01"
+            },
+            "shared_count": 0,
+            "comments_count": 0,
+            "video_duration": "2:13",
+            "xsec_token": "FIXTURE_TOKEN_15",
+            "desc": "如果你用 AI 三天就能做出一个 App，别人为什么不能？ 生产力提高了，不代表你的竞争力也提高了。 会用工具，只是起点",
+            "liked_count": 2,
+            "title": "人人都有AI后，你还剩什么优势？",
+            "images_list": [
+              {
+                "height": 1684,
+                "width": 1263,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bgncv2460g5ql7uqq4s3011hrb32g?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=05848af107b8080affeeb0608759721e&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/spectrum/1040g34o326bgncv2460g5ql7uqq4s3011hrb32g?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=05848af107b8080affeeb0608759721e&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792064217
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792062688000,
+            "id": "6ad0b491000000001403aed4",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 2,
+            "user": {
+              "userid": "583b062050c4b45c6336214f",
+              "nickname": "Evan.X"
+            },
+            "shared_count": 0,
+            "comments_count": 2,
+            "video_duration": "6:27",
+            "liked_count": 2,
+            "xsec_token": "FIXTURE_TOKEN_16",
+            "desc": "登顶珠峰的有7500人，但见过AI终极形态的，全球只有5000人。硅谷大神卡帕西最新揭秘：人类正在被AI分成四个物种。你",
+            "images_list": [
+              {
+                "height": 1920,
+                "width": 1080,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/frame/110/0/01ead0b48e8ce162001000000001a13f415d66_0.jpg?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=397b9b2924931adf3186fa5ba8a13989&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/frame/110/0/01ead0b48e8ce162001000000001a13f415d66_0.jpg?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=397b9b2924931adf3186fa5ba8a13989&t=6ad165b5"
+              }
+            ],
+            "title": "全球AI使用者4层画像",
+            "timestamp": 1792062609
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792062983000,
+            "id": "6ad0b48d000000001801651c",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 2,
+            "user": {
+              "userid": "6aaa8327000000001400cc00",
+              "nickname": "她说AI（AI透视镜）"
+            },
+            "shared_count": 0,
+            "comments_count": 0,
+            "video_duration": "2:43",
+            "liked_count": 2,
+            "desc": "反衬Core Weave暴跌 AI基建分水岭来临 几家欢喜几家愁#人工智能  #我这行的AI路  #数字时代未来已来",
+            "xsec_token": "FIXTURE_TOKEN_17",
+            "title": "AI轻资产公司Modal崛起",
+            "images_list": [
+              {
+                "height": 1440,
+                "width": 1080,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g008326bfpvvq56005qlagcjl1j005kpbs38?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=da5fdc05c638fd8e3c788ca28ea10d7a&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/1040g008326bfpvvq56005qlagcjl1j005kpbs38?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=da5fdc05c638fd8e3c788ca28ea10d7a&t=6ad165b5"
+              }
+            ],
+            "timestamp": 1792062605
+          }
+        },
+        {
+          "note": {
+            "update_time": 1792062983000,
+            "id": "6ad0ae05000000001c02da66",
+            "last_update_time": 0,
+            "type": "video",
+            "collected_count": 5,
+            "user": {
+              "userid": "6aaa8327000000001400cc00",
+              "nickname": "她说AI（AI透视镜）"
+            },
+            "shared_count": 0,
+            "comments_count": 1,
+            "video_duration": "2:29",
+            "xsec_token": "FIXTURE_TOKEN_18",
+            "desc": "Core Weave迎来至暗时刻#人工智能  #算力  #AI人工智能  #coreweave",
+            "liked_count": 7,
+            "images_list": [
+              {
+                "height": 1440,
+                "width": 1080,
+                "url_size_large": "https://sns-na-i11.xhscdn.com/1040g2sg326bfacmkkq705qlagcjl1j00p2shgo0?imageView2/2/w/1440/format/webp&ap=5&sc=SRH_DTL&sign=c84e3cd38e67d72ba1693ae0e6ebc95e&t=6ad165b5",
+                "url": "https://sns-na-i11.xhscdn.com/1040g2sg326bfacmkkq705qlagcjl1j00p2shgo0?imageView2/2/w/576/format/webp/q/87%7CimageMogr2/strip&redImage/frame/0&ap=5&sc=SRH_PRV&sign=c84e3cd38e67d72ba1693ae0e6ebc95e&t=6ad165b5"
+              }
+            ],
+            "title": "AI基建泡沫破灭？！",
+            "timestamp": 1792060934
+          }
+        }
+      ]
+    }
+  }
+}
