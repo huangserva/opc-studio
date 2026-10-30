@@ -33,19 +33,18 @@ sys.path.insert(0, str(ROOT))
 # 批量软删除回执里每一组的稳定提示码，前端据此区分「已移出 / 已存在 / 不存在 / 版本冲突 / 本条失败」。
 TRASH_GROUP_CODES = {'deleted': 'TRASHED', 'already_trashed': 'ALREADY_TRASHED',
                      'missing': 'DOCUMENT_NOT_FOUND', 'errors': 'STORE_ERROR'}
-IMPORTER = ROOT.parent / 'article-importer' / 'scripts' / 'article_importer.py'
-spec = importlib.util.spec_from_file_location('importer', IMPORTER)
-importer = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(importer)
-content_spec = importlib.util.spec_from_file_location('content_store', ROOT / 'content_store.py')
-content = importlib.util.module_from_spec(content_spec)
-content_spec.loader.exec_module(content)
+from work_store import WorkStoreBase, Conflict, uid, importer, content
 assistant_spec = importlib.util.spec_from_file_location('assistant_agent', ROOT / 'assistant_agent.py')
 assistant_module = importlib.util.module_from_spec(assistant_spec)
 assistant_spec.loader.exec_module(assistant_module)
 # 样式积木（复核 rich-style）：白名单与映射规则都在 rich_text.py，这里只引入模块，
 # SafeHTML 在其之上扩展。markdown_blocks（哨兵/nonce）走的是另一条通道，不受影响。
 import rich_text
+
+import html_sanitize
+from html_sanitize import (CODE_TAGS, LINE_BREAKING_TAGS, WHOLE_LINE_TAGS, INTERNAL_REL,
+                           _FORMAT_TAG, FORMAT_RECEIPT_LIMIT, html_formats,
+                           format_receipt, merge_dropped)
 
 # 这几个字符成对/成串出现就是 Markdown 标记：粗体、斜体、删除线、行内代码、链接、
 # 标题。正文里逐字要显示它们时（`\*\*literal\*\*`、`\# 字面标题`），清洗层把它们
@@ -86,68 +85,8 @@ def _escape_line_start(text):
     return text
 
 
-# 这些标签内部是代码：一个 Markdown 标记都不认，也不做上面那层实体转义，
-# 保证示例代码逐字节原样。
-CODE_TAGS = frozenset({'pre', 'code'})
-# 这些标签前后断行：「行首转义」只在它们之后的那段文字上认。
-# 少了这份名单，`<h2>01. 账本与底牌</h2>` 的标题文字会被当成有序列表标记转义掉。
-# 这些标签会断行：进入它们之后的那段文字算行首。
-LINE_BREAKING_TAGS = frozenset({'br', 'p', 'div', 'li', 'ul', 'ol', 'blockquote', 'pre',
-                                'h1', 'h2', 'h3', 'h4', 'h5', 'h6'})
-# 这些是**不换行**的内联/包裹标签：行首状态要穿过它们继续传下去。
-# 少了这份传播，`<p><span>&#45; first</span></p>` 里的行首减号会被当成非行首放过，
-# HTMLParser 又把实体解成明文，下一轮转换就把它认成真列表（复核 H1b）。
-# 判据是「断不断行」，不是「是不是块级」——span/b/i/em/strong/code/mark 都不断行。
-# 这些标签里的文字本身就是一个整体，不是段落开头的一行：`01. 账本与底牌` 写在
-# `<h2>` 里是标题文字，写在段落行首才是列表标记。进了这些标签就不做行首转义。
-WHOLE_LINE_TAGS = frozenset({'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd'})
-# 清洗器自己给链接补的固定安全属性。它不是用户请求的格式，不能出现在 dropped 里。
-INTERNAL_REL = 'noopener noreferrer'
-
-
-class SafeHTML(rich_text.RichHTML):
-    """正文清洗：h2 的标记转义 + rich-style 的样式积木，两条支路各自留痕。
-
-    **不整体替换成 `rich_text.RichHTML`**（rich-style 原补丁的做法）：那个类没有
-    `_escape_data` / `line_start` / `whole_line` / `code_depth`，清洗层就不会把
-    Markdown 标记转义成实体落盘，`markdown_blocks.signal_text` 判定时一字不解的
-    前提随之失效，正文再存一次就会被重新解释成粗体/标题（复核 H-1）。h2 的这条
-    不变量一个字不动，样式积木只作为**新增支路**挂进来。
-    """
-    # hr 是 Markdown 分隔线转换出来的唯一新增标签，仍是空元素，不放行任何属性。
-    # 用户能感知到的格式。p/div/span/br 只是结构，不进 applied，避免回执膨胀。
-    FORMAT_KINDS = {'strong': 'bold', 'b': 'bold', 'em': 'italic', 'i': 'italic', 'u': 'underline',
-                    's': 'strike', 'h1': 'h1', 'h2': 'h2', 'h3': 'h3', 'ul': 'list', 'ol': 'list',
-                    'li': 'list', 'blockquote': 'quote', 'code': 'code', 'pre': 'code', 'a': 'link', 'hr': 'hr'}
-    HINTS = {
-        'tag_not_allowed': '标签不在正文白名单；可用 p、h1–h3、strong、em、u、s、br、blockquote、pre、code、a、ul、ol、li',
-        'tag_blocked': '脚本、样式表与嵌入对象不会保存',
-        'attribute_not_allowed': '正文只保留链接的 href，以及 data-color/data-hl/data-size（行内）与 data-align/data-indent/data-space/data-size（段落）样式积木，取值见白名单；内联 style 会按白名单规范化（居中写 text-align:center、字号写 font-size:24px）；加粗用 strong、斜体用 em，别用 class 或白名单外的 style',
-        'attribute_value_rejected': '样式积木的取值不在白名单内：颜色只认 red/blue/green/orange/gray/accent，高亮只认 yellow/green/pink，字号只认 s/m/l/xl，对齐只认 left/center/right，首行缩进只认 2，段距只认 tight/normal/loose；请从这几组取值，或改用内联 style 让它自动规范化',
-        'href_rejected': '链接只保留 http、https、mailto 的 href',
-    }
-    # **不加 mark**：rich-style 把 mark 放进白名单，但 h2/A 已复核的
-    # `test_disallowed_tag_and_bad_href_are_reported` 明确断言 `<mark data-hl=…>`
-    # 走 `tag_not_allowed`（dropped 原因集合必须恰好是那两项）。合同要求不得改动
-    # 已复核行为，所以 mark 的支持只留在 `rich_text.sanitize()` 里（公众号出口按它渲染），
-    # 保存路径继续按 h2 的白名单把它当作不允许的标签。差异如实记在报告的已知边界里。
-    allowed = {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 's', 'u', 'br', 'hr', 'blockquote', 'pre', 'code', 'a', 'ul', 'ol', 'li', 'div', 'span'}
-
-    def __init__(self):
-        # 走 `RichHTML` 的构造：它把 `convert_charrefs=True` 传给 HTMLParser，
-        # 并初始化 parts/text/blocked/dropped。直接 `super().__init__(convert_charrefs=True)`
-        # 会把该参数透传给 `RichHTML.__init__`（它不接受），所以显式调父类实现。
-        rich_text.RichHTML.__init__(self)
-        # 被清洗掉的东西逐条记下来，回执要如实告诉模型哪些格式没生效。
-        self.dropped = []
-        self.code_depth = 0
-        # 样式积木被丢弃的原因（人类可读字符串），与上面的字典通道分开：
-        # 前者说「某个格式整体没生效」，后者说「哪个 data-* / style 没存上」。
-        self.rich_dropped = []
-        # 下一段文字是不是在行首：只有行首的标记才需要按位置转义。
-        self.line_start = True
-        self.whole_line = 0
-
+# 字面量策略留在本模块，兼容现有 server.xxx / studio.xxx monkeypatch。
+class SafeHTML(html_sanitize.SafeHTML):
     def _escape_data(self, data, at_line_start=False):
         """正文文字转义。
 
@@ -177,229 +116,14 @@ class SafeHTML(rich_text.RichHTML):
                 else out.replace(char, _literal_ref(char))
         return out
 
-    def _drop(self, reason, requested, detail=None):
-        hint = self.HINTS[reason]
-        if detail:
-            # rich 层的具体原因（如「样式 position 不支持用于 p」）随 hint 透传，
-            # 模型才知道到底哪一条声明没生效，而不是只知道「整个 style 失败了」。
-            hint = hint + '；具体原因：' + detail
-        entry = {'requested': requested[:120], 'reason': reason, 'hint': hint}
-        if entry not in self.dropped:
-            self.dropped.append(entry)
-
-    def _style_failures(self, tag, style):
-        """按 rich_text 的映射规则逐条解析内联 style，返回真正没生效的说明。
-
-        成功映射、或「接近默认、视为无操作」的声明不计；映射到本标签不支持的积木、
-        映射不了的具体取值、以及写法不完整的声明才算未生效。映射规则只有
-        rich_text._map_style 一份，这里不另抄一套。
-
-        无值（HTMLParser 给 None）/空值/只有空声明（如 ";;"）没有可生效的声明，
-        也要给出真实原因而不是抛异常（M2b M2）。
-        """
-        if style is None:
-            return ['style 没有取值，无法生效']
-        decls = [decl for decl in style.split(';') if decl.strip()]
-        if not decls:
-            return ['style 没有可用的声明，无法生效']
-        allowed_names = rich_text.DATA_FOR_TAG.get(tag, ())
-        failures = []
-        for decl in decls:
-            prop, _, val = decl.partition(':')
-            if not prop.strip() or not val.strip():
-                # 不完整声明（如 "color" / "color:"）：rich 层也映射不出结果，
-                # 但这是「写法不完整」而不是「取值不支持」，如实说明。
-                failures.append('样式声明「' + decl.strip() + '」不完整，无法生效')
-                continue
-            name, note = rich_text._map_style(tag, decl)
-            if name and name in allowed_names:
-                continue
-            if name:
-                failures.append(name + ' 不能用在 ' + tag + ' 上')
-            elif note:
-                failures.append(note)
-        return failures
-
-    def _actual_blocks(self, tag, attrs):
-        """清洗器**实际会落盘**的积木 dict（与 rich_text.RichHTML._rich_attrs 同一策略）。
-
-        data-* 优先且同名取首项、取值须过白名单；随后只有**第一个** style 参与，其声明用
-        setdefault 落位（data-* 已占的名字不改）。回执以这份实际结果为准——不能拿某个 style
-        的理论映射当比较基准，否则 data 优先的组合会误报/漏报（M2c M1）。
-        """
-        allowed_names = rich_text.DATA_FOR_TAG.get(tag, ())
-        data = {}
-        for name in allowed_names:
-            value = rich_text.RichHTML._attr(attrs, name)
-            if value is None or value not in rich_text.VALID_VALUES.get(name, ()):
-                continue
-            data[name] = value
-        style = rich_text.RichHTML._attr(attrs, 'style')
-        if style:
-            for decl in style.split(';'):
-                name, note = rich_text._map_style(tag, decl)
-                if name and name in allowed_names:
-                    data.setdefault(name, note)
-        return data
-
-    def _style_effects(self, tag, style):
-        """按声明顺序列出该 style 每条能映射的声明效果 [(声明, 属性名, 取值)]。"""
-        allowed_names = rich_text.DATA_FOR_TAG.get(tag, ())
-        effects = []
-        for decl in (style or '').split(';'):
-            name, note = rich_text._map_style(tag, decl)
-            if name and name in allowed_names:
-                effects.append((decl.strip(), name, note))
-        return effects
-
-    def _lost_detail(self, idx, lost, winners):
-        """未生效的 style 效果 + 具体原因（被 data 覆盖 / 只采用第一个 style / 同 style 内重复）。
-
-        `winners` 由调用处按**实际落盘的积木**算出：{积木名: (合法取值, 来源)}。来源只认真正
-        赢过的那一份：首项 data-* 取值非法时它根本没落盘，这时还说「被 data-color=red 覆盖」
-        就是凭空造一个输入里不存在的来源（复核 m2c 的 L1 / 残余 R06）——那份红其实来自首个
-        style。落盘值本身没错，这里只把来源说对。
-        """
-        parts = []
-        for _, name, value in lost:
-            winner = winners.get(name)
-            if winner is None:
-                parts.append('%s=%s 未落盘' % (name, value))
-            elif winner[1] == 'data':
-                parts.append('%s=%s 被 %s=%s 覆盖' % (name, value, name, winner[0]))
-            else:
-                parts.append('%s=%s 未采用，实际 %s=%s 来自%s'
-                             % (name, value, name, winner[0], winner[1]))
-        head = '同一标签只采用第一个 style，本条未参与' if idx else '首个 style 的声明未生效'
-        return head + '：' + '、'.join(parts)
-
-    def _rich_extra(self, tag, attrs):
-        """复用 `rich_text` 的积木映射，丢弃原因记到字符串通道 `rich_dropped`。
-
-        直接调用父类的 `_rich_attrs`，只把 `self.dropped` 临时换成 `self.rich_dropped`
-        ——映射规则因此只有一份，rich-style 1c 复核过的行为不会在这里漂移。
-        """
-        saved, self.dropped = self.dropped, self.rich_dropped
-        try:
-            return rich_text.RichHTML._rich_attrs(self, tag, attrs)
-        finally:
-            self.dropped = saved
-
-    def handle_starttag(self, tag, attrs):
-        if tag in CODE_TAGS:
-            self.code_depth += 1
-        if tag in rich_text.BLOCKED_TAGS:
-            self.blocked += 1
-            self._drop('tag_blocked', '<' + tag + '>')
-        if self.blocked or tag not in self.allowed:
-            if not self.blocked and tag not in rich_text.BLOCKED_TAGS:
-                self._drop('tag_not_allowed', '<' + tag + '>')
-            return
-        # 样式积木：该标签允许携带的 data-* 名字（a 不带积木，与 rich-style 一致）。
-        extra = self._rich_extra(tag, attrs)
-        keep = {'href'} if tag == 'a' else set(rich_text.DATA_FOR_TAG.get(tag, ()))
-        # 回执与清洗器**实际落盘的积木**对齐（M2c M1）：先算出真实结果 `actual`
-        # （data-* 优先取首项 + 只有第一个 style 参与），再逐条请求判断其效果是否在里面。
-        # 请求的效果在 actual 里 → 不报；不在 → 报未生效并说明具体原因（被 data 覆盖 /
-        # 同标签只采用第一个 style / 重复 data 只取首项）。不再拿首个 style 的理论映射当基准。
-        actual = self._actual_blocks(tag, attrs)
-        style_index = 0
-        for name, value in attrs:
-            # 清洗器自己给链接补的固定安全 rel 不是用户请求的格式。
-            # 把它报成「被丢弃」会凭空造出一次假的格式失败（复核 A-L1）。
-            if name.lower() == 'rel' and tag == 'a' and (value or '').strip() == INTERNAL_REL:
-                continue
-            lname = name.lower()
-            requested = '%s="%s"' % (name, value) if value is not None else name
-            if lname == 'style':
-                idx, style_index = style_index, style_index + 1
-                failures = self._style_failures(tag, value)
-                # 该 style 声明里，效果不在实际落盘结果里的才算未生效。
-                lost = [(decl, n, v) for (decl, n, v) in self._style_effects(tag, value)
-                        if actual.get(n) != v]
-                if failures or lost:
-                    detail = '；'.join(failures)
-                    if lost:
-                        # 获胜积木的合法取值与来源：只有真的落盘的那份才拿来解释来源。
-                        # 同名 data-* 首项的取值等于实际落盘值，才说明它过了白名单并赢下这个
-                        # 积木（data 优先，合法值必然胜出）；否则这份效果来自首个 style。
-                        winners = {name: (have, 'data' if rich_text.RichHTML._attr(attrs, name) == have
-                                          else '首个 style') for name, have in actual.items()}
-                        more = self._lost_detail(idx, lost, winners)
-                        detail = (detail + '；' + more) if detail else more
-                    self._drop('attribute_not_allowed', requested, detail=detail)
-                continue
-            if lname in keep:
-                # 白名单内的 data-*：名字对还不够，取值必须过 rich_text 的同一道校验。
-                if lname.startswith('data-') and value not in rich_text.VALID_VALUES.get(lname, ()):
-                    self._drop('attribute_value_rejected', requested,
-                               detail='%s 的取值 %s 不受支持' % (lname, value))
-                elif lname.startswith('data-') and actual.get(lname) != value:
-                    # 同名 data-* 只取首项：本条与真正落盘的不同 → 未生效（M2c 要求 2）。
-                    have = actual.get(lname)
-                    self._drop('attribute_not_allowed', requested,
-                               detail='重复的 %s 只取首项，本条未参与（实际落盘 %s）'
-                                      % (lname, (lname + '=' + have) if have else '无'))
-                continue
-            self._drop('attribute_not_allowed', requested)
-        # b/i 规范化成 strong/em（rich-style 1c），其余标签名一律原样。
-        name = rich_text.NORMALIZE.get(tag, tag)
-        if tag == 'a':
-            href = dict(attrs).get('href', '')
-            if urlsplit(href).scheme.lower() in ('https', 'http', 'mailto'):
-                extra += ' href="' + escape(href, quote=True) + '" rel="' + INTERNAL_REL + '"'
-            elif href:
-                self._drop('href_rejected', 'href="' + href + '"')
-        self.parts.append('<' + name + extra + '>')
-        # 只有断行标签才置位；其余一律沿用当前状态（内联结构传播，覆写 H1b）。
-        if tag in LINE_BREAKING_TAGS:
-            self.line_start = True
-        if tag in WHOLE_LINE_TAGS:
-            self.whole_line += 1
-        if tag == 'br':
-            self.text.append('\n')
-
-    def handle_endtag(self, tag):
-        if tag in CODE_TAGS:
-            self.code_depth = max(0, self.code_depth - 1)
-        if tag in ('script', 'style', 'iframe', 'object'):
-            self.blocked = max(0, self.blocked - 1)
-            return
-        name = rich_text.NORMALIZE.get(tag, tag)
-        if not self.blocked and tag in self.allowed and tag not in ('br', 'hr'):
-            self.parts.append('</' + name + '>')
-            if tag in LINE_BREAKING_TAGS:
-                self.line_start = True
-            if tag in WHOLE_LINE_TAGS:
-                self.whole_line = max(0, self.whole_line - 1)
-            if tag in ('p', 'div', 'li', 'h1', 'h2', 'h3', 'blockquote'):
-                self.text.append('\n')
-
-    def handle_data(self, data):
-        if not self.blocked:
-            self.parts.append(self._escape_data(data, self.line_start))
-            self.text.append(data)
-            self.line_start = data.endswith('\n')
 
 
 def clean_html_full(value):
-    """返回 (rich, plain, dropped, rich_dropped)：清洗结果 + 两条丢弃通道。
-
-    第三项是 h2 的字典通道（格式整体没生效，助手回执用），第四项是 rich-style 的
-    字符串通道（哪个 data-* / style 没存上，保存回执 `dropped_formats` 用）。
-    两件事分开记，免得同一个原因在两条回执里各说一遍。
-    """
-    parser = SafeHTML()
-    parser.feed(value)
-    return (''.join(parser.parts), ''.join(parser.text).rstrip('\n'),
-            parser.dropped, parser.rich_dropped)
+    return html_sanitize.clean_html_full(value, SafeHTML)
 
 
 def SafeHTML_collect_rich(value):
-    """跑一遍清洗器，只取样式积木的丢弃原因。"""
-    parser = SafeHTML()
-    parser.feed(value)
-    return parser.rich_dropped
+    return html_sanitize.SafeHTML_collect_rich(value, SafeHTML)
 
 
 def clean_html(value):
@@ -412,53 +136,9 @@ def clean_html(value):
     return clean_html_full(value)[:3]
 
 
+
 def safe_html(value):
     return clean_html(value)[:2]
-
-
-# 标签必须按边界匹配：'<s' 会误命中 '<strong'，'<u' 会误命中 '<ul'。
-_FORMAT_TAG = {tag: re.compile(r'<' + tag + r'(?=[\s>/])') for tag in SafeHTML.FORMAT_KINDS}
-
-
-def html_formats(rich):
-    """清洗后的 HTML 里真实保留下来的用户可感知格式（去重，按标签表顺序）。"""
-    kinds = []
-    for tag, kind in SafeHTML.FORMAT_KINDS.items():
-        if _FORMAT_TAG[tag].search(rich) and kind not in kinds:
-            kinds.append(kind)
-    return kinds
-
-
-# 回执要进模型上下文，dropped 超过这个数就截断并置 truncated。
-FORMAT_RECEIPT_LIMIT = 20
-
-
-def format_receipt(records):
-    """把每个正文块的清洗结果汇总成回执里的 format 段。"""
-    applied, dropped = [], []
-    for record in records or []:
-        for kind in record['applied']:
-            applied.append({'index': record['index'], 'kind': kind})
-        for item in record['dropped']:
-            dropped.append({'index': record['index'], **item})
-    return {'applied': applied, 'dropped': dropped[:FORMAT_RECEIPT_LIMIT],
-            'requested': len(records or []), 'kept': sum(1 for r in records or [] if r['applied']),
-            'truncated': len(dropped) > FORMAT_RECEIPT_LIMIT}
-
-
-def merge_dropped(*records):
-    """把多遍清洗的 dropped 记录去重合并，顺序按出现先后。
-
-    走 Markdown 那条路时 `markdown_blocks.convert` 会先把结构标签降掉，
-    属性在这一步就没了，转换后再清洗看不到任何东西。**两遍记录都必须报**，
-    否则用户要的红色根本没存上，回执却说 dropped 为空（复核 A-M1）。
-    """
-    out = []
-    for record in records:
-        for item in record or []:
-            if item not in out:
-                out.append(item)
-    return out
 
 
 
@@ -508,326 +188,8 @@ def markdown_aware_html_full(markup, from_editor=False):
     return rich, plain, dropped, rich_dropped_of(markup)
 
 
-def uid(value):
-    if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}', value):
-        raise ValueError('文章目录名只能包含英文、数字、短横线和下划线')
-    return value
-
-
-class Conflict(ValueError):
-    pass
-
-
-class Store(content.ContentMixin):
-    def __init__(self, workspace):
-        self.workspace = Path(workspace).resolve()
-        self.inbox, self.library = self.workspace / 'inbox', self.workspace / 'library'
-        self.inbox.mkdir(parents=True, exist_ok=True)
-        self.library.mkdir(parents=True, exist_ok=True)
-        self.lock = threading.RLock()
-        self.status_path = self.workspace / 'intake.json'
-        self.intake = importer.read_json(self.status_path) if self.status_path.exists() else {}
-        self.last_scan = 0
-        self.scan_cache = {}
-        self.collections_path = self.workspace / 'collections.json'
-        self._knowledge = None
-        self._events = None
-        self._feedback = None
-        self._creative_intake = None
-        self._intake_cards = None
-        self._intel = None
-        self._intel_recommend = None
-        self._collect = None
-
-    @property
-    def knowledge(self):
-        with self.lock:
-            if self._knowledge is None:
-                from knowledge_store import Knowledge
-                self._knowledge = Knowledge(self)
-            return self._knowledge
-
-    @property
-    def creative_intake(self):
-        # 创意回收工厂（第一期）。名字避开 self.intake，那是文章导入状态。
-        with self.lock:
-            if self._creative_intake is None:
-                from intake_store import Intake
-                self._creative_intake = Intake(self.knowledge, self.workspace)
-            return self._creative_intake
-
-    @property
-    def intake_cards(self):
-        # 创意回收工厂（第二期）：候选提示词卡。只读回收项，自己存卡片与证据指纹。
-        with self.lock:
-            if self._intake_cards is None:
-                from intake_cards import IntakeCards
-                self._intake_cards = IntakeCards(self.creative_intake, self.knowledge, self.workspace)
-                # 收下即分析：列表与详情里的分析状态由卡库提供，不另建一份状态。
-                self.creative_intake.analysis_provider = self._intake_cards.analysis_states
-                # 媒体识别（图片描述 / 视频转写）完成后自动排队一次分析；排队失败不动已保存的识别结果。
-                self.creative_intake.analysis_after_recognition = self._intake_cards.request_analysis_after_recognition
-            return self._intake_cards
-
-    @property
-    def intel(self):
-        # 情报采集（第一期 · 微信公众号）。独立库，不碰 intake* / knowledge_store。
-        with self.lock:
-            if self._intel is None:
-                from intel_store import Intel
-                self._intel = Intel(self)
-            return self._intel
-
-    @property
-    def collect(self):
-        # 通用采集模块。公众号走一期已有的 intel；三源只读状态。
-        with self.lock:
-            if self._collect is None:
-                from collect_adapters import build_adapters
-                from collect_core import Registry
-                self._collect = Registry(self, build_adapters(self))
-            return self._collect
-
-    @property
-    def intel_recommend(self):
-        # 回收站/知识库推荐订阅：只读那两个库，只往 intel.db 写。
-        with self.lock:
-            if self._intel_recommend is None:
-                from intel_recommend import Recommender
-                self._intel_recommend = Recommender(self.intel)
-            return self._intel_recommend
-
-    @property
-    def feedback(self):
-        with self.lock:
-            if self._feedback is None:
-                from publication_metrics import PublicationMetrics
-                self._feedback = PublicationMetrics(self)
-            return self._feedback
-
-    @property
-    def clues(self):
-        with self.lock:
-            if not hasattr(self, '_clues'):
-                from clues_store import Clues
-                self._clues = Clues(self)
-            return self._clues
-
-    @property
-    def clue_pipeline(self):
-        with self.lock:
-            if not hasattr(self,'_clue_pipeline'):
-                from clue_pipeline import CluePipeline
-                self._clue_pipeline=CluePipeline(self)
-            return self._clue_pipeline
-
-    @property
-    def wechat_source(self):
-        with self.lock:
-            if not hasattr(self, '_wechat_source'):
-                from wechat_source_client import WechatSourceClient
-                self._wechat_source = WechatSourceClient(self)
-            return self._wechat_source
-
-    @property
-    def deals(self):
-        with self.lock:
-            if not hasattr(self, '_deals'):
-                from deals_store import Deals
-                self._deals = Deals(self)
-            return self._deals
-
-    @property
-    def deals_review(self):
-        with self.lock:
-            if not hasattr(self, '_deals_review'):
-                from deals_review import DealsReview
-                self._deals_review = DealsReview(self)
-            return self._deals_review
-
-    @property
-    def github(self):
-        with self.lock:
-            if not hasattr(self, '_github'):
-                from github_source import GitHub
-                self._github = GitHub(self)
-            return self._github
-
-    @property
-    def events(self):
-        with self.lock:
-            if self._events is None:
-                from events_store import Events
-                self._events = Events(self)
-            return self._events
-
-    def article(self, slug):
-        return importer.under(self.library, uid(slug))
-
-    def meta(self, slug):
-        return importer.read_json(self.article(slug) / 'article.json')
-
-    def package(self, slug, revision=None):
-        revision = revision or self.meta(slug)['head']
-        if not re.fullmatch(r'v\d{4,}', revision):
-            raise ValueError('无效版本')
-        return self.article(slug) / 'versions' / revision
-
-    def info(self, slug, revision=None):
-        path = self.package(slug, revision)
-        manifest = importer.read_json(path / 'manifest.json')
-        version = importer.read_json(path / 'version.json')
-        return manifest, version, path
-
-    def commit(self, slug, package, summary, source, fingerprint=None):
-        """Copy into a staging folder, atomically expose version, then advance head."""
-        with self.lock:
-            article = self.article(slug)
-            versions = article / 'versions'
-            versions.mkdir(parents=True, exist_ok=True)
-            meta = self.meta(slug) if (article / 'article.json').exists() else {'slug': slug, 'head': None}
-            previous = importer.read_json(self.package(slug) / 'manifest.json') if meta['head'] else None
-            manifest = importer.load_package(package)
-            if manifest.get('studio_sha256'):
-                if content.sha(Path(package) / 'studio.json') != manifest['studio_sha256']:
-                    raise ValueError('作品元数据校验失败')
-                for asset in content.assets(content.studio_at(package)):
-                    if content.sha(content.safe_path(package, asset['file'])) != asset['sha256']:
-                        raise ValueError('作品素材校验失败')
-            if previous and previous['package_id'] == manifest['package_id']:
-                return meta['head']
-            numbers = [int(p.name[1:]) for p in versions.iterdir() if re.fullmatch(r'v\d{4,}', p.name)]
-            rev = f'v{max(numbers, default=0) + 1:04d}'
-            staging = Path(tempfile.mkdtemp(prefix='.new-', dir=versions))
-            try:
-                shutil.copytree(package, staging, dirs_exist_ok=True, copy_function=content.link_copy)
-                metadata = {'id': rev, 'created_at': datetime.now(timezone.utc).isoformat(),
-                            'summary': summary, 'source': source, 'parent': meta['head'],
-                            'source_fingerprint': fingerprint}
-                importer.write_json(staging / 'version.json', metadata)
-                staging.rename(versions / rev)
-                meta.update(head=rev, title=manifest['title'], updated_at=metadata['created_at'])
-                importer.write_json(article / 'article.json', meta)
-                return rev
-            finally:
-                if staging.exists():
-                    shutil.rmtree(staging)
-
-    def scan(self, force=False):
-        with self.lock:
-            if not force and time.monotonic() - self.last_scan < 5:
-                return
-            self.last_scan = time.monotonic()
-            for folder in sorted(self.inbox.iterdir()):
-                if not folder.is_dir() or folder.is_symlink() or folder.name.startswith('.'):
-                    continue
-                try:
-                    slug = uid(folder.name)
-                    raw = {}
-                    sources = [folder / n for n in ('content.json', 'article.json', 'article.md', 'article.docx') if (folder / n).is_file()]
-                    if not sources:
-                        continue
-                    if len(sources) > 1:
-                        raise ValueError('同一目录请只放一份 content.json、article.json、article.md 或 article.docx')
-                    source = sources[0]
-                    sha = hashlib.sha256()
-                    files = sorted(p for p in folder.rglob('*') if p.is_file() and not any(x.startswith('.') for x in p.relative_to(folder).parts))
-                    signature = tuple((str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in files)
-                    if not force and self.scan_cache.get(slug) == signature:
-                        continue
-                    for file in files:
-                        if file.is_symlink() or not file.resolve().is_relative_to(folder.resolve()):
-                            raise ValueError('投递文件不能是指向外部的链接')
-                        sha.update(str(file.relative_to(folder)).encode())
-                        with file.open('rb') as stream:
-                            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                                sha.update(chunk)
-                    fingerprint = sha.hexdigest()
-                    self.scan_cache[slug] = signature
-                    if self.intake.get(slug, {}).get('fingerprint') == fingerprint:
-                        continue
-                    # JSON image references must stay in the intake directory.
-                    if source.suffix == '.json':
-                        raw = importer.read_json(source)
-                        refs = ([raw['cover']] if raw.get('cover') else []) + [b['src'] for b in raw.get('blocks', []) if b.get('type') == 'image']
-                        for reference in refs:
-                            importer.under(folder, reference)
-                    elif source.suffix == '.md':
-                        from markdown_it import MarkdownIt
-                        for token in MarkdownIt('commonmark').enable('table').parse(source.read_text(encoding='utf-8')):
-                            for child in token.children or []:
-                                if child.type == 'image':
-                                    importer.under(folder, child.attrGet('src'))
-                    with tempfile.TemporaryDirectory(prefix='studio-import-') as tmp:
-                        out = Path(tmp) / 'package'
-                        importer.build(argparse.Namespace(command='prepare', source=str(source), out=str(out), cover='none', title=None, font=None))
-                        old = self.package(slug) if (self.article(slug) / 'article.json').exists() else None
-                        if raw.get('studio') is not None or (old and (old / 'studio.json').exists()):
-                            studio = self.normalize_studio(slug, raw.get('studio'), old, out, intake=folder)
-                            content.seal(out, studio, importer)
-                        initial = not (self.article(slug) / 'article.json').exists()
-                        rev = self.commit(slug, out, '首次导入' if initial else '接收新的图文文件', '文件投递', fingerprint)
-                    self.intake[slug] = {'fingerprint': fingerprint, 'version': rev, 'source': str(source), 'error': None}
-                except Exception as exc:
-                    self.intake[folder.name] = {'error': str(exc), 'source': str(folder)}
-            importer.write_json(self.status_path, self.intake)
-
-    def collections(self):
-        with self.lock:
-            return importer.read_json(self.collections_path) if self.collections_path.exists() else []
-
-    def save_collection(self, payload):
-        with self.lock:
-            records = self.collections()
-            identity = payload.get('id')
-            record = next((c for c in records if c['id'] == identity), None)
-            if identity and record is None:
-                raise ValueError('合集不存在')
-            name = str(payload.get('name', record['name'] if record else '')).strip()
-            if not name or len(name) > 80:
-                raise ValueError('请填写 1 至 80 字的合集名称')
-            if any(c['name'] == name and c['id'] != identity for c in records):
-                raise ValueError('已有同名合集，请使用其他名称')
-            if record is None:
-                record = {'id': 'collection-' + uuid.uuid4().hex[:12], 'name': name, 'articles': [],
-                          'created_at': datetime.now(timezone.utc).isoformat()}
-                records.append(record)
-            record['name'] = name
-            # Incremental operations preserve simultaneous membership changes.
-            for action in ('add', 'remove'):
-                for slug in payload.get(action, []):
-                    self.meta(slug)
-                    if action == 'add' and slug not in record['articles']:
-                        record['articles'].append(slug)
-                    elif action == 'remove' and slug in record['articles']:
-                        record['articles'].remove(slug)
-            record['updated_at'] = datetime.now(timezone.utc).isoformat()
-            importer.write_json(self.collections_path, records)
-            return record
-
-    def listing(self):
-        self.scan()
-        articles = []
-        with self.lock:
-            for folder in self.library.iterdir():
-                if not (folder / 'article.json').is_file():
-                    continue
-                meta = self.meta(folder.name)
-                manifest, version, path = self.info(folder.name)
-                studio = content.studio_at(path)
-                preview = studio.get('poster')
-                articles.append({**meta, 'content_type': studio['type'], 'has_video': bool(studio.get('video')), 'platforms': {k: v['status'] for k, v in studio['platforms'].items()}, 'version_count': len(list((folder / 'versions').glob('v*'))),
-                                 'images': len(manifest['body_media']) + bool(manifest['cover']),
-                                 'cover': self.asset_url(folder.name, meta['head'], preview['file']) if preview else self.asset_url(folder.name, meta['head'], (manifest['cover'] or manifest['body_media'][0])['file']) if manifest['cover'] or manifest['body_media'] else None,
-                                 'excerpt': next((b.get('text', '')[:85] for b in manifest['blocks'] if b['kind'] == 'text'), '')})
-        return {'articles': sorted(articles, key=lambda a: a['updated_at'], reverse=True),
-                'inbox': str(self.inbox), 'workspace': str(self.workspace), 'collections': self.collections(),
-                'import_errors': [{'article': key, 'error': item['error']} for key, item in self.intake.items() if item.get('error')]}
-
-    @staticmethod
-    def asset_url(slug, rev, file):
-        from urllib.parse import quote
-        return '/assets/' + quote(slug) + '/' + quote(rev) + '/' + quote(file)
+class Store(WorkStoreBase):
+    """Keep HTML-policy lookups in this module, including unregistered studio aliases."""
 
     def detail(self, slug, revision=None):
         with self.lock:
@@ -849,29 +211,6 @@ class Store(content.ContentMixin):
                     'image_count': len(manifest['body_media']) + bool(cover),
                     'characters': len(manifest['title']) + sum(len(b.get('text', '')) for b in blocks),
                     'intake_path': str(self.inbox / slug), 'package_path': str(path), 'warnings': manifest.get('warnings', [])}
-
-    def create(self, payload):
-        with self.lock:
-            kind = payload.get('type', 'article')
-            if kind not in content.TYPES:
-                raise ValueError('请选择文章、短推文、图集或视频')
-            collection = payload.get('collection')
-            if collection and not any(c['id'] == collection for c in self.collections()):
-                raise ValueError('合集不存在')
-            title = str(payload.get('title', '')).strip() or '未命名图文'
-            if len(title) > 500:
-                raise ValueError('标题请控制在 500 字以内')
-            slug = 'article-' + datetime.now().strftime('%Y%m%d') + '-' + uuid.uuid4().hex[:8]
-            folder = self.inbox / slug
-            (folder / 'assets').mkdir(parents=True)
-            source = folder / 'article.json'
-            importer.write_json(source, {'schema_version': 1, 'title': title, 'blocks': [], 'studio': content.empty_studio(kind)})
-            self.scan(force=True)
-            if self.intake.get(slug, {}).get('error'):
-                raise ValueError(self.intake[slug]['error'])
-            if collection:
-                self.save_collection({'id': collection, 'add': [slug]})
-            return self.detail(slug)
 
     def save(self, slug, payload, source='工作台编辑', from_editor=False):
         with self.lock:
@@ -997,20 +336,6 @@ class Store(content.ContentMixin):
             result['reflow'] = report
             result['summary'] = summary
             return result
-
-    def markdown_signals(self, slug, payload):
-        """只读体检：这份作品里哪些正文块带 Markdown 迹象，供界面提示按钮用。"""
-        manifest, _, _ = self.info(slug)
-        _, report = markdown_blocks.reflow_blocks(copy.deepcopy(manifest['blocks']))
-        report['total'] = len(manifest['blocks'])
-        return report
-
-    def restore(self, slug, payload):
-        with self.lock:
-            if self.meta(slug)['head'] != payload['base_version']:
-                raise Conflict('已有新版本，请刷新后重试。')
-            source = self.package(slug, payload['version'])
-            return {'version': self.commit(slug, source, '从 ' + payload['version'] + ' 恢复', '恢复历史版本')}
 
     def compare(self, slug, before, after):
         a, _, _ = self.info(slug, before)
@@ -1323,6 +648,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def reply(self, status, data, mime='application/json; charset=utf-8'):
+        if self.command == 'POST' and status == 201 and urlsplit(self.path).path == '/api/knowledge/reference': __import__('items_store').upsert_from_reference(self.server.store.workspace, data)
         context = getattr(self, '_resolve_log', None)
         if context is not None:
             # 只记本次请求「打算回什么」，不是「客户端已经收到」：写 body 可能失败。
@@ -1337,7 +663,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:" + (" https:;" if urlsplit(self.path).path in ('/today.html', '/library.html', '/publish.html') else ";") + " style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'")
         self.end_headers()
         if self.command != 'HEAD':
             self.wfile.write(body)
@@ -1388,6 +714,10 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def do_DELETE(self):
+        from items_store import delete_route
+        return delete_route(self)
+
     def do_HEAD(self):
         self.do_GET()
 
@@ -1399,9 +729,35 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parts.query)
         store = self.server.store
         try:
+            if parts.path == '/api/settings/overview': return __import__('settings_view').get_route(self, parts)
+            if parts.path == '/api/settings/logs': return __import__('settings_view').get_route(self, parts)
+            if parts.path == '/api/settings/interest-topics': return __import__('interest_channel').topics_route(self)
             if parts.path.startswith('/api/x-official/'):
                 from publishing.x_official import get_route
                 return get_route(self, parts, query)
+            if len(segments) == 4 and segments[:2] == ['api', 'items'] and segments[3] == 'draft-status':
+                from write_from_item import status_route
+                return status_route(self, segments[2])
+            if parts.path == '/api/publish/review' or parts.path.startswith('/api/publish/review/'):
+                from publish_review import get_route
+                return get_route(self, parts, query)
+            if parts.path == '/api/items' or parts.path.startswith('/api/items/') or parts.path == '/api/library/search':
+                from items_store import get_route
+                return get_route(self, parts, query)
+            if parts.path == '/api/today':
+                from today_view import page_view
+                return self.reply(200, page_view(store.workspace, query))
+            if parts.path == '/api/today/item':
+                from today_view import item_view
+                return self.reply(200, item_view(store.workspace, query))
+            if parts.path == '/api/radar/grok-bot':
+                from grok_bot_radar import radar_view
+                if set(query) - {'hours'} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError('只允许一个 hours 参数')
+                return self.reply(200, radar_view(store.workspace, query.get('hours', ['48'])[0]))
+            if parts.path == '/api/radar/grok-bot/feedback':
+                from grok_bot_radar import load_feedback
+                return self.reply(200, load_feedback(store.workspace))
             if parts.path == '/api/radar/monitor':
                 # 雷达页「每小时新增」列：文件缺失/损坏/过期都在模块内收敛，这里不改既有校验。
                 from radar_page_api import monitor_view
@@ -1422,101 +778,48 @@ class Handler(BaseHTTPRequestHandler):
                 if set(params) - {'limit'} or any(len(v) != 1 for v in params.values()):
                     raise ValueError('隔离列表只接受一个可选的 limit 参数')
                 return self.reply(200, store.wechat_source.radar_quarantine(int(params['limit'][0]) if params.get('limit') else 50))
-            if parts.path == '/api/deals':
-                return self.reply(200, store.deals.listing(month=query.get('month',[''])[0], q=query.get('q',[''])[0], stage=query.get('stage',[''])[0], payment=query.get('payment',[''])[0], archived=query.get('archived',['0'])[0]=='1'))
-            if parts.path == '/api/deals/proposals/status':
-                params=parse_qs(parts.query,keep_blank_values=True)
-                if set(params)-{'ids'} or len(params.get('ids',[]))!=1:raise ValueError('建议状态参数无效')
-                return self.reply(200,self.server.store.deals.proposal_status(params['ids'][0].split(',') if params['ids'][0] else []))
-            if parts.path == '/api/deals/options':
-                return self.reply(200, store.deals.options())
-            if parts.path == '/api/deals/review':
-                return self.reply(200, store.deals_review.summary())
-            if parts.path == '/api/deals/review/report':
-                params = parse_qs(parts.query, keep_blank_values=True)
-                if set(params) - {'week'} or len(params.get('week', [])) != 1:
-                    raise ValueError('周报参数无效')
-                return self.reply(200, store.deals_review.report(params['week'][0]))
-            if parts.path == '/api/intake':
-                params = parse_qs(parts.query, keep_blank_values=True)
-                if set(params) - {'limit'} or len(params.get('limit', [])) > 1:
-                    raise ValueError('回收站列表只接受一个可选的 limit 参数')
-                return self.reply(200, store.creative_intake.listing(int(params['limit'][0]) if params.get('limit') else 80))
-            if parts.path == '/api/intake/analysis-status':
-                # 回收站页面用它判断这个后端是否支持即时分析。旧版本没有这个接口（404），
-                # 页面就如实显示「服务未就绪」，不再给出误导性的「点重新分析」。
-                cards = store.intake_cards
-                try:
-                    configured = bool(cards.analysis_model())
-                except (OSError, ValueError, KeyError):
-                    configured = False
-                return self.reply(200, {'schema': 'intake-analysis-status/v1', 'supported': True,
-                                        'model_configured': configured, 'working': len(cards.analysis_workers),
-                                        'note': '即时分析只复用「创意提炼」已配置的模型，不新增服务、不读密钥'})
-            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'file':
-                return self.serve_file(store.creative_intake.file_path(segments[2]))
-            if len(segments) == 3 and segments[:2] == ['api', 'intake']:
-                return self.reply(200, store.creative_intake.detail(segments[2]))
-            if parts.path == '/api/cards':
-                params = parse_qs(parts.query, keep_blank_values=True)
-                if set(params) - {'status', 'q', 'limit', 'offset', 'kind', 'view'} or any(len(values) > 1 for values in params.values()):
-                    raise ValueError('提示词卡列表只接受 status、q、limit、offset、kind、view 各一个')
-                return self.reply(200, store.intake_cards.listing(
-                    params.get('status', [''])[0], params.get('q', [''])[0],
-                    int(params['limit'][0]) if params.get('limit') else 60,
-                    int(params['offset'][0]) if params.get('offset') else 0,
-                    params.get('kind', [''])[0], params.get('view', ['source'])[0] or 'source'))
-            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'prompt':
-                return self.reply(200, store.intake_cards.prompt_card(segments[2]))
-            if len(segments) == 3 and segments[:2] == ['api', 'cards']:
-                return self.reply(200, store.intake_cards.detail(segments[2]))
-            if len(segments)==3 and segments[:2]==['api','deals']:
-                return self.reply(200, store.deals.detail(segments[2]))
-            if parts.path == '/api/collect/platforms':
-                return self.reply(200, store.collect.listing())
-            if parts.path == '/api/collect/aisa/job':
-                return self.reply(200, store.collect.adapter('aisa').job(query.get('id', [''])[0]))
-            if parts.path == '/api/collect/status':
-                return self.reply(200, store.collect.status())
-            if parts.path == '/api/intel/recommendations':
-                return self.reply(200, store.intel_recommend.listing())
-            if parts.path == '/api/intel/status':
-                return self.reply(200, store.intel.status())
-            if parts.path == '/api/intel/subscriptions':
-                return self.reply(200, {'subscriptions': store.intel.subscriptions()})
-            if parts.path == '/api/intel/jobs':
-                return self.reply(200, {'jobs': store.intel.jobs(int(query.get('limit', [30])[0]))})
-            if parts.path == '/api/intel/articles':
-                account = query.get('fakeid', [''])[0] or None
-                return self.reply(200, {**store.intel.articles(
-                    account, int(query.get('limit', [100])[0]), int(query.get('offset', [0])[0])),
-                    'albums': store.intel.albums(account),
-                    # 只读：上次「发现合集」的留痕，刷新页面后也能看到。
-                    'album_search': store.intel.album_search(account)})
-            if parts.path == '/api/intel/accounts':
-                if set(query) - {'query'} or len(query.get('query', [])) != 1:
-                    raise ValueError('公众号搜索只接受一个 query 参数')
-                return self.reply(200, {'candidates': store.intel.search_accounts(query['query'][0])})
-            if len(segments) == 4 and segments[:3] == ['api', 'intel', 'articles']:
-                return self.reply(200, store.intel.article(segments[3]))
-            if len(segments) == 4 and segments[:3] == ['api', 'intel', 'jobs']:
-                return self.reply(200, store.intel.job(segments[3]))
-            if parts.path == '/api/feedback':
-                return self.reply(200, store.feedback.bindings())
-            if parts.path == '/api/feedback/observations':
-                return self.reply(200, store.feedback.observations.listing())
-            if parts.path == '/api/feedback/reviews':
-                return self.reply(200, store.feedback.reviews.works())
-            if parts.path == '/api/feedback/overviews':
-                return self.reply(200, {'overviews': store.feedback.reviews.overviews()})
-            if len(segments) == 4 and segments[:3] == ['api', 'feedback', 'review']:
-                return self.reply(200, store.feedback.reviews.review(segments[3]))
-            if len(segments) == 4 and segments[:3] == ['api', 'feedback', 'observation']:
-                return self.reply(200, store.feedback.observations.get(segments[3]))
-            if parts.path == '/api/feedback/snapshots':
-                return self.reply(200, store.feedback.listing(slug=query.get('slug', [''])[0], delivery_id=query.get('delivery_id', [''])[0], limit=int(query.get('limit', [50])[0])))
-            if len(segments) == 4 and segments[:3] == ['api', 'feedback', 'snapshot']:
-                return self.reply(200, store.feedback.snapshot(segments[3]))
+            if ((parts.path == '/api/deals') or
+                    (parts.path == '/api/deals/proposals/status') or
+                    (parts.path == '/api/deals/options') or
+                    (parts.path == '/api/deals/review') or
+                    (parts.path == '/api/deals/review/report')):
+                from deals_api import get_route
+                return get_route(self, parts)
+            if ((parts.path == '/api/intake') or
+                    (parts.path == '/api/intake/analysis-status') or
+                    (len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'file') or
+                    (len(segments) == 3 and segments[:2] == ['api', 'intake']) or
+                    (parts.path == '/api/cards') or
+                    (len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'prompt') or
+                    (len(segments) == 3 and segments[:2] == ['api', 'cards'])):
+                from intake_cards_api import get_route
+                return get_route(self, parts)
+            if ((len(segments)==3 and segments[:2]==['api','deals'])):
+                from deals_api import get_route
+                return get_route(self, parts)
+            if ((parts.path == '/api/collect/platforms') or
+                    (parts.path == '/api/collect/aisa/job') or
+                    (parts.path == '/api/collect/status') or
+                    (parts.path == '/api/intel/recommendations') or
+                    (parts.path == '/api/intel/status') or
+                    (parts.path == '/api/intel/subscriptions') or
+                    (parts.path == '/api/intel/jobs') or
+                    (parts.path == '/api/intel/articles') or
+                    (parts.path == '/api/intel/accounts') or
+                    (len(segments) == 4 and segments[:3] == ['api', 'intel', 'articles']) or
+                    (len(segments) == 4 and segments[:3] == ['api', 'intel', 'jobs'])):
+                from intel_collect_api import get_route
+                return get_route(self, parts)
+            if ((parts.path == '/api/feedback') or
+                    (parts.path == '/api/feedback/observations') or
+                    (parts.path == '/api/feedback/reviews') or
+                    (parts.path == '/api/feedback/overviews') or
+                    (len(segments) == 4 and segments[:3] == ['api', 'feedback', 'review']) or
+                    (len(segments) == 4 and segments[:3] == ['api', 'feedback', 'observation']) or
+                    (parts.path == '/api/feedback/snapshots') or
+                    (len(segments) == 4 and segments[:3] == ['api', 'feedback', 'snapshot'])):
+                from feedback_api import get_route
+                return get_route(self, parts)
             if parts.path == '/api/clues/wechat/status':
                 return self.reply(200,store.wechat_source.clue_status())
             if parts.path == '/api/clues':
@@ -1544,8 +847,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.knowledge_trash_page()
             if len(segments) == 4 and segments[:3] == ['api', 'knowledge', 'dossier']:
                 return self.reply(200, store.knowledge.dossier(segments[3]))
-            if len(segments)==2 and segments[0]=='chat-attachments' and re.fullmatch(r'[a-f0-9]{32}\.png',segments[1]):
-                return self.serve_file(self.server.assistant.attachment_path(segments[1][:-4]))
+            if ((len(segments)==2 and segments[0]=='chat-attachments' and re.fullmatch(r'[a-f0-9]{32}\.png',segments[1]))):
+                from schedules_assistant_api import get_route
+                return get_route(self, parts)
             if len(segments)==2 and segments[0]=='generation-references':
                 return self.serve_file(self.server.generation.reference_path(segments[1]))
             if len(segments)==4 and segments[:3]==['api','generation','reference']:
@@ -1568,6 +872,9 @@ class Handler(BaseHTTPRequestHandler):
                 if kind not in ('image','video'):raise ValueError('未知生成类型')
                 return self.reply(200,{**self.server.generation.listing(limit=100,kind=kind,origin=None if query.get('scope',['lab'])[0]=='all' else 'lab',trash=query.get('trash',['0'])[0]=='1'),
                     'preferences':self.server.assistant.media_preferences(),'image_skill':self.server.assistant.image_skill.status()})
+            if parts.path == '/api/generation/lab/aicg3d-presets':
+                from generation.aicg3d_compiler import get_presets_and_skills_payload
+                return self.reply(200, get_presets_and_skills_payload())
             if len(segments) == 4 and segments[:3] == ['api', 'generation', 'job']:
                 return self.reply(200, self.server.generation.public(segments[3]))
             if len(segments) == 2 and segments[0] == 'generation-assets':
@@ -1589,48 +896,20 @@ class Handler(BaseHTTPRequestHandler):
             if parts.path == '/api/publishing/capabilities':
                 from publishing.registry import capabilities
                 return self.reply(200, capabilities())
-            if parts.path == '/api/schedules':
-                return self.reply(200, self.server.schedules.listing())
-            if len(segments)==4 and segments[:3]==['api','schedules','run']:
-                return self.reply(200,self.server.schedules.get_run(segments[3]))
-            if len(segments)==4 and segments[:2]==['api','schedules'] and segments[3]=='outsourced_prompt':
-                # 只读：按任务定义拼一份可直接粘给 WorkBuddy 的提示词（impl-outsourced-tasks 新增的唯一路由）。
-                return self.reply(200,self.server.schedules.outsourced_prompt(segments[2]))
-            if parts.path == '/api/schedules/runs':
-                parameters = parse_qs(parts.query, keep_blank_values=True)
-                allowed = {'task_id', 'q', 'status', 'page', 'page_size'}
-                if set(parameters) - allowed or any(len(values) != 1 for values in parameters.values()):
-                    raise ValueError('运行记录查询参数无效或重复')
-                page = int(parameters.get('page', ['1'])[0])
-                page_size = int(parameters.get('page_size', ['50'])[0])
-                if page < 1 or not 1 <= page_size <= 100:
-                    raise ValueError('页码至少为 1，每页记录数必须为 1–100')
-                return self.reply(200, self.server.schedules.runs(
-                    task_id=parameters.get('task_id', [None])[0] or None,
-                    q=parameters.get('q', [''])[0],
-                    status=parameters.get('status', [None])[0] or None,
-                    page=page, page_size=page_size))
-            if parts.path == '/api/assistant/settings':
-                return self.reply(200, self.server.assistant.settings())
-            if parts.path == '/api/assistant':
-                return self.reply(200, self.server.assistant.status())
-            if parts.path == '/api/assistant/capabilities':
-                parameters = parse_qs(parts.query, keep_blank_values=True)
-                if set(parameters) - {'kind'} or len(parameters.get('kind', [])) > 1:
-                    raise ValueError('能力查询仅接受一个可选的 kind 参数')
-                return self.reply(200, self.server.assistant.capabilities(parameters.get('kind', ['all'])[0]))
-            if parts.path == '/api/assistant/ssh':
-                if parts.query:
-                    raise ValueError('SSH 连接测试不接受主机、命令或其他参数')
-                return self.reply(200, self.server.assistant.ssh.status())
-            if parts.path == '/api/assistant/memory':
-                if parts.query:
-                    raise ValueError('本机记忆连接测试不接受地址、命令或检索参数')
-                return self.reply(200, self.server.assistant.memory_tools.status())
-            if len(segments) == 4 and segments[:3] == ['api', 'assistant', 'job']:
-                return self.reply(200, self.server.assistant.public_job(segments[3]))
-            if len(segments) == 2 and segments[0] == 'assistant-images' and re.fullmatch(r'[a-f0-9]{32}\.png', segments[1]):
-                return self.serve_file(store.workspace / 'assistant' / 'images' / segments[1])
+            if ((parts.path == '/api/schedules') or
+                    (parts.path == '/api/schedules/health') or
+                    (len(segments)==4 and segments[:3]==['api','schedules','run']) or
+                    (len(segments)==4 and segments[:2]==['api','schedules'] and segments[3]=='outsourced_prompt') or
+                    (parts.path == '/api/schedules/runs') or
+                    (parts.path == '/api/assistant/settings') or
+                    (parts.path == '/api/assistant') or
+                    (parts.path == '/api/assistant/capabilities') or
+                    (parts.path == '/api/assistant/ssh') or
+                    (parts.path == '/api/assistant/memory') or
+                    (len(segments) == 4 and segments[:3] == ['api', 'assistant', 'job']) or
+                    (len(segments) == 2 and segments[0] == 'assistant-images' and re.fullmatch(r'[a-f0-9]{32}\.png', segments[1]))):
+                from schedules_assistant_api import get_route
+                return get_route(self, parts)
             if len(segments) == 3 and segments[0] == 'uploads':
                 _, path = store.upload_info(segments[1], segments[2])
                 return self.serve_file(path)
@@ -1741,6 +1020,22 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if segments == ['api', 'settings', 'interest-topics']:
+                return __import__('interest_channel').topics_route(self, payload)
+            if segments == ['api', 'today', 'feedback']:
+                from today_view import feedback_route
+                return feedback_route(self, payload)
+            if segments == ['api', 'radar', 'grok-bot', 'feedback']:
+                from grok_bot_radar import FeedbackCorrupt, save_feedback
+                try:
+                    record = save_feedback(self.server.store.workspace, payload)
+                except FeedbackCorrupt as exc:
+                    return self.reply(409, {'error': str(exc), 'code': 'FEEDBACK_CORRUPT'})
+                except ValueError as exc:
+                    return self.reply(400, {'error': str(exc)})
+                except OSError:
+                    return self.reply(500, {'error': '反馈未保存，请稍后重试'})
+                return self.reply(200, record)
             if segments == ['api', 'radar', 'feedback']:
                 # 值得跟/不值得：复用本函数既有的来源校验与 body 限制，非法 payload 一律 400；
                 # 反馈文件损坏时返回 409 且原文件一字节不动（FeedbackCorrupt 是 ValueError 的子类，必须先判）。
@@ -1769,8 +1064,9 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     return self.reply(500, {'error': '反馈未保存，请稍后重试'})
                 return self.reply(200, record)
-            if segments == ['api', 'collect', 'aisa', 'run']:
-                return self.reply(202, self.server.store.collect.adapter('aisa').start(payload))
+            if ((segments == ['api', 'collect', 'aisa', 'run'])):
+                from intel_collect_api import post_route
+                return post_route(self, segments, payload)
             if segments[:2] == ['api', 'x-official']:
                 from publishing.x_official import post_route
                 return post_route(self, route.path, payload)
@@ -1790,123 +1086,25 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(payload, dict) or set(payload) - {'document_ids'} or not isinstance(ids, list) or not 1 <= len(ids) <= 200:
                     raise ValueError('隔离重试只接受 1–200 个 document_ids')
                 return self.reply(200, self.server.store.wechat_source.retry_radar_quarantined(ids))
-            if segments[:2]==['api','deals']:
-                from deals_store import DealConflict
-                try:
-                    deals=self.server.store.deals
-                    if segments==['api','deals']:return self.reply(201,deals.save(payload))
-                    if segments==['api','deals','from-clue']:return self.reply(201,deals.from_clue(payload))
-                    if segments==['api','deals','apply-proposal']:return self.reply(200,deals.apply_proposal(payload))
-                    if len(segments)==4 and segments[3]=='scan-wechat':
-                        from deals_store import fields
-                        fields(payload,('query',));return self.reply(200,deals.scan_evidence(segments[2],payload.get('query','')))
-                    if len(segments)==4 and segments[3]=='evidence':return self.reply(200,deals.review_evidence(segments[2],payload))
-                    if segments==['api','deals','import-initial']:
-                        if payload!={}:raise ValueError('导入参数无效')
-                        return self.reply(200,deals.import_initial())
-                    if len(segments)==4 and segments[3] in ('receipt','deliverable','publication','publication-edit','void'):
-                        return self.reply(200,deals.child(segments[2],segments[3],payload))
-                    return self.reply(404,{'error':'商单接口不存在'})
-                except DealConflict as exc:return self.reply(409,{'error':str(exc)})
-            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'resolve':
-                if payload:
-                    raise ValueError('解析回收项不接受额外字段')
-                result = self.server.store.creative_intake.resolve(segments[2])
-                # 入库成功就排队一次即时分析；模型调用在后台线程，不拖住这次响应。
-                if result.get('status') == 'resolved':
-                    try:
-                        result['analysis'] = self.server.store.intake_cards.request_analysis(segments[2])
-                    except ValueError as exc:
-                        result['analysis'] = {'status': 'failed', 'error': str(exc)[:300], 'retryable': True}
-                return self.reply(200, result)
-            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'analyze':
-                # 手动重跑（失败后可用，也可用于媒体识别完成后刷新分析）。
-                if payload:
-                    raise ValueError('重新分析不接受额外字段')
-                return self.reply(200, self.server.store.intake_cards.request_analysis(segments[2], force=True))
-            if len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'delete':
-                # 删除：回收项 + 即时分析 + （最后一条引用时）知识库正文 + 本机媒体文件。
-                # 已生成的提示词卡不删，卡库会显示「来源已删除」。
-                if payload:
-                    raise ValueError('删除回收项不接受额外字段')
-                return self.reply(200, self.server.store.creative_intake.delete(segments[2]))
-            if segments == ['api', 'intake', 'delete-preview']:
-                # 批量删除前的预览：只读，给确认框用（条数、类型分布、正文删几篇留几篇、涉及几张卡）。
-                if not isinstance(payload, dict) or set(payload) - {'ids'} or not isinstance(payload.get('ids'), list):
-                    raise ValueError('批量删除预览只接受 ids 列表')
-                return self.reply(200, self.server.store.creative_intake.delete_preview(payload['ids']))
-            if segments == ['api', 'intake', 'delete-many']:
-                # 批量删除：逐条走单条删除的同一套规则，一次最多 50 条，逐条回执。
-                if not isinstance(payload, dict) or set(payload) - {'ids'} or not isinstance(payload.get('ids'), list):
-                    raise ValueError('批量删除只接受 ids 列表')
-                return self.reply(200, self.server.store.creative_intake.delete_many(payload['ids']))
-            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] in ('confirm', 'reject', 'restore'):
-                if set(payload) - {'reason'}:
-                    raise ValueError('卡片确认只接受 reason')
-                return self.reply(200, self.server.store.intake_cards.decide(segments[2], segments[3],
-                                                                            payload.get('reason', '')))
-            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'note':
-                if set(payload) - {'note'}:
-                    raise ValueError('卡片备注只接受 note')
-                return self.reply(200, self.server.store.intake_cards.save_note(segments[2], payload.get('note', '')))
-            if len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'delete':
-                if payload:
-                    raise ValueError('删除卡片不接受额外字段')
-                return self.reply(200, self.server.store.intake_cards.delete_card(segments[2]))
-            if segments == ['api', 'cards', 'cleanup']:
-                if not isinstance(payload, dict) or set(payload) - {'drop_id'}:
-                    raise ValueError('清理卡片只接受 drop_id')
-                return self.reply(200, self.server.store.intake_cards.delete_deleted_source(payload.get('drop_id', '')))
-            if segments == ['api', 'intel', 'recommendations', 'scan']:
-                # 扫描 + 解析合并成一步；解析走普通 HTTP，不碰公众号后台。
-                if payload:
-                    raise ValueError('推荐扫描不接受额外字段')
-                counted = self.server.store.intel_recommend.collect()
-                resolved = self.server.store.intel_recommend.resolve()
-                return self.reply(200, {'scan': counted, 'resolve': resolved,
-                                        'listing': self.server.store.intel_recommend.listing()})
-            if len(segments) == 4 and segments[:3] == ['api', 'intel', 'recommendations']:
-                action = segments[3]
-                if set(payload) - {'fakeid'}:
-                    raise ValueError('推荐订阅操作只接受 fakeid')
-                if action == 'subscribe':
-                    match = next((i for i in self.server.store.intel_recommend.listing()['items']
-                                  if i['fakeid'] == payload.get('fakeid')), None)
-                    if match is None:
-                        raise ValueError('这条推荐已不在列表里，请重新扫描')
-                    return self.reply(201, self.server.store.intel.subscribe({
-                        'fakeid': match['fakeid'], 'name': match['nickname'] or match['fakeid'],
-                        'origin': 'recommendation'}))
-                if action == 'ignore':
-                    return self.reply(200, self.server.store.intel_recommend.ignore(payload.get('fakeid')))
-                if action == 'unignore':
-                    return self.reply(200, self.server.store.intel_recommend.unignore(payload.get('fakeid')))
-                raise ValueError('未知推荐操作')
-            if segments[:2] == ['api', 'intel']:
-                from intel_wechat_mp import RateLimited
-                try:
-                    if segments == ['api', 'intel', 'subscriptions']:
-                        return self.reply(201, self.server.store.intel.subscribe(payload))
-                    if segments == ['api', 'intel', 'identify']:
-                        if not isinstance(payload, dict) or set(payload) - {'url'}:
-                            raise ValueError('反查公众号只接受一个 url 参数')
-                        return self.reply(200, self.server.store.intel.identify_from_link(payload.get('url', '')))
-                    if segments == ['api', 'intel', 'run']:
-                        return self.reply(202, self.server.store.intel.run(payload))
-                    if segments == ['api', 'intel', 'unsubscribe']:
-                        if not isinstance(payload, dict) or set(payload) - {'fakeid'}:
-                            raise ValueError('解除订阅只接受 fakeid')
-                        return self.reply(200, self.server.store.intel.remove_subscription(payload['fakeid']))
-                    if len(segments) == 5 and segments[:3] == ['api', 'intel', 'articles'] and segments[4] == 'intake':
-                        if payload:
-                            raise ValueError('送入回收站不接受额外字段')
-                        return self.reply(201, self.server.store.intel.push_to_intake(
-                            segments[3], self.server.store.creative_intake))
-                    return self.reply(404, {'error': '情报采集接口不存在'})
-                except RateLimited as exc:
-                    # 限流不是错误语义：明确回执 + 冷却截止时间，前端据此停手。
-                    return self.reply(429, {'error': str(exc),
-                                            'cooldown_until': exc.until or self.server.store.intel.quota.cooldown_until()})
+            if ((segments[:2]==['api','deals'])):
+                from deals_api import post_route
+                return post_route(self, segments, payload)
+            if ((len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'resolve') or
+                    (len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'analyze') or
+                    (len(segments) == 4 and segments[:2] == ['api', 'intake'] and segments[3] == 'delete') or
+                    (segments == ['api', 'intake', 'delete-preview']) or
+                    (segments == ['api', 'intake', 'delete-many']) or
+                    (len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] in ('confirm', 'reject', 'restore')) or
+                    (len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'note') or
+                    (len(segments) == 4 and segments[:2] == ['api', 'cards'] and segments[3] == 'delete') or
+                    (segments == ['api', 'cards', 'cleanup'])):
+                from intake_cards_api import post_route
+                return post_route(self, segments, payload)
+            if ((segments == ['api', 'intel', 'recommendations', 'scan']) or
+                    (len(segments) == 4 and segments[:3] == ['api', 'intel', 'recommendations']) or
+                    (segments[:2] == ['api', 'intel'])):
+                from intel_collect_api import post_route
+                return post_route(self, segments, payload)
             if segments == ['api','github','connect']:
                 return self.reply(200, self.server.store.github.connect(payload.get('owner')))
             if segments == ['api','github','source']:
@@ -1921,24 +1119,16 @@ class Handler(BaseHTTPRequestHandler):
                 if existing:task.update(id=existing[0]['id'],revision=existing[0]['revision'])
                 saved=self.server.schedules.save(task)
                 return self.reply(200, self.server.schedules.control(saved['id'],'run'))
-            if segments == ['api', 'feedback', 'import']:
-                return self.reply(201, self.server.store.feedback.import_snapshot(payload))
-            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'review'] and segments[4] == 'notes':
-                return self.reply(200, self.server.store.feedback.reviews.save(segments[3], payload))
-            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'review'] and segments[4] == 'knowledge':
-                return self.reply(201, self.server.store.feedback.reviews.export_note(segments[3]))
-            if segments == ['api', 'feedback', 'overview']:
-                # Read-only Buffer query, only on an explicit click; it reports the
-                # whole organization, never one work.
-                return self.reply(201, self.server.store.feedback.reviews.fetch_overview(payload))
-            if segments == ['api', 'feedback', 'observe']:
-                return self.reply(201, self.server.store.feedback.observations.observe(payload))
-            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'observation'] and segments[4] == 'knowledge':
-                return self.reply(201, self.server.store.feedback.observations.export_to_knowledge(segments[3]))
-            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'observation'] and segments[4] == 'bind':
-                return self.reply(201, self.server.store.feedback.observations.bind(segments[3], payload))
-            if len(segments) == 5 and segments[:3] == ['api', 'feedback', 'snapshot'] and segments[4] == 'knowledge':
-                return self.reply(201, self.server.store.feedback.export_to_knowledge(segments[3]))
+            if ((segments == ['api', 'feedback', 'import']) or
+                    (len(segments) == 5 and segments[:3] == ['api', 'feedback', 'review'] and segments[4] == 'notes') or
+                    (len(segments) == 5 and segments[:3] == ['api', 'feedback', 'review'] and segments[4] == 'knowledge') or
+                    (segments == ['api', 'feedback', 'overview']) or
+                    (segments == ['api', 'feedback', 'observe']) or
+                    (len(segments) == 5 and segments[:3] == ['api', 'feedback', 'observation'] and segments[4] == 'knowledge') or
+                    (len(segments) == 5 and segments[:3] == ['api', 'feedback', 'observation'] and segments[4] == 'bind') or
+                    (len(segments) == 5 and segments[:3] == ['api', 'feedback', 'snapshot'] and segments[4] == 'knowledge')):
+                from feedback_api import post_route
+                return post_route(self, segments, payload)
             if segments[:2]==['api','clues']:
                 from events_store import EventConflict
                 try:
@@ -1989,6 +1179,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(201, self.server.store.knowledge.add_project(payload))
             if segments == ['api', 'knowledge', 'note']:
                 return self.reply(201, self.server.store.knowledge.add_note(payload))
+            if len(segments) == 4 and segments[:2] == ['api', 'items'] and segments[3] == 'draft':
+                from write_from_item import post_route as draft_route
+                return draft_route(self, segments[2], payload)
+            if segments == ['api', 'items'] or segments[:2] == ['api', 'items']:
+                from items_store import post_route
+                return post_route(self, payload)
             if segments == ['api', 'knowledge', 'reference']:
                 # 旧键衔接：接入平台识别之前收藏的三家长链接，知识库拿 host+path+query 当主键；
                 # 现在去重键换成了 dedupe_url，这个入口不衔接就会把同一链接再收一次时多出一篇。
@@ -2014,8 +1210,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(201, self.server.store.knowledge.save_dossier(payload))
             if segments == ['api', 'knowledge', 'draft']:
                 return self.reply(201, self.server.store.knowledge.draft(payload))
-            if segments == ['api','assistant','attachments']:
-                return self.reply(201,self.server.assistant.upload_chat_image(payload))
+            if ((segments == ['api','assistant','attachments'])):
+                from schedules_assistant_api import post_route
+                return post_route(self, segments, payload)
             if segments == ['api', 'generation', 'preferences']:
                 return self.reply(200, self.server.assistant.save_media_preferences(payload))
             if segments == ['api', 'generation', 'start']:
@@ -2030,6 +1227,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,self.server.generation.manage(payload.get('ids'),payload.get('action')))
             if segments == ['api', 'generation', 'lab', 'start']:
                 return self.reply(202,self.server.assistant.start_lab_media(payload))
+            if segments == ['api', 'generation', 'lab', 'concat']:
+                return self.reply(201, self.server.generation.concat_lab_videos(payload))
+            if segments == ['api', 'generation', 'lab', 'aicg3d-compile']:
+                from generation.aicg3d_compiler import compile_aicg3d_script
+                return self.reply(200, compile_aicg3d_script(
+                    story=payload.get('story', ''),
+                    skill_id=payload.get('skill_id', 'short-scene-director-lite'),
+                    segment_count=payload.get('segment_count', 12),
+                    segment_seconds=payload.get('segment_seconds', 5),
+                    has_ref_image=bool(payload.get('has_ref_image', True)),
+                    character_desc=payload.get('character_desc', ''),
+                    model_config=self.server.assistant.config(),
+                ))
+            if segments == ['api', 'generation', 'lab', 'aicg3d-parse']:
+                from generation.aicg3d_compiler import parse_raw_script_payload
+                return self.reply(200, parse_raw_script_payload(
+                    raw_script=payload.get('raw_script', ''),
+                    segment_seconds=payload.get('segment_seconds', 5),
+                    has_ref_image=bool(payload.get('has_ref_image', True)),
+                ))
             if segments == ['api', 'generation', 'health']:
                 return self.reply(200, self.server.generation.health(payload['model']))
             if len(segments) == 4 and segments[:3] == ['api', 'generation', 'save']:
@@ -2042,30 +1259,18 @@ class Handler(BaseHTTPRequestHandler):
                 # Re-check an uncertain job under its existing idempotency key; this
                 # never creates or resubmits a generation.
                 return self.reply(200, self.server.generation.reconcile(segments[3]))
-            if segments == ['api', 'schedules', 'save']:
-                return self.reply(200, self.server.schedules.save(payload))
-            if segments == ['api', 'schedules', 'batch']:
-                return self.reply(200, self.server.schedules.batch(payload))
-            if len(segments) == 4 and segments[:2] == ['api', 'schedules']:
-                if segments[3] == 'publish':
-                    return self.reply(201,self.server.schedules.deliver_result(segments[2]))
-                if segments[3] == 'cancel':
-                    return self.reply(200, self.server.schedules.cancel(segments[2]))
-                return self.reply(200, self.server.schedules.control(segments[2], segments[3]))
-            if segments == ['api', 'assistant', 'settings']:
-                return self.reply(200, self.server.assistant.save_settings(payload))
-            if segments == ['api', 'assistant', 'select-model']:
-                return self.reply(200, self.server.assistant.select_model(payload))
-            if segments == ['api', 'assistant', 'test-settings']:
-                return self.reply(200, self.server.assistant.test_settings(payload))
-            if segments == ['api', 'assistant', 'send']:
-                return self.reply(202, self.server.assistant.start(payload))
-            if len(segments)==5 and segments[:3]==['api','assistant','workflows'] and segments[4]=='save':
-                return self.reply(200,self.server.assistant.workflows.save(segments[3]))
-            if segments == ['api', 'assistant', 'stop']:
-                return self.reply(200, self.server.assistant.stop(payload['id']))
-            if segments == ['api', 'assistant', 'new-chat']:
-                return self.reply(200, self.server.assistant.new_chat())
+            if ((segments == ['api', 'schedules', 'save']) or
+                    (segments == ['api', 'schedules', 'batch']) or
+                    (len(segments) == 4 and segments[:2] == ['api', 'schedules']) or
+                    (segments == ['api', 'assistant', 'settings']) or
+                    (segments == ['api', 'assistant', 'select-model']) or
+                    (segments == ['api', 'assistant', 'test-settings']) or
+                    (segments == ['api', 'assistant', 'send']) or
+                    (len(segments)==5 and segments[:3]==['api','assistant','workflows'] and segments[4]=='save') or
+                    (segments == ['api', 'assistant', 'stop']) or
+                    (segments == ['api', 'assistant', 'new-chat'])):
+                from schedules_assistant_api import post_route
+                return post_route(self, segments, payload)
             if segments==['api','local-publishing','connection']:
                 return self.reply(200,self.server.local_deliveries.report_connection(payload))
             if len(segments)==4 and segments[:3]==['api','local-publishing','start']:
@@ -2113,207 +1318,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': str(exc)})
 
 
-def seed_intel_schedule(schedules, workspace):
-    """登记「公众号订阅（每日抓最新）」。幂等：已存在就原样保留，不覆盖黄总的改动。
-
-    初始 enabled=False —— 按合同，必须黄总在页面点「开启」才会每天自动跑。
-    """
-    try:
-        existing = next((t for t in schedules.listing()['tasks'] if t['kind'] == 'intel_wechat_mp'), None)
-        if existing:
-            return existing
-        saved = schedules.save({'name': '公众号订阅（每日抓最新）', 'kind': 'intel_wechat_mp',
-            'body': '每天对已订阅的公众号各抓最新 1 页，新文章入库待确认。', 'cwd': str(workspace),
-            'frequency': 'daily', 'at': '08:00', 'weekdays': [0, 1, 2, 3, 4, 5, 6],
-            'timeout': 1800, 'enabled': False, 'allow_commands': False, 'result_destination': 'runs'})
-        return next((t for t in schedules.listing()['tasks'] if t['id'] == saved['id']), saved)
-    except (OSError, ValueError, KeyError):
-        return None  # 登记失败不阻断工作台启动；页面会如实提示「未登记」
-
-
-def wire_intake_analysis(server, store):
-    """收下即分析的接线：只复用「创意提炼」已配置的模型，不新增服务、不读密钥。
-
-    优先用定时任务「创意提炼（Pi）」选的模型（即使该任务当前处于关闭状态）；
-    没有则退回工作台助手当前模型。两者都没配置时返回 None，分析会如实记为可重试失败。
-    """
-    def model():
-        profile_id = None
-        try:
-            tasks = server.schedules.listing()['tasks']
-        except (OSError, ValueError, KeyError):
-            tasks = []
-        for task in tasks:
-            if task['kind'] == 'intake_cards' and task.get('profile_id'):
-                profile_id = task['profile_id']
-                break
-        if profile_id:
-            try:
-                config = server.schedules.model_config(profile_id)
-            except ValueError:
-                config = None
-            if config:
-                config['profile_id'] = profile_id
-                return config
-        if not server.assistant:
-            return None
-        try:
-            config = server.assistant.config()
-        except ValueError:
-            return None
-        config['profile_id'] = server.assistant.model_document().get('active_profile_id')
-        return config
-
-    def busy(config):
-        profile_id = (config or {}).get('profile_id')
-        if not profile_id:
-            return False
-        return server.schedules.model_in_use(profile_id)
-
-    cards = store.intake_cards
-    cards.model_provider = model
-    cards.busy_probe = busy
-    return cards
-
-
-def wire_intake_media(store):
-    """图片识别接工作台当前模型配置：复用即时分析那条模型与繁忙探测。
-
-    不新建服务、不新建模型配置、不读密钥：config 只在进程内递给 PiRuntime，
-    和聊天看图、定时提炼走同一条 chat/completions 通道。
-    """
-    from intake_media_recognition import MediaRecognizer, ProfileVision
-    cards, intake = store.intake_cards, store.creative_intake
-    if intake.media_recognizer is None:
-        intake.media_recognizer = MediaRecognizer(
-            ProfileVision(cards.analysis_model, cards.model_busy, cards.pi_folder))
-    return intake.media_recognizer
-
-
-class _IntakeLedger:
-    """删除回收项时的接线：同步清掉情报侧留下的链接痕迹。
-
-    清三样：link_index 里只剩这一条来源的链接、推荐订阅里的 intake 来源、
-    情报文章上的「已进回收站」标记。没跑过情报采集（intel.db 不存在）就不新建库。
-
-    单条 delete：__call__(links, drop_id) 里现算 live（与以前一致）。
-    批量 delete_many：先 prepare() 拿一份 live 快照逐条透传（省掉逐条全表扫描）；
-    但删除前快照会把「本批才删掉的链接」也算成存在，留下 knowledge 来源与推荐计数残留，
-    所以批末再 finalize() 用新算的 live 对本批涉及的 URL 统一对账一次（本批第 2 次扫描）。
-    """
-
-    def __init__(self, store):
-        self.store = store
-        self._live = None
-        self._touched = set()
-
-    def _ready(self):
-        return (self.store.workspace / 'intel' / 'intel.db').is_file()
-
-    def prepare(self):
-        self._live = None
-        self._touched = set()
-        if not self._ready():
-            return None
-        self._live = self.store.intel_recommend.live_links()
-        return self._live
-
-    def __call__(self, links, drop_id, live=None):
-        if not self._ready():
-            return
-        if live is None:
-            live = self._live if self._live is not None else self.store.intel_recommend.live_links()
-        for link in (links or []):
-            if link:
-                self._touched.add(link)
-        self.store.intel.forget_intake_drop(drop_id)
-        self.store.intel_recommend.forget_intake_source(links, drop_id, live=live)
-
-    def finalize(self):
-        if not self._ready() or not self._touched:
-            return
-        touched, self._touched = self._touched, set()
-        self.store.intel_recommend.reconcile_links(touched)
-
-
-def wire_intake_links(store):
-    """把情报侧的删除收尾接到回收项与知识库上，并返回接线对象。
-
-    两处：
-    - `creative_intake.link_ledger`：回收项删了要清链接痕迹；
-    - `knowledge.document_removed_hook`：知识库正文删了要按**文档**精确清推荐来源行。
-      推荐来源的主键是 `(source_kind, source_id, link)`，`source_id` 就是文档 id，
-      而清理链接痕迹只按 URL 判 —— 同一 URL 有多份文档时，删掉一份会留下一条孤儿来源，
-      推荐次数多算 1（reverify-perf-knowledge-report.md §6）。
-    """
-    ledger = _IntakeLedger(store)
-    store.creative_intake.link_ledger = ledger
-
-    def forget_document(document_id):
-        # 情报侧没跑过（intel.db 不存在）就不动：删个回收项不该凭空建一个情报库。
-        # 与 _IntakeLedger._ready 同一口径。
-        if not (Path(store.workspace) / 'intel' / 'intel.db').is_file():
-            return 0, 0
-        # 用完整的收尾（清来源行 + 对账该文档的链接），不只是清来源行：
-        # 直接删除入口没有批末 finalize 来做 URL 级对账，只清来源行会让 link_index
-        # 留下已无真实引用的孤儿行（review-recommend-doc-granularity-report.md §3 L1）。
-        return store.intel_recommend.forget_document_cleanup([document_id])
-
-    store.knowledge.document_removed_hook = forget_document
-    return ledger
+# 调用时读取当前依赖，保留 server.ROOT 等测试替换的语义。
+import server_boot
+from server_boot import (seed_intel_schedule, wire_intake_analysis, wire_intake_media,
+                         _IntakeLedger, wire_intake_links)
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--workspace', default=str(ROOT / 'workspace'))
-    parser.add_argument('--port', type=int, default=8766)
-    parser.add_argument('--seed', help='Existing article package to show on first startup')
-    args = parser.parse_args()
-    store = Store(args.workspace)
-    if args.seed and not (store.article('v100-qwen') / 'article.json').exists():
-        store.commit('v100-qwen', Path(args.seed), '导入完整图文原稿', '原始文章包')
-    store.scan(force=True)
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
-    server.store = store
-    store.knowledge.start_watch()
-    from publishing.local_jobs import LocalDeliveries
-    server.local_deliveries = LocalDeliveries(store)
-    from generation.service import Generation
-    server.generation = Generation(store)
-    config_path = os.environ.get('ARTICLE_STUDIO_MODEL_CONFIG', str(ROOT / 'workspace/private/article-studio-model.json'))
-    server.assistant = assistant_module.Assistant(store, content, config_path)
-    server.assistant.generation = server.generation
-    from scheduled_tasks import ScheduledTasks
-    server.schedules = ScheduledTasks(store.workspace, server.assistant, autostart=False)
-    store.schedules = server.schedules
-    from clues_heat import recompute_heat
-    server.schedules.heat_recomputer = lambda cancel, deadline: recompute_heat(store.clues,cancel=cancel,deadline=deadline)
-    server.schedules.seed_heat_schedule(store.workspace)
-    server.schedules.publisher = store.clues.from_run
-    server.schedules.outsourced_clues = store.clues
-    server.schedules.wechat_analyzer = store.wechat_source.analyze_clues
-    server.schedules.radar_analyzer = store.wechat_source.analyze_radar
-    server.schedules.github_analyzer = store.github.analyze
-    server.schedules.deals_analyzer = store.deals_review.analyze
-    server.schedules.intake_analyzer = store.intake_cards.analyze
-    wire_intake_analysis(server, store)
-    wire_intake_media(store)
-    wire_intake_links(store)
-    server.schedules.intel_analyzer = store.intel.analyze_scheduled
-    seed_intel_schedule(server.schedules, store.workspace)
-    server.schedules.start()
-    print(f'图文工作台：http://127.0.0.1:{server.server_port}', flush=True)
-    print(f'投递目录：{store.inbox}', flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.schedules.close()
-        store.knowledge.stop_event.set()
-        store.knowledge.capture.close()
-        server.generation.close()
-        server.server_close()
+    def wire_outsourced_clues(server, store):
+        server.schedules.outsourced_clues = store.clues
+
+    return server_boot.main(ROOT, Store, Handler, assistant_module, content,
+                            wire_outsourced_clues)
 
 
 if __name__ == '__main__':
