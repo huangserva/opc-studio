@@ -1,0 +1,29 @@
+'use strict';
+// Only GET, fresh /tmp profile. Real input can refresh: DOM must match the exact response it rendered.
+const fs=require('fs'),path=require('path'),os=require('os'),assert=require('assert/strict'),{execFileSync}=require('child_process');
+const {chromium}=(()=>{try{return require('playwright')}catch(_){return require(path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'))}})();
+if(!process.argv.includes('--real'))throw Error('仅经合同授权后只读验收');
+const ROOT=path.resolve(__dirname,'../..'),out=path.join(ROOT,'coordination/evidence/impl-hub-h3a/m3'),base='http://127.0.0.1:8766',PY=path.resolve(ROOT,'../article-importer/.venv/bin/python');
+const checks=[],unknown=[],errors=[];let context;const check=(name,ok)=>{assert.ok(ok,name);checks.push({name,passed:true});console.log('通过 '+name)};
+(async()=>{try{
+ execFileSync(PY,[path.join(ROOT,'tests/h3a_m3_live.py'),'--out',out],{cwd:ROOT});const offline=JSON.parse(fs.readFileSync(path.join(out,'today-after.json')));
+ const tmp=fs.mkdtempSync('/tmp/h3a-m3-real-');context=await chromium.launchPersistentContext(path.join(tmp,'profile'),{headless:true,channel:'chrome',viewport:{width:1440,height:1000},args:['--disable-background-networking','--disable-component-update']});await context.route('**/*',r=>r.request().method()==='GET'&&new URL(r.request().url()).origin===base?r.continue():r.abort());
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));const rendered=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/today');await page.goto(base+'/today.html');const listing=await(await rendered).json();await page.waitForFunction(()=>document.querySelector('#item-list')?.getAttribute('aria-busy')==='false');await page.locator('#filtered-summary').click();
+ check('真实来源计数与同口径回放相等',JSON.stringify(listing.filtering.by_source)===JSON.stringify(offline.filtering.by_source));check('51人原始计数与同口径回放相等',['total','visible','filtered'].every(k=>listing.filtering.aisa_all[k]===offline.filtering.aisa_all[k]));
+ const text=await page.locator('#filtered-counts').innerText();for(const [name,c] of Object.entries(listing.filtering.by_source))check('DOM来源 '+name,text.includes(name+'：'+c.total+' → '+c.visible+' 条，已过滤 '+c.filtered+' 条'));
+ const a=listing.filtering.aisa_all;check('DOM51人全量与比例',text.includes('AIsa 51 人全量推文：'+a.total+' → '+a.visible+' 条，已过滤 '+a.filtered+' 条（'+(a.ratio*100).toFixed(1)+'%）'));
+ const candidates=page.locator('[data-filter-group=candidates]'),raw=page.locator('[data-filter-group=aisa-raw]');check('候选与原始采样两组独立',await candidates.count()===1&&await raw.count()===1);check('原始采样标注不属于候选',(await raw.innerText()).includes('原始采样统计，不属于主列表候选'));
+ for(const [name,group,rows] of [['候选',candidates,listing.filtering.items.filter(r=>r.sources.some(s=>s!=='AIsa 51 人全量推文'))],['原始采样',raw,listing.filtering.aisa_all_items]]){
+  const got=await group.locator('[data-audit-id]').evaluateAll(ns=>ns.map(n=>n.dataset.auditId).sort()),expected=rows.map(r=>r.id).sort();check(name+' ID与API次数逐条相等',JSON.stringify(got)===JSON.stringify(expected));
+ }
+ const mainHidden=listing.filtering.items.filter(r=>r.hidden&&!r.sources.includes('AIsa 51 人全量推文')).map(r=>r.id),rawHidden=listing.filtering.aisa_all_items.filter(r=>r.hidden).map(r=>r.id);const uniqueHidden=new Set([...mainHidden,...rawHidden]);check('面板总数按两组隐藏ID去重',listing.filtering.total===uniqueHidden.size&&(await page.locator('#filtered-summary').innerText()).includes('已过滤 '+uniqueHidden.size+' 条'));
+ const financial='x:2115900089075995087';for(const [name,group,rows] of [['候选',candidates,listing.filtering.items.filter(r=>!r.sources.includes('AIsa 51 人全量推文'))],['原始采样',raw,listing.filtering.aisa_all_items]]){const input=rows.filter(r=>r.id===financial);check('金融样例'+name+'输入唯一且仍隐藏',input.length===1&&input[0].hidden);check('金融样例'+name+' DOM精确一次',await group.locator('[data-audit-id="'+financial+'"]').count()===1);}
+ const patterns=[/亲哥欠钱\s*10w/,/被.*骗.*钱.*追回/,/不限次数的\s*seedance2\.0/i];
+ for(const [i,p] of patterns.entries()){
+  const input=JSON.parse(fs.readFileSync(path.join(out,'hard-samples-input.json')))[i].rows;const row=input.length?listing.filtering.items.find(r=>r.id===input[0].id):null;if(!input.length){unknown.push({name:'硬例'+(i+1),reason:'当前输入已退出，不能复证DOM'});continue;}
+  check('硬例'+(i+1)+'黑名单仍隐藏',row&&row.hidden&&row.reason.startsWith('分类黑名单：'));const dom=candidates.locator('[data-audit-id="'+row.id+'"]');check('硬例'+(i+1)+' DOM准确一次',await dom.count()===1);await dom.scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,'real-hard-'+(i+1)+'.png'),fullPage:false});
+ }
+ const week=await(await context.request.get(base+'/api/today?range=7d')).json();const hidden=new Set(week.filtering.aisa_all_items.filter(r=>r.hidden).map(r=>r.id));const frozen=JSON.parse(fs.readFileSync(path.join(out,'pool.json')));for(const id of ['x:2115350337179807903','x:2114559061371064705']){check('七天固定输入含真实恢复样例 '+id,frozen.some(r=>r.id===id));check('七天真实API不再隐藏 '+id,!hidden.has(id));}
+ for(const width of [1440,390]){await page.setViewportSize({width,height:width===1440?1000:844});await page.locator('#filtered-counts').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,'real-'+width+'-counts.png'),fullPage:false});await candidates.locator('h3').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,'real-'+width+'-candidates.png'),fullPage:false});await raw.locator('h3').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,'real-'+width+'-aisa-raw.png'),fullPage:false});check(width+'无横向溢出',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
+ check('无页面脚本错误',errors.length===0);
+ }finally{fs.writeFileSync(path.join(out,'real-e2e-results.json'),JSON.stringify({checks,unknown,errors},null,2));await context?.close();}})().catch(e=>{console.error(e);process.exitCode=1});

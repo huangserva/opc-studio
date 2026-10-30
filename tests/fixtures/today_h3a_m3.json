@@ -1,0 +1,1104 @@
+{
+  "cases": [
+    {
+      "name": "review_uppercase_1",
+      "title": "DAILY EMAIL REPORT: CAPITAL SPENDING",
+      "full_text": "DAILY EMAIL REPORT: CAPITAL SPENDING",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_2",
+      "title": "Duquesne CAPITAL investment report",
+      "full_text": "Duquesne CAPITAL investment report",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_3",
+      "title": "Update the REPORT tonight.",
+      "full_text": "Update the REPORT tonight.",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_4",
+      "title": "We played CHAIR games at the party.",
+      "full_text": "We played CHAIR games at the party.",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_5",
+      "title": "I said the daily email report covered capital spending.",
+      "full_text": "I said the daily email report covered capital spending.",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_6",
+      "title": "Use GenAI and xAI today.",
+      "full_text": "Use GenAI and xAI today.",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_7",
+      "title": "AI API MCP LLM REPO",
+      "full_text": "AI API MCP LLM REPO",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_8",
+      "title": "LOCAL NEWS: RAIN DELAYS CAPITAL CITY TRAINS",
+      "full_text": "LOCAL NEWS: RAIN DELAYS CAPITAL CITY TRAINS",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_9",
+      "title": "MAIL",
+      "full_text": "MAIL",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_10",
+      "title": "RAIN",
+      "full_text": "RAIN",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_11",
+      "title": "PAID",
+      "full_text": "PAID",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_12",
+      "title": "AI AGENT",
+      "full_text": "AI AGENT",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_13",
+      "title": "NEW API",
+      "full_text": "NEW API",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "B原14项"
+    },
+    {
+      "name": "review_uppercase_14",
+      "title": "OPENAI",
+      "full_text": "OPENAI",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "B原14项"
+    },
+    {
+      "name": "boundary_ai_uppercase_1",
+      "title": "CHAIR",
+      "full_text": "CHAIR",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_ai_uppercase_2",
+      "title": "MAIL",
+      "full_text": "MAIL",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_ai_uppercase_3",
+      "title": "RAIN",
+      "full_text": "RAIN",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_api_uppercase_1",
+      "title": "CAPITAL",
+      "full_text": "CAPITAL",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_api_uppercase_2",
+      "title": "CAPITOL",
+      "full_text": "CAPITOL",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_api_uppercase_3",
+      "title": "CAPITALISM",
+      "full_text": "CAPITALISM",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_mcp_uppercase_1",
+      "title": "SCULPTINGMCPIECE",
+      "full_text": "SCULPTINGMCPIECE",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_mcp_uppercase_2",
+      "title": "PREFIXMCPORT",
+      "full_text": "PREFIXMCPORT",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_mcp_uppercase_3",
+      "title": "TEAMMCPIECE",
+      "full_text": "TEAMMCPIECE",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_llm_uppercase_1",
+      "title": "BELLMORE",
+      "full_text": "BELLMORE",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_llm_uppercase_2",
+      "title": "WALLMOUNT",
+      "full_text": "WALLMOUNT",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_llm_uppercase_3",
+      "title": "ALLMAILED",
+      "full_text": "ALLMAILED",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_repo_uppercase_1",
+      "title": "REPORT",
+      "full_text": "REPORT",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_repo_uppercase_2",
+      "title": "REPORTER",
+      "full_text": "REPORTER",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_repo_uppercase_3",
+      "title": "PREPOSITION",
+      "full_text": "PREPOSITION",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_ai_mixed_1",
+      "title": "someAITool",
+      "full_text": "someAITool",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_ai_mixed_2",
+      "title": "myAIHelper",
+      "full_text": "myAIHelper",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_api_mixed_1",
+      "title": "myAPIClient",
+      "full_text": "myAPIClient",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_api_mixed_2",
+      "title": "dataAPIService",
+      "full_text": "dataAPIService",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_mcp_mixed_1",
+      "title": "newMCPClient",
+      "full_text": "newMCPClient",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_mcp_mixed_2",
+      "title": "myMCPBridge",
+      "full_text": "myMCPBridge",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_llm_mixed_1",
+      "title": "myLLMTool",
+      "full_text": "myLLMTool",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_llm_mixed_2",
+      "title": "newLLMService",
+      "full_text": "newLLMService",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_repo_mixed_1",
+      "title": "myREPOIndex",
+      "full_text": "myREPOIndex",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "boundary_repo_mixed_2",
+      "title": "localREPOView",
+      "full_text": "localREPOView",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "需边界逐词3反例2正例"
+    },
+    {
+      "name": "uppercase_news_1",
+      "title": "CITY REPORT: CAPITAL SPENDING RISES",
+      "full_text": "CITY REPORT: CAPITAL SPENDING RISES",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "整句大写普通新闻"
+    },
+    {
+      "name": "uppercase_news_2",
+      "title": "LOCAL MAIL DELAYED BY RAIN",
+      "full_text": "LOCAL MAIL DELAYED BY RAIN",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "整句大写普通新闻"
+    },
+    {
+      "name": "uppercase_news_3",
+      "title": "CHAIR PAID FOR DAILY PAPER",
+      "full_text": "CHAIR PAID FOR DAILY PAPER",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "整句大写普通新闻"
+    },
+    {
+      "name": "mixed_sentence_1",
+      "title": "Use myAPIClient for today’s request",
+      "full_text": "Use myAPIClient for today’s request",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "混排整句正例"
+    },
+    {
+      "name": "mixed_sentence_2",
+      "title": "Connect the customMCPBridge today",
+      "full_text": "Connect the customMCPBridge today",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "混排整句正例"
+    },
+    {
+      "name": "mixed_sentence_3",
+      "title": "Try the localLLMRunner now",
+      "full_text": "Try the localLLMRunner now",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "混排整句正例"
+    },
+    {
+      "name": "case_positive",
+      "title": "gRoKbOt 长任务",
+      "full_text": "gRoKbOt 长任务",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "case_negative",
+      "title": "CAPITAL spending",
+      "full_text": "CAPITAL spending",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "width_positive",
+      "title": "ＧｅｎＡＩ 创作",
+      "full_text": "ＧｅｎＡＩ 创作",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "width_negative",
+      "title": "ＣＡＰＩＴＡＬ 财经",
+      "full_text": "ＣＡＰＩＴＡＬ 财经",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "confusable_positive",
+      "title": "ＣＩａｕｄｅ 设置中文",
+      "full_text": "ＣＩａｕｄｅ 设置中文",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "confusable_negative",
+      "title": "ＣＩａｕｄｅｆａｎ 早餐",
+      "full_text": "ＣＩａｕｄｅｆａｎ 早餐",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "url_positive",
+      "title": "GenAI 作品 https://t.co/AbAIgpt",
+      "full_text": "GenAI 作品 https://t.co/AbAIgpt",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "url_negative",
+      "title": "旅行 https://t.co/AbAIgpt",
+      "full_text": "旅行 https://t.co/AbAIgpt",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "word_positive",
+      "title": "GenAI 创作",
+      "full_text": "GenAI 创作",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "word_negative",
+      "title": "report on daily email",
+      "full_text": "report on daily email",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "daily_positive",
+      "title": "豆包工作 的运营反馈",
+      "full_text": "豆包工作 的运营反馈",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "daily_negative",
+      "title": "早餐吃豆沙包和豆包",
+      "full_text": "早餐吃豆沙包和豆包",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "url_official_negative",
+      "title": "旅行 https://example.com/@Kimi_Moonshot",
+      "full_text": "旅行 https://example.com/@Kimi_Moonshot",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "url_fullwidth_negative",
+      "title": "旅行 ｈｔｔｐｓ：／／ｔ．ｃｏ／ＡＩｋｉｍｉ",
+      "full_text": "旅行 ｈｔｔｐｓ：／／ｔ．ｃｏ／ＡＩｋｉｍｉ",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "输入边界1正1反"
+    },
+    {
+      "name": "product_kimi",
+      "title": "Kimi K3.1 Pro",
+      "full_text": "Kimi K3.1 Pro",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_豆包",
+      "title": "豆包工作 的运营反馈",
+      "full_text": "豆包工作 的运营反馈",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_元宝",
+      "title": "腾讯元宝问答",
+      "full_text": "腾讯元宝问答",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_千问",
+      "title": "千问体验",
+      "full_text": "千问体验",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_智谱",
+      "title": "智谱体验",
+      "full_text": "智谱体验",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_glm",
+      "title": "GLM-5.3",
+      "full_text": "GLM-5.3",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_可灵",
+      "title": "可灵体验",
+      "full_text": "可灵体验",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_kling",
+      "title": "Kling4.0",
+      "full_text": "Kling4.0",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_即梦",
+      "title": "即梦体验",
+      "full_text": "即梦体验",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_minimax",
+      "title": "MiniMax 3.1-pro",
+      "full_text": "MiniMax 3.1-pro",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_文心",
+      "title": "文心 Unlimited OCR",
+      "full_text": "文心 Unlimited OCR",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "product_混元",
+      "title": "混元3D",
+      "full_text": "混元3D",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "新增产品正例"
+    },
+    {
+      "name": "daily_kimi",
+      "title": "F1车手 Kimi Räikkönen 赢得比赛",
+      "full_text": "F1车手 Kimi Räikkönen 赢得比赛",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "歧义词日常反例"
+    },
+    {
+      "name": "daily_豆包",
+      "title": "早餐吃豆沙包和豆包",
+      "full_text": "早餐吃豆沙包和豆包",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "歧义词日常反例"
+    },
+    {
+      "name": "daily_元宝",
+      "title": "压岁钱换成金元宝",
+      "full_text": "压岁钱换成金元宝",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "歧义词日常反例"
+    },
+    {
+      "name": "daily_海螺",
+      "title": "海边捡海螺",
+      "full_text": "海边捡海螺",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "歧义词日常反例"
+    },
+    {
+      "name": "daily_文心",
+      "title": "阅读《文心雕龙》文学论文",
+      "full_text": "阅读《文心雕龙》文学论文",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "歧义词日常反例"
+    },
+    {
+      "name": "daily_混元",
+      "title": "周末练习混元太极拳",
+      "full_text": "周末练习混元太极拳",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "歧义词日常反例"
+    },
+    {
+      "name": "kimi_bare",
+      "title": "Kimi 周末在家",
+      "full_text": "Kimi 周末在家",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "bean_bare",
+      "title": "豆包真好吃",
+      "full_text": "豆包真好吃",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "yuanbao_bare",
+      "title": "元宝很值钱",
+      "full_text": "元宝很值钱",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "bean_work_meal",
+      "title": "豆包工作餐很好吃",
+      "full_text": "豆包工作餐很好吃",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "kimi_long_word",
+      "title": "yakimifan 周末旅行",
+      "full_text": "yakimifan 周末旅行",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "glm_long_word",
+      "title": "manglmsalad 晚餐",
+      "full_text": "manglmsalad 晚餐",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "kling_long_word",
+      "title": "sparkling 湖面",
+      "full_text": "sparkling 湖面",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "minimax_long_word",
+      "title": "myminimaximal 文学随笔",
+      "full_text": "myminimaximal 文学随笔",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "产品词边界/裸名反例"
+    },
+    {
+      "name": "camel_openai",
+      "title": "OpenAIClient",
+      "full_text": "OpenAIClient",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "camel_api",
+      "title": "APIGateway",
+      "full_text": "APIGateway",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "camel_mcp",
+      "title": "MCPServer",
+      "full_text": "MCPServer",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "camel_rapid",
+      "title": "RAPIDServer",
+      "full_text": "RAPIDServer",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "camel_capital",
+      "title": "CAPITALOne",
+      "full_text": "CAPITALOne",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "camel_mail",
+      "title": "MAILBox",
+      "full_text": "MAILBox",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "product_tongyi",
+      "title": "通义体验",
+      "full_text": "通义体验",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "product_hailuo",
+      "title": "海螺 AI 视频",
+      "full_text": "海螺 AI 视频",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "主控M3补充裁定"
+    },
+    {
+      "name": "opus_version",
+      "title": "用 Opus5.5 做短片",
+      "full_text": "用 Opus5.5 做短片",
+      "sources": [
+        "A"
+      ],
+      "expected": true,
+      "group": "跨日新增隐藏的模型产品保护"
+    },
+    {
+      "name": "opus_everyday",
+      "title": "今晚欣赏 Opus 作品音乐会",
+      "full_text": "今晚欣赏 Opus 作品音乐会",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "跨日新增隐藏的模型产品保护"
+    },
+    {
+      "name": "opus_single_integer",
+      "title": "Opus 5 音乐会作品",
+      "full_text": "Opus 5 音乐会作品",
+      "sources": [
+        "A"
+      ],
+      "expected": false,
+      "group": "跨日新增隐藏的模型产品保护"
+    },
+    {
+      "name": "blacklist_hard_1",
+      "id": "url:f8f552c13ef1d367",
+      "title": "亲哥欠钱10w怎么办",
+      "full_text": "亲哥欠钱10w怎么办",
+      "category": "搞七捻三",
+      "sources": [
+        "L"
+      ],
+      "url": "https://linux.do/t/topic/3094239",
+      "expected": false,
+      "group": "M2已取证的三条硬性样例"
+    },
+    {
+      "name": "blacklist_hard_2",
+      "id": "url:793abe66985b65d7",
+      "title": "【已原路退还给我]之前被骗子骗走的钱被警察叔叔追回来了",
+      "full_text": "【已原路退还给我]之前被骗子骗走的钱被警察叔叔追回来了",
+      "category": "搞七捻三",
+      "sources": [
+        "L"
+      ],
+      "url": "https://linux.do/t/topic/3094046",
+      "expected": false,
+      "group": "M2已取证的三条硬性样例"
+    },
+    {
+      "name": "blacklist_hard_3",
+      "id": "url:484acacc93985e1f",
+      "title": "不限次数的seedance2.0来了（但是要很多ldc）",
+      "full_text": "不限次数的seedance2.0来了（但是要很多ldc）",
+      "category": "福利羊毛",
+      "sources": [
+        "L"
+      ],
+      "url": "https://linux.do/t/topic/3093487",
+      "expected": false,
+      "group": "M2已取证的三条硬性样例"
+    }
+  ],
+  "context": [
+    {
+      "name": "same_sentence_Kimi",
+      "text": "Kimi 模型体验",
+      "expected": true
+    },
+    {
+      "name": "same_sentence_豆包",
+      "text": "豆包 模型体验",
+      "expected": true
+    },
+    {
+      "name": "same_sentence_元宝",
+      "text": "元宝 模型体验",
+      "expected": true
+    },
+    {
+      "name": "same_sentence_文心",
+      "text": "文心 模型体验",
+      "expected": true
+    },
+    {
+      "name": "same_sentence_混元",
+      "text": "混元 模型体验",
+      "expected": true
+    },
+    {
+      "name": "cross_sentence_Kimi",
+      "text": "Kimi 真好。天气不错\n模型新体验",
+      "expected": false
+    },
+    {
+      "name": "cross_sentence_豆包",
+      "text": "豆包 真好。天气不错\n模型新体验",
+      "expected": false
+    },
+    {
+      "name": "cross_sentence_元宝",
+      "text": "元宝 真好。天气不错\n模型新体验",
+      "expected": false
+    },
+    {
+      "name": "cross_sentence_文心",
+      "text": "文心 真好。天气不错\n模型新体验",
+      "expected": false
+    },
+    {
+      "name": "cross_sentence_混元",
+      "text": "混元 真好。天气不错\n模型新体验",
+      "expected": false
+    },
+    {
+      "name": "same_sentence_海螺",
+      "text": "海螺 模型体验",
+      "expected": true
+    },
+    {
+      "name": "cross_sentence_海螺",
+      "text": "海螺真好。天气不错\n模型新体验",
+      "expected": false
+    },
+    {
+      "name": "english_sentence_boundary",
+      "text": "Kimi drove F1. 模型新体验",
+      "expected": false
+    }
+  ],
+  "real": [
+    {
+      "id": "x:2115350337179807903",
+      "sources": [
+        "A"
+      ],
+      "title": "很开心能成为 kimi 大使，希望能和 kimi 一起越走越远 ❤️\n\n@Kimi_Moonshot https://t.co/ka9p0nReg0",
+      "full_text": "很开心能成为 kimi 大使，希望能和 kimi 一起越走越远 ❤️\n\n@Kimi_Moonshot https://t.co/ka9p0nReg0",
+      "topic": "",
+      "url": "https://x.com/Saccc_c/status/2115350337179807903",
+      "rich_sources": [],
+      "expanded_text": "",
+      "content_insufficient": false,
+      "relevance_note": "",
+      "rss_boards": [],
+      "reply_change": ""
+    },
+    {
+      "id": "x:2114559061371064705",
+      "sources": [
+        "A"
+      ],
+      "title": "豆包工作的运营你到底都在干什么啊？？ https://t.co/WrnFap2qYv",
+      "full_text": "豆包工作的运营你到底都在干什么啊？？ https://t.co/WrnFap2qYv",
+      "topic": "",
+      "url": "https://x.com/MaxForAI/status/2114559061371064705",
+      "rich_sources": [],
+      "expanded_text": "",
+      "content_insufficient": false,
+      "relevance_note": "",
+      "rss_boards": [],
+      "reply_change": ""
+    }
+  ]
+}

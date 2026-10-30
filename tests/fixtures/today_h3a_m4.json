@@ -1,0 +1,345 @@
+[
+  {
+    "name": "regression_1",
+    "group": "阻断五例",
+    "text": "OpenAPIs",
+    "expected": true,
+    "reason": "混排前缀后的完整缩写复数，应保持缩写整段"
+  },
+  {
+    "name": "regression_2",
+    "group": "阻断五例",
+    "text": "myMCPs",
+    "expected": true,
+    "reason": "混排前缀后的完整缩写复数，应保持缩写整段"
+  },
+  {
+    "name": "regression_3",
+    "group": "阻断五例",
+    "text": "newLLMs",
+    "expected": true,
+    "reason": "混排前缀后的完整缩写复数，应保持缩写整段"
+  },
+  {
+    "name": "regression_4",
+    "group": "阻断五例",
+    "text": "localREPOs",
+    "expected": true,
+    "reason": "混排前缀后的完整缩写复数，应保持缩写整段"
+  },
+  {
+    "name": "regression_5",
+    "group": "阻断五例",
+    "text": "theirAPIs",
+    "expected": true,
+    "reason": "混排前缀后的完整缩写复数，应保持缩写整段"
+  },
+  {
+    "name": "keep_1",
+    "group": "必须保持正例",
+    "text": "APIs",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_2",
+    "group": "必须保持正例",
+    "text": "LLMs",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_3",
+    "group": "必须保持正例",
+    "text": "MCPs",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_4",
+    "group": "必须保持正例",
+    "text": "MCPServer",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_5",
+    "group": "必须保持正例",
+    "text": "APIGateway",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_6",
+    "group": "必须保持正例",
+    "text": "OpenAIClient",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_7",
+    "group": "必须保持正例",
+    "text": "GenAI",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "keep_8",
+    "group": "必须保持正例",
+    "text": "xAI",
+    "expected": true,
+    "reason": "既有独立缩写复数、驼峰整段或复合词保持"
+  },
+  {
+    "name": "reject_1",
+    "group": "必须保持反例",
+    "text": "RAPIDServer",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_2",
+    "group": "必须保持反例",
+    "text": "CAPITALOne",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_3",
+    "group": "必须保持反例",
+    "text": "MAILBox",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_4",
+    "group": "必须保持反例",
+    "text": "CAPITAL",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_5",
+    "group": "必须保持反例",
+    "text": "REPORT",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_6",
+    "group": "必须保持反例",
+    "text": "CHAIR",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_7",
+    "group": "必须保持反例",
+    "text": "MAILs",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_8",
+    "group": "必须保持反例",
+    "text": "RAPIDs",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "reject_9",
+    "group": "必须保持反例",
+    "text": "CAPITALs",
+    "expected": false,
+    "reason": "完整分段为普通词，不把内部子串当缩写"
+  },
+  {
+    "name": "boundary_1",
+    "group": "新增输入边界",
+    "text": "myAPIs",
+    "expected": true,
+    "reason": "小写前缀+API复数"
+  },
+  {
+    "name": "boundary_2",
+    "group": "新增输入边界",
+    "text": "ourMCPsHub",
+    "expected": true,
+    "reason": "复数缩写之后是新大写驼峰段"
+  },
+  {
+    "name": "boundary_3",
+    "group": "新增输入边界",
+    "text": "newREPOsIndex",
+    "expected": true,
+    "reason": "REPO复数后接Index"
+  },
+  {
+    "name": "boundary_4",
+    "group": "新增输入边界",
+    "text": "OpenAPIsLab",
+    "expected": true,
+    "reason": "API复数处于中间整段"
+  },
+  {
+    "name": "boundary_5",
+    "group": "新增输入边界",
+    "text": "myLLMs2",
+    "expected": true,
+    "reason": "缩写复数后数字段"
+  },
+  {
+    "name": "boundary_6",
+    "group": "新增输入边界",
+    "text": "HTTPs",
+    "expected": false,
+    "reason": "HTTP不在AI相关词表，不能只因全大写复数放行"
+  },
+  {
+    "name": "boundary_7",
+    "group": "新增输入边界",
+    "text": "newMAILs",
+    "expected": false,
+    "reason": "MAIL整段为普通单词，不是AI缩写"
+  },
+  {
+    "name": "boundary_8",
+    "group": "新增输入边界",
+    "text": "myRAPIDs",
+    "expected": false,
+    "reason": "RAPID整段不能抽出API"
+  },
+  {
+    "name": "boundary_9",
+    "group": "新增输入边界",
+    "text": "localCAPITALs",
+    "expected": false,
+    "reason": "CAPITAL整段不能抽出API"
+  },
+  {
+    "name": "boundary_10",
+    "group": "新增输入边界",
+    "text": "myAPIslab",
+    "expected": false,
+    "reason": "s后紧接小写lab，不是复数边界"
+  },
+  {
+    "name": "boundary_11",
+    "group": "新增输入边界",
+    "text": "myMCPss",
+    "expected": false,
+    "reason": "复数仅单个词尾s，不允许重复s"
+  },
+  {
+    "name": "boundary_12",
+    "group": "新增输入边界",
+    "text": "ＷｅｂＡＰＩｓ",
+    "expected": true,
+    "reason": "NFKC规范后仍为混排缩写复数"
+  },
+  {
+    "name": "boundary_13",
+    "group": "新增输入边界",
+    "text": "ＡＰＩｓＬａｂ",
+    "expected": true,
+    "reason": "全角规范后保留中间API复数段"
+  },
+  {
+    "name": "review14_1",
+    "group": "B原14项",
+    "text": "DAILY EMAIL REPORT: CAPITAL SPENDING",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_2",
+    "group": "B原14项",
+    "text": "Duquesne CAPITAL investment report",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_3",
+    "group": "B原14项",
+    "text": "Update the REPORT tonight.",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_4",
+    "group": "B原14项",
+    "text": "We played CHAIR games at the party.",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_5",
+    "group": "B原14项",
+    "text": "I said the daily email report covered capital spending.",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_6",
+    "group": "B原14项",
+    "text": "Use GenAI and xAI today.",
+    "expected": true,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_7",
+    "group": "B原14项",
+    "text": "AI API MCP LLM REPO",
+    "expected": true,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_8",
+    "group": "B原14项",
+    "text": "LOCAL NEWS: RAIN DELAYS CAPITAL CITY TRAINS",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_9",
+    "group": "B原14项",
+    "text": "MAIL",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_10",
+    "group": "B原14项",
+    "text": "RAIN",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_11",
+    "group": "B原14项",
+    "text": "PAID",
+    "expected": false,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_12",
+    "group": "B原14项",
+    "text": "AI AGENT",
+    "expected": true,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_13",
+    "group": "B原14项",
+    "text": "NEW API",
+    "expected": true,
+    "reason": "复用B原期望，不修改旧断言"
+  },
+  {
+    "name": "review14_14",
+    "group": "B原14项",
+    "text": "OPENAI",
+    "expected": true,
+    "reason": "复用B原期望，不修改旧断言"
+  }
+]

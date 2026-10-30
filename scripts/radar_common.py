@@ -358,6 +358,129 @@ def is_ai_related(text: str) -> bool:
     return any(k in low for k in AI_KEYWORDS)
 
 
+def _today_normalize(text):
+    import unicodedata
+    value = unicodedata.normalize('NFKC', text).casefold()
+    # 只纠正 Claude 这个已知产品名里的常见形近字，不全局把数字/I 换成 l。
+    return re.sub(r'(?<![a-z0-9_])c[il1]aude(?=$|[^a-z0-9_]|v?\d)', 'claude', value)
+
+
+def _today_term_matches(text, term):
+    from today_filter_config import TODAY_AI_VERSIONED_TERMS, TODAY_AI_PLURAL_TERMS
+    term = _today_normalize(term)
+    if not term:
+        return False
+    # 中文可与英文产品名紧邻；\b 会错误拒绝「Claude设置」「Muse现在」。
+    left = r'(?<![a-z0-9_])' if term[:1].isascii() and term[:1].isalnum() else ''
+    right = r'(?![a-z0-9_])' if term[-1:].isascii() and term[-1:].isalnum() else ''
+    suffix = r'(?:[\s-]*v?\d+(?:\.\d+)*)?' if term in TODAY_AI_VERSIONED_TERMS else 's?' if term in TODAY_AI_PLURAL_TERMS else ''
+    return bool(re.search(left + re.escape(term) + suffix + right, text))
+
+
+def _today_content_text(item, *, preserve_case=False):
+    """只遍历已有正文、RT/引用原文、卡片；不使用作者身份、URL 或分析结论。"""
+    fields = ('title', 'full_text', 'text', 'expanded_text', 'body', 'content', 'description')
+    containers = ('rich_sources', 'quoted', 'quoted_status', 'quoted_tweet', 'retweeted_status',
+                  'retweeted_tweet', 'retweet', 'retweeted', 'retweeted_status_result', 'quoted_status_result',
+                  'result', 'legacy', 'card', 'link_card', 'url_card', 'link_preview', 'preview', 'article', 'thread')
+    pieces, seen = [], set()
+    def collect(value, depth=0):
+        if depth > 8:
+            return
+        if isinstance(value, str):
+            pieces.append(value)
+        elif isinstance(value, (list, dict)):
+            if id(value) in seen:
+                return
+            seen.add(id(value))
+            if isinstance(value, list):
+                for child in value[:100]:
+                    collect(child, depth + 1)
+            else:
+                for key in (*fields, *containers):
+                    if key in value:
+                        collect(value[key], depth + 1)
+    collect(item)
+    topic = item.get('topic') or ''
+    if topic not in TRACK_LABELS and topic not in LEGACY_TRACK_MAP:
+        pieces.append(topic)
+    # 先规范全角URL再剥离；保留原大小写供短词的词内大写规则使用。
+    import unicodedata
+    raw = unicodedata.normalize('NFKC', '\n'.join(pieces))
+    raw = re.sub(r'https?://[^\s<>]+', ' ', raw, flags=re.I)
+    return raw if preserve_case else _today_normalize(raw)
+
+
+def _today_legacy_ai_related(text, original):
+    """旧安全词保持子串；短词限独立词、混排驼峰整段或已证实复合词。"""
+    from today_filter_config import TODAY_AI_SUBSTRING_TERMS, TODAY_AI_BOUNDARY_TERMS, TODAY_AI_COMPOUNDS
+    if any(term in text for term in TODAY_AI_SUBSTRING_TERMS):
+        return True
+    words = re.findall(r'[a-z0-9]+', text)
+    segments = set()
+    for word in re.findall(r'[A-Za-z0-9]+', original):
+        if not (re.search(r'[a-z]', word) and re.search(r'[A-Z]', word)):
+            continue
+        # 先识别完整缩写复数，再走普通驼峰切段：OpenAPIs/ourMCPsHub 不拆成 AP/Is。
+        # 小写 s 仅在词尾、下一个大写段或数字之前作复数；MAILs/RAPIDs 仍只得 MAIL/RAPID。
+        for segment in re.findall(r'[A-Z]+s(?=$|[A-Z0-9])|[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+', word):
+            segments.add(segment[:-1] if segment.endswith('s') and segment[:-1].isupper() else segment)
+    for term in TODAY_AI_BOUNDARY_TERMS:
+        if (re.search(r'(?<![a-z0-9])' + re.escape(term) + r'(?![a-z0-9])', text)
+                or term.upper() in segments
+                or any(term in word and word in TODAY_AI_COMPOUNDS for word in words)):
+            return True
+    return False
+
+
+def _today_product_related(text):
+    """具名产品增量；歧义词仅同句AI语境，URL/作者身份不参与。"""
+    from today_filter_config import (TODAY_AI_PRODUCTS, TODAY_AI_CONTEXT_PRODUCTS,
+                                     TODAY_AI_PRODUCT_CONTEXT, TODAY_AI_PRODUCT_SPECIFIC_CONTEXT)
+    if any(_today_term_matches(text, term) for term in TODAY_AI_PRODUCTS):
+        return True
+    # 英文句号排除小数点；换行与中英文句末标点均阻断语境跨句继承。
+    for sentence in re.split(r'[。！？!?；;\n]|(?<!\d)\.|\.(?!\d)', text):
+        for term in TODAY_AI_CONTEXT_PRODUCTS:
+            specifics = TODAY_AI_PRODUCT_SPECIFIC_CONTEXT.get(term, ())
+            specific = any(re.search(pattern, sentence) for pattern in specifics)
+            # Kimi官方handle和K3.1版号自带词边界，独立匹配具体产品复合名。
+            named = _today_term_matches(sentence, term)
+            if ((named and (specific or any(re.search(pattern, sentence) for pattern in TODAY_AI_PRODUCT_CONTEXT)))
+                    or (term in ('kimi', 'opus') and specific)):
+                return True
+    return False
+
+
+def today_relevance_gate(item, interest_topics=(), channel='hot'):
+    """全部来源共用的显示闸门；兴趣中的纯 Grok 只标记，不隐藏。
+
+    只检查正文/标题和已有引用内容，不信任来源预填的赛道或相关性结论。
+    返回值不修改输入，不联网，黑名单也适用于标签源中混入的福利帖。
+    """
+    from today_filter_config import LINUXDO_CATEGORY_BLACKLIST, TODAY_AI_TERMS, TODAY_AI_CONTEXT_PATTERNS
+    sources = item.get('sources') or []
+    text = _today_content_text(item)
+    category = item.get('category') or item.get('topic') or ''
+    reason = ''
+    if any(s in ('L', 'linux.do', 'linuxdo') for s in sources) and category in LINUXDO_CATEGORY_BLACKLIST:
+        reason = '分类黑名单：' + category
+    elif not (_today_legacy_ai_related(text, _today_content_text(item, preserve_case=True))
+              or any(_today_term_matches(text, t) for t in TODAY_AI_TERMS)
+              or _today_product_related(text)
+              or any(re.search(pattern, text, re.S) for pattern in TODAY_AI_CONTEXT_PATTERNS)):
+        # 仅从当前方向段提取具体词，不把“新/工具/本地”等泛词当通行证。
+        terms = set()
+        for topic in interest_topics:
+            terms.update(re.findall(r'[A-Za-z0-9][A-Za-z0-9.+-]{1,}|[\u4e00-\u9fff]{2,}', topic))
+        generic = {'新模型发布', '本地部署与推理', '新', '模型网关', '本地', '工具', '教程', '参数', '开源权重', '量化版'}
+        matched = any(t not in generic and _today_term_matches(text, t) for t in terms)
+        if not matched:
+            reason = '非 AI / 未匹配兴趣方向'
+    exempt = channel == 'interest' and bool(sources) and all(s in ('G', 'Grok') for s in sources)
+    return {'visible': exempt or not reason, 'reason': reason, 'marked_only': bool(exempt and reason)}
+
+
 def classify_track(text: str, default_track: str = "ai_models") -> str:
     t = (text or "").lower()
     if any(k in t for k in ["虚拟卡", "stripe", "订阅", "支付", "封号", "绑卡", "美区", "出海基建", "收款", "税", "llc", "mercury", "x pass"]):
