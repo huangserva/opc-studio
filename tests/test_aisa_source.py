@@ -702,6 +702,7 @@ def test_sqlite_read_and_write_failures_keep_fetched_data(tmp_path):
 class ProxyNetworkGuardTests(unittest.TestCase):
     def test_proxy_environment_cannot_escape_socket_guard(self):
         # 此用例自行持有作用域：直接调用、unittest discover、pytest 均有护栏。
+        import _network_guard
         with offline_network(), patch.dict(os.environ, {
                 'HTTP_PROXY': 'http://127.0.0.1:9',
                 'HTTPS_PROXY': 'http://127.0.0.1:9',
@@ -709,8 +710,15 @@ class ProxyNetworkGuardTests(unittest.TestCase):
                 'http_proxy': 'http://127.0.0.1:9',
                 'https_proxy': 'http://127.0.0.1:9',
                 'all_proxy': 'http://127.0.0.1:9', 'no_proxy': ''}):
-            source = mod.AIsaSource(api_key=KEY, base_url='https://review.invalid')
-            self.assertEqual(source.get_twitter_tweets('u'), [])
+            # 产品 opener 在模块导入时构造；导入后改环境不会更换其 ProxyHandler。
+            # 在假代理环境中重建同款 opener，真正测到端口9而非宿主机代理。
+            opener = mod.request.build_opener(mod._RefuseRedirect())
+            with patch.object(mod, '_NO_REDIRECT_OPENER', opener), \
+                    patch.object(mod.request, 'proxy_bypass', return_value=False), \
+                    patch.object(_network_guard, '_check_address', wraps=_network_guard._check_address) as checked:
+                source = mod.AIsaSource(api_key=KEY, base_url='https://review.invalid')
+                self.assertEqual(source.get_twitter_tweets('u'), [])
+            checked.assert_called_once_with(('127.0.0.1', 9))
             self.assertIn('AssertionError', source.last_error)
 
 

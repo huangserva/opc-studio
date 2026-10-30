@@ -22,6 +22,8 @@ from collect_core import Adapter, PlannedAdapter, provenance
 # 但来源计数与「最新」不数它。这里不另写一份条件，免得两边口径漂移。
 from knowledge_store import NOT_TRASHED
 
+AISA_START_LOCK_WAIT_SECONDS = 0.5
+
 # 线索中心 / 知识库里已有的来源 id，我们只是把它们映射到平台名。
 CLUE_SOURCES = {
     'wechat_msg': {'label': '微信消息', 'kinds': ('wechat', 'wechat_links'), 'home': '/clues.html',
@@ -399,17 +401,26 @@ class AIsaRadarAdapter(Adapter):
         if not self.source.api_key:
             raise ValueError('AIsa 尚未配置，请先安全配置环境变量')
         lockfile = Path(self.source.store.workspace) / 'aisa' / 'manual.lock'
+        from time import monotonic, sleep
+        lock_deadline = monotonic() + AISA_START_LOCK_WAIT_SECONDS
         fd = os.open(lockfile, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            active = self.job()
-            if active.get('status') in ('queued', 'running'):
-                return {**active, 'reused': True}
-            raise ValueError('已有 AIsa 采集正在启动，请稍后查看') from None
         handed_off = False
         try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    active = self.job()
+                    if active.get('status') in ('queued', 'running'):
+                        return {**active, 'reused': True}
+                    remaining = lock_deadline - monotonic()
+                    if active.get('status') in ('done', 'partial', 'error', 'interrupted') and remaining > 0:
+                        # 最终写入已提交，但旧执行者可能尚未关闭锁描述符。
+                        # 有界等待真实锁交接；其他请求抢先启动时仍复用。
+                        sleep(min(0.01, remaining))
+                        continue
+                    raise ValueError('已有 AIsa 采集正在启动，请稍后查看') from None
             with closing(self._job_db()) as db:
                 db.execute('BEGIN IMMEDIATE')
                 row = db.execute('SELECT config,data FROM jobs WHERE id=?', (identity,)).fetchone()

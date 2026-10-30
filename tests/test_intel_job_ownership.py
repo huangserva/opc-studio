@@ -141,8 +141,8 @@ with open(result, 'w') as fh:
     json.dump({'won': won}, fh)
 '''
 
-OLD_INTEL_PATH = str(Path(REPO) / 'coordination' / 'backups' / 'fixes-intel-lease-b-L' / 'before' / 'intel_store.py')
-ROLLBACK_SCRIPT = str(Path(REPO) / 'coordination' / 'rollback' / 'intel-lease-b-L2-rollback.py')
+OLD_INTEL_PATH = str(Path(REPO) / 'tests/fixtures/intel_ownership/intel_store_ce87.py')
+ROLLBACK_SCRIPT = str(Path(REPO) / 'tests/fixtures/intel_ownership/intel_lease_rollback.py')
 
 
 def load_old_intel():
@@ -1206,6 +1206,7 @@ class RollbackTests(unittest.TestCase):
         return intel
 
     def run_rollback(self, *extra):
+        self.assertTrue(Path(ROLLBACK_SCRIPT).is_file(), '必须执行自带真实回滚脚本，不能把文件缺失的退出码2当成正确拒绝')
         proc = subprocess.run([PYTHON, ROLLBACK_SCRIPT, str(self.path), *extra],
                               capture_output=True, text=True, timeout=30)
         return proc

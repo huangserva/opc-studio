@@ -218,14 +218,14 @@ m.Monitor(root,collector=lambda *a:b.snapshot(7,[b.tweet(views=5000)]),ai_filter
 
     def test_09_three_sent_two_worth_one_unreviewed_and_no_feedback_null(self):
         self.feedbackfile.write_text(json.dumps({'1': {'verdict':'worth'}, '2':{'verdict':'worth'}}))
-        self.run_round(23, [b1.tweet(str(i), hour=23, views=5000) for i in range(1,4)])
+        self.run_round(22, [b1.tweet(str(i), hour=22, views=5000) for i in range(1,4)])
         expected = {'pushed':3, 'worth':2, 'not_worth':0, 'unreviewed':1, 'useful_rate':1.0}
         self.assertEqual(self.feedback()['today'], expected)
         summary = next(e for e in self.sent if e['type']=='daily_summary')
         self.assertEqual(summary['summary']['feedback']['today'], expected)
         self.assertEqual(self.sent[-1]['type'], 'daily_summary')
         self.feedbackfile.write_text('{}')
-        self.monitor.run_once(b1.when(23, 10))
+        self.monitor.run_once(b1.when(22, 10))
         self.assertEqual(self.feedback()['today']['unreviewed'], 3)
         self.assertIsNone(self.feedback()['today']['useful_rate'])
         # The previously sent executive summary is an immutable delivery snapshot.
@@ -233,7 +233,7 @@ m.Monitor(root,collector=lambda *a:b.snapshot(7,[b.tweet(views=5000)]),ai_filter
         self.assertEqual(event['summary']['feedback']['today'], expected)
 
     def test_10_read_only_b2_monitor_view_matches_projection(self):
-        api_path = Path('/tmp/viral-b2b-deliver/radar_page_api.py')
+        api_path = ROOT / 'radar_page_api.py'
         self.assertTrue(api_path.is_file(), 'B2 contract artifact is required')
         before = hashlib.sha256(api_path.read_bytes()).hexdigest()
         spec = importlib.util.spec_from_file_location('b1b_b2_api', api_path)
@@ -314,7 +314,7 @@ m.Monitor(root,collector=lambda *a:b.snapshot(7,[b.tweet(views=5000)]),ai_filter
 
     def test_feedback_read_once_per_active_round_even_with_multiple_commits(self):
         with patch.object(self.monitor, 'read_feedback', wraps=self.monitor.read_feedback) as read:
-            self.run_round(23, [b1.tweet(views=5000, hour=23)])
+            self.run_round(22, [b1.tweet(views=5000, hour=22)])
         self.assertEqual(read.call_count, 1)
 
     def test_feedback_successful_failed_and_baseline_rounds_all_update_stats(self):

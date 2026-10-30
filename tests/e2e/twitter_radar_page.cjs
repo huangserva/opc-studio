@@ -20,7 +20,10 @@ const PAGE_DIR = process.env.RADAR_A2_DIR || path.resolve(__dirname, '../../publ
 const EVIDENCE = process.env.RADAR_A2_EVIDENCE || '/tmp/radar-a2b-deliver/screenshots';
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
-const NOW = Date.now();
+// 内嵌离线数据是固定历史快照；其今日榜测试也必须使用同一采样日。
+const embeddedSource = fs.readFileSync(path.join(PAGE_DIR, 'twitter-radar.js'), 'utf8');
+const embeddedBundle = JSON.parse(embeddedSource.match(/^const DATA_BUNDLE = (.+);$/m)[1]);
+const NOW = Date.parse(embeddedBundle.updated_at.replace(' ', 'T') + '+08:00');
 const HOUR = 3600 * 1000;
 const TRACKS = ['claude_code', 'ai_models', 'github_open', 'money_indie', 'overseas_infra'];
 let seq = 0;

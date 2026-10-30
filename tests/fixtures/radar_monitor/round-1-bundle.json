@@ -1,0 +1,10 @@
+{
+  "run_id": "20261016-030005-0bcf942d",
+  "manifest": {
+    "schema_version": "radar-1",
+    "run_id": "20261016-030005-0bcf942d",
+    "started_at": "2026-10-16T03:00:05.375Z",
+    "snapshot_file": "snapshots/2026-10-16/20261016-030005-0bcf942d.json",
+    "snapshot_sha256": "e8f367740a31b90c922bbec36c8a557e1a5378c655906b6f3fe0a37cc7d7c337"
+  }
+}

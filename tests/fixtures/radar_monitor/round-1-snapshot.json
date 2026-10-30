@@ -1,0 +1,563 @@
+{
+  "schema_version": "radar-1",
+  "run_id": "20261016-030005-0bcf942d",
+  "started_at": "2026-10-16T03:00:05.375Z",
+  "finished_at": "2026-10-16T03:00:28.385Z",
+  "target_count": 51,
+  "attempted": 51,
+  "success": 51,
+  "failed": 0,
+  "empty": 0,
+  "partial": 0,
+  "coverage": 1.0,
+  "api_calls": 54,
+  "accounts": {
+    "gkxspace": {
+      "handle": "gkxspace",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 58033,
+      "fetched_at": "2026-10-16T03:00:10.239Z"
+    },
+    "lxfater": {
+      "handle": "lxfater",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 107814,
+      "fetched_at": "2026-10-16T03:00:09.909Z"
+    },
+    "dotey": {
+      "handle": "dotey",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 259158,
+      "fetched_at": "2026-10-16T03:00:10.229Z"
+    },
+    "khazix0918": {
+      "handle": "Khazix0918",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 94156,
+      "fetched_at": "2026-10-16T03:00:09.910Z"
+    },
+    "vista8": {
+      "handle": "vista8",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 131585,
+      "fetched_at": "2026-10-16T03:00:09.760Z"
+    },
+    "gefei55": {
+      "handle": "gefei55",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 65481,
+      "fetched_at": "2026-10-16T03:00:09.678Z"
+    },
+    "lijigang": {
+      "handle": "lijigang",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 56323,
+      "fetched_at": "2026-10-16T03:00:09.038Z"
+    },
+    "xiaohu": {
+      "handle": "xiaohu",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 125323,
+      "fetched_at": "2026-10-16T03:00:10.212Z"
+    },
+    "github_daily": {
+      "handle": "GitHub_Daily",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 89314,
+      "fetched_at": "2026-10-16T03:00:12.629Z"
+    },
+    "ayi_ainotes": {
+      "handle": "AYi_AInotes",
+      "status": "ok",
+      "ok": true,
+      "calls": 2,
+      "pages_complete": true,
+      "followers": 73275,
+      "fetched_at": "2026-10-16T03:00:13.155Z"
+    },
+    "lonely__mh": {
+      "handle": "Lonely__MH",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 30073,
+      "fetched_at": "2026-10-16T03:00:13.150Z"
+    },
+    "aehyok": {
+      "handle": "aehyok",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 11873,
+      "fetched_at": "2026-10-16T03:00:13.348Z"
+    },
+    "minlibuilds": {
+      "handle": "MinLiBuilds",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 23911,
+      "fetched_at": "2026-10-16T03:00:12.877Z"
+    },
+    "realydt": {
+      "handle": "RealYDT",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 21862,
+      "fetched_at": "2026-10-16T03:00:12.976Z"
+    },
+    "gengdaj": {
+      "handle": "gengdaJ",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 60941,
+      "fetched_at": "2026-10-16T03:00:13.746Z"
+    },
+    "cgnot996": {
+      "handle": "cgnot996",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 6865,
+      "fetched_at": "2026-10-16T03:00:13.875Z"
+    },
+    "astronaut_1216": {
+      "handle": "Astronaut_1216",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 27626,
+      "fetched_at": "2026-10-16T03:00:15.093Z"
+    },
+    "berryxia": {
+      "handle": "berryxia",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 48923,
+      "fetched_at": "2026-10-16T03:00:15.447Z"
+    },
+    "gosailglobal": {
+      "handle": "GoSailGlobal",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 38367,
+      "fetched_at": "2026-10-16T03:00:15.646Z"
+    },
+    "lifesinger": {
+      "handle": "lifesinger",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 48308,
+      "fetched_at": "2026-10-16T03:00:15.247Z"
+    },
+    "fankaishuoai": {
+      "handle": "fankaishuoai",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 44005,
+      "fetched_at": "2026-10-16T03:00:15.976Z"
+    },
+    "manateelazycat": {
+      "handle": "manateelazycat",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 54102,
+      "fetched_at": "2026-10-16T03:00:16.167Z"
+    },
+    "bozhou_ai": {
+      "handle": "bozhou_ai",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 30335,
+      "fetched_at": "2026-10-16T03:00:16.822Z"
+    },
+    "jinchenma_ai": {
+      "handle": "jinchenma_ai",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 31336,
+      "fetched_at": "2026-10-16T03:00:17.879Z"
+    },
+    "yaohui12138": {
+      "handle": "yaohui12138",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 25734,
+      "fetched_at": "2026-10-16T03:00:18.395Z"
+    },
+    "tao_builds": {
+      "handle": "Tao_Builds",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 5792,
+      "fetched_at": "2026-10-16T03:00:17.395Z"
+    },
+    "0xlangeai": {
+      "handle": "0xlangeai",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 8290,
+      "fetched_at": "2026-10-16T03:00:18.155Z"
+    },
+    "shitunote": {
+      "handle": "shitunote",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 4886,
+      "fetched_at": "2026-10-16T03:00:18.248Z"
+    },
+    "aidavid125": {
+      "handle": "aidavid125",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 4480,
+      "fetched_at": "2026-10-16T03:00:18.444Z"
+    },
+    "geekcatx": {
+      "handle": "GeekCatX",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 31366,
+      "fetched_at": "2026-10-16T03:00:19.196Z"
+    },
+    "finiyang": {
+      "handle": "FiniYang",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 10856,
+      "fetched_at": "2026-10-16T03:00:19.482Z"
+    },
+    "leobai825": {
+      "handle": "Leobai825",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 64855,
+      "fetched_at": "2026-10-16T03:00:19.966Z"
+    },
+    "94vanai": {
+      "handle": "94vanAI",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 28933,
+      "fetched_at": "2026-10-16T03:00:20.161Z"
+    },
+    "yhslgg": {
+      "handle": "yhslgg",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 26082,
+      "fetched_at": "2026-10-16T03:00:21.573Z"
+    },
+    "servasyy_ai": {
+      "handle": "servasyy_ai",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 41402,
+      "fetched_at": "2026-10-16T03:00:21.591Z"
+    },
+    "saccc_c": {
+      "handle": "Saccc_c",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 47575,
+      "fetched_at": "2026-10-16T03:00:21.267Z"
+    },
+    "michaelzsguo": {
+      "handle": "Michaelzsguo",
+      "status": "ok",
+      "ok": true,
+      "calls": 2,
+      "pages_complete": true,
+      "followers": 11033,
+      "fetched_at": "2026-10-16T03:00:21.297Z"
+    },
+    "adam38363368936": {
+      "handle": "Adam38363368936",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 18433,
+      "fetched_at": "2026-10-16T03:00:22.062Z"
+    },
+    "maxforai": {
+      "handle": "MaxForAI",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 42519,
+      "fetched_at": "2026-10-16T03:00:22.601Z"
+    },
+    "jakevin7": {
+      "handle": "jakevin7",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 23472,
+      "fetched_at": "2026-10-16T03:00:22.340Z"
+    },
+    "ooeli_eth": {
+      "handle": "ooeli_eth",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 85305,
+      "fetched_at": "2026-10-16T03:00:22.798Z"
+    },
+    "dicklong1999": {
+      "handle": "Dicklong1999",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 2753,
+      "fetched_at": "2026-10-16T03:00:24.361Z"
+    },
+    "hitw93": {
+      "handle": "HiTw93",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 162157,
+      "fetched_at": "2026-10-16T03:00:24.365Z"
+    },
+    "gorden_sun": {
+      "handle": "Gorden_Sun",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 68740,
+      "fetched_at": "2026-10-16T03:00:24.359Z"
+    },
+    "nemoisme": {
+      "handle": "nemoisme",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 436,
+      "fetched_at": "2026-10-16T03:00:24.385Z"
+    },
+    "jinglian": {
+      "handle": "jinglian",
+      "status": "ok",
+      "ok": true,
+      "calls": 2,
+      "pages_complete": true,
+      "followers": 9126,
+      "fetched_at": "2026-10-16T03:00:25.046Z"
+    },
+    "manish1027512": {
+      "handle": "MANISH1027512",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 47406,
+      "fetched_at": "2026-10-16T03:00:25.051Z"
+    },
+    "yihui_indie": {
+      "handle": "yihui_indie",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 62621,
+      "fetched_at": "2026-10-16T03:00:25.208Z"
+    },
+    "lianyanshe": {
+      "handle": "lianyanshe",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 82488,
+      "fetched_at": "2026-10-16T03:00:26.607Z"
+    },
+    "ai_jasonyu": {
+      "handle": "AI_Jasonyu",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 70240,
+      "fetched_at": "2026-10-16T03:00:27.211Z"
+    },
+    "xiaomovps": {
+      "handle": "xiaomovps",
+      "status": "ok",
+      "ok": true,
+      "calls": 1,
+      "pages_complete": true,
+      "followers": 14425,
+      "fetched_at": "2026-10-16T03:00:27.597Z"
+    }
+  },
+  "tweets": [
+    {
+      "tweet_id": "2110718728648450245",
+      "author_handle": "gkxspace",
+      "author_handle_observed": true,
+      "author_handle_normalized": "gkxspace",
+      "author_user_id": "1881991469730594816",
+      "queried_handle": "gkxspace",
+      "kind": "quote",
+      "type_evidence": {
+        "rt_prefix": false,
+        "quoted_tweet_id": "2110694725640474759"
+      },
+      "referenced_tweet_id": "2110694725640474759",
+      "published_at": "2026-10-15T13:05:34.824Z",
+      "views": 39549,
+      "likes": 383,
+      "retweets": 81,
+      "replies": 5,
+      "text": "活菩萨啊，直接给制作流程全开源啦，我将跪着学习这篇文章🥹\nhttps://t.co/fO21kuhTOb",
+      "fetched_at": "2026-10-16T03:00:10.239Z",
+      "is_stale": false
+    },
+    {
+      "tweet_id": "2110769358402408926",
+      "author_handle": "lxfater",
+      "author_handle_observed": true,
+      "author_handle_normalized": "lxfater",
+      "author_user_id": "452072245",
+      "queried_handle": "lxfater",
+      "kind": "quote",
+      "type_evidence": {
+        "rt_prefix": false,
+        "quoted_tweet_id": "2110635747648909472"
+      },
+      "referenced_tweet_id": "2110635747648909472",
+      "published_at": "2026-10-15T16:26:45.898Z",
+      "views": 42453,
+      "likes": 261,
+      "retweets": 7,
+      "replies": 48,
+      "text": "垃圾佬们花几万攒的 v100 部署的 DeepSeek V4.1\n\n现在在 Opencode 上免费了\n\n说的是谁？就是我🤡",
+      "fetched_at": "2026-10-16T03:00:09.909Z",
+      "is_stale": false
+    },
+    {
+      "tweet_id": "2110919336147796377",
+      "author_handle": "dotey",
+      "author_handle_observed": true,
+      "author_handle_normalized": "dotey",
+      "author_user_id": "3178231",
+      "queried_handle": "dotey",
+      "kind": "original",
+      "type_evidence": {
+        "rt_prefix": false
+      },
+      "referenced_tweet_id": null,
+      "published_at": "2026-10-16T02:22:43.379Z",
+      "views": 15570,
+      "likes": 61,
+      "retweets": 8,
+      "replies": 15,
+      "text": "特斯拉新 Roadster 发布：靠压缩空气喷气在空中翻正落地，马斯克说 2028 年投产，售价未公布\n\n10 月 15 日晚，特斯拉在得州 SpaceX 的 McGregor 试验场直播发布了第二代 Roadster 跑车。这辆车 2017 年就亮过相，当时说 2020 年交付，之后一推再推，拖了将近九年。\n\n演示里，车开上一段弯曲的大坡道，倒挂着往上跑，然后从坡道尽头冲出去，在空中把车身转回正面，四个轮子落地。之后它又从一排特斯拉车（包括 Semi 电动卡车）上方翻跳过去。马斯克在现场说：“飞行汽车是真的。”\n\n它靠的是冷气推进器。原理跟吹满的气球一松手就乱窜差不多：碳纤维高压罐里存着压缩空气，从喷口猛地放出去就产生推力，不烧燃料，也没有火焰。特斯拉说推进器的推力是轮胎抓地力上限的四五倍，所以它起步能比只靠轮子快得多。倒挂不掉下来靠的是另一套系统：风扇把车底的空气往外抽，把车吸在坡面上。\n\n所以这里的“飞”只是几秒钟的喷气跳跃，气放完就没了，离能载人飞一段路的飞行汽车还远。据科技媒体 Glitchwire 报道，演示车把后排座位换成了一个装 260 公斤压缩空气的高压罐，车身四周有 10 个喷口；The Information 此前报道，因为推力和噪音太大，演示车是远程遥控的。这几点特斯拉官方没有确认。\n\n翻跟头的是最激进的 Rocket 版：单座，只接受邀请购买，不能上公路。零到 60 英里/小时（约 97 公里/小时）加速不到 0.59 秒，极速超过 370 公里/小时。\n\n普通人能订的是另外两个双座版本。Performance 版没有推进器，靠主动空气动力学和风扇吸地增加抓地力，加速不到 1.6 秒，订金 5 万美元。Thrust 版在车尾加了推进器，加速不到 0.9 秒，限量发售，订金 25 万美元。三个版本续航都超过 480 公里。\n\n特斯拉没公布售价，订金不等于车价，2017 年说的起步价是 20 万美元。Performance 版的 5 万美元订金分两次付：先付 5000 美元（特斯拉说可全额退），10 天内再补 4.5 万美元，否则订单取消。\n\n投产时间是马斯克在现场说的 2028 年，特斯拉官方帖子里没有写日期。这辆车的交付时间此前已从 2020 年先后推到 2021、2022、2025 和 2027 年。 https://t.co/6w3qvUw7Ii",
+      "fetched_at": "2026-10-16T03:00:10.229Z",
+      "is_stale": false
+    },
+    {
+      "tweet_id": "2110914404393091205",
+      "author_handle": "Khazix0918",
+      "author_handle_observed": true,
+      "author_handle_normalized": "khazix0918",
+      "author_user_id": "1492195583699951620",
+      "queried_handle": "khazix0918",
+      "kind": "original",
+      "type_evidence": {
+        "rt_prefix": false
+      },
+      "referenced_tweet_id": null,
+      "published_at": "2026-10-16T02:03:07.557Z",
+      "views": 3457,
+      "likes": 13,
+      "retweets": 0,
+      "replies": 7,
+      "text": "https://t.co/hNJJElB51E",
+      "fetched_at": "2026-10-16T03:00:09.910Z",
+      "is_stale": false
+    }
+  ]
+}

@@ -311,6 +311,38 @@ CANARY='synthetic-canary-credential-qz7k9m2x4p8v'
 FRAGMENTS=(CANARY,CANARY[:16],CANARY[-16:],CANARY[:6],CANARY[10:22])
 
 class ReworkBTests(AIsaFixture):
+ def test_terminal_job_allows_next_start_before_final_writer_returns(self):
+  # 确定性扩大 done 已提交但文件锁仍由旧执行者持有的窗口。
+  from concurrent.futures import ThreadPoolExecutor
+  committed=threading.Event();release=threading.Event();attempted=threading.Event()
+  original=self.adapter._write_job
+  def delayed_final_write(job):
+   original(job)
+   if job['job_id']=='a'*32 and job['status']=='done':
+    committed.set()
+    if not release.wait(5):raise AssertionError('final writer was not released')
+  self.adapter._write_job=delayed_final_write
+  pool=ThreadPoolExecutor(max_workers=1)
+  try:
+   first=self.adapter.start(self.config('xiaohongshu'))
+   self.assertTrue(committed.wait(5),'first job never committed terminal state')
+   self.assertEqual(self.adapter.job(first['job_id'])['status'],'done')
+   def next_start():
+    attempted.set()
+    return self.adapter.start(self.config('xiaohongshu','b'*32))
+   future=pool.submit(next_start)
+   self.assertTrue(attempted.wait(5))
+   # 在旧执行者收尾前，新执行者不得进入 transport。
+   time.sleep(.05)
+   self.assertEqual(len(self.transport.calls),1)
+   release.set()
+   second=future.result(timeout=5)
+   self.assertEqual(second['job_id'],'b'*32)
+   self.assertFalse(second['reused'])
+   self.assertEqual(self.done(second)['status'],'done')
+   self.assertEqual(len(self.transport.calls),2)
+  finally:
+   release.set();pool.shutdown(wait=True)
  # M1：人工标题/摘要要在第二次及以后的指标刷新里持续存活。
  def test_manual_title_survives_second_and_third_refresh(self):
   self.done(self.adapter.start(self.config('xiaohongshu')))

@@ -14,8 +14,9 @@ import test_radar_monitor as b1
 from scripts import radar_monitor as code
 
 ROOT = Path(__file__).resolve().parents[1]
-API_PATHS = (Path('/tmp/viral-b2b-deliver/radar_page_api.py'),
-             Path('/tmp/viral-b2b2-deliver/radar_page_api.py'))
+# 可追溯的已合入消费端与当前消费端；不再依赖已清理的交付目录。
+API_PATHS = (ROOT / 'tests/fixtures/radar_monitor/radar_page_api_419dbc2.py',
+             ROOT / 'radar_page_api.py')
 
 
 class BoundaryTests(unittest.TestCase):

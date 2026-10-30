@@ -180,6 +180,7 @@ class TempRepo:
             return radar_collect.collect(fetch=_fetch, **kw)
 
         with mock.patch.dict(os.environ, {"AISA_API_KEY": FAKE_KEY}), \
+                mock.patch.object(entry, "now_utc", return_value=BASE), \
                 mock.patch.object(entry, "collect", _collect), \
                 mock.patch.object(entry, "build_bundle", build or radar_bundle.build_bundle):
             code, out = capture_stdout(entry.main, ["--repo-root", str(self.dir), "--targets", str(self.targets), *extra])
@@ -665,17 +666,21 @@ class C14NoFabricatedTopics(unittest.TestCase):
         repo = TempRepo()
         try:
             script = {h: [payload([])] for h in (f"vip{i:03d}" for i in range(1, 52))}
-            code, out = repo.run_entry(make_opener(script))
+            with mock.patch.object(entry, "make_run_id", return_value="20261015-040000-c187c233"):
+                code, out = repo.run_entry(make_opener(script))
             self.assertEqual(code, 0, out)
             self.assertIn("空", out)
             bundle = json.loads(repo.public_bundle().read_text(encoding="utf-8"))
+            self.assertIn("233", bundle["run_id"], "固定重现随机ID撞中禁词的历史反例")
             self.assertEqual(bundle["topic_clusters"], [])
             self.assertEqual(bundle["vip_tweets"], [])
             self.assertEqual(bundle["tweets"], [])
             self.assertEqual(bundle["today_virals"], 0, "零值必须如实输出 0")
             self.assertEqual(bundle["h48_virals"], 0)
             self.assertEqual(bundle["coverage"]["empty"], 51)
-            text = json.dumps(bundle, ensure_ascii=False)
+            # 数字禁词只约束展示内容，随机 run_id/SHA 允许含 233。
+            text = json.dumps({key: bundle[key] for key in
+                               ("tweets", "vip_tweets", "topic_clusters")}, ensure_ascii=False)
             self.assertNotIn("万曝光", text)
             for stale in ("26 万", "233", "13.9 万"):
                 self.assertNotIn(stale, text)

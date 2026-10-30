@@ -776,10 +776,17 @@ class AlbumSearchTests(StatusTestCase):
         self.assertIn('那篇文章里没有合集', trace['note'])
 
     def test_the_link_itself_is_never_stored(self):
-        self.intel.identify_from_link(ARTICLE_LINK)
+        import intel_store
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        # 仍扫描整条落库记录；仅固定生成的UUID，避免其偶然含deadbeef。
+        with patch.object(intel_store, 'uuid', SimpleNamespace(
+                uuid4=lambda: SimpleNamespace(hex='f' * 32))):
+            self.intel.identify_from_link(ARTICLE_LINK)
         with self.intel.db() as connection:
             rows = [dict(row) for row in connection.execute('SELECT * FROM album_searches').fetchall()]
         self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['id'], 'f' * 32)
         stored = ''.join(str(value) for row in rows for value in row.values())
         self.assertNotIn('chksm=deadbeef', stored)
         self.assertNotIn('deadbeef', stored)

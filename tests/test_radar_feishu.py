@@ -516,7 +516,7 @@ class FeishuSenderTests(unittest.TestCase):
 
     # ---- 反例 16：与 B1 联用
     def test_16_integration_with_b1_monitor(self):
-        b1 = Path('/tmp/viral-b1-deliver')
+        b1 = ROOT
         self.assertTrue((b1 / 'scripts/radar_monitor.py').exists(), '缺少 B1 交付文件')
         feishu = self.start()
         root = Path(self.folder) / 'repo'
@@ -526,12 +526,12 @@ class FeishuSenderTests(unittest.TestCase):
         (root / 'scripts/radar_targets.json').write_text(json.dumps(['radar_case']), encoding='utf-8')
         shutil.copy2(FEISHU_PATH, root / 'scripts/radar_feishu.py')
         (root / 'scripts/refresh_twitter_radar.py').write_text(
-            'import json\nfrom pathlib import Path\n'
+            'import json, sys\nfrom pathlib import Path\n'
+            f'sys.path.insert(0, {str(ROOT / "tests")!r})\n'
+            'from test_radar_monitor_a1_fixture import commit_fixture\n'
             'r = Path(__file__).resolve().parents[1]\n'
             'v = json.loads((r / "collector-input.json").read_text())\n'
-            'p = r / "workspace/twitter-radar/snapshots/2026-10-15"\n'
-            'p.mkdir(parents=True, exist_ok=True)\n'
-            '(p / (v["run_id"] + ".json")).write_text(json.dumps(v))\n')
+            'commit_fixture(r, v)\n')
         sys.path.insert(0, str(b1))
         try:
             from scripts.radar_monitor import Monitor
@@ -694,15 +694,32 @@ class RepairBoundaryTests(unittest.TestCase):
                 self.assertEqual(self.record(e)['status'], 'sending')
 
     def test_h1_cumulative_budget_and_unsent_remainder(self):
-        server = self.server('delay', .16)
+        from isolation_patches import TimeBinding
+        # 本项只测跨卡片共用预算；真实网络截止另由 drip/headers 用例覆盖。
+        # 0.28秒还包含子进程冷启动，不能用其墙钟耗时推断必成功第一张卡。
+        self.server()
         self.m.CALL_DEADLINE = .28
         es = [viral_event(i) for i in range(21)]
-        started = time.monotonic(); result = self.m.send_events(es)
+        clock = [1000.0]
+        attempts = []
+        def post(payload, webhook, secret, deadline):
+            attempts.append((payload, deadline))
+            remaining = deadline - clock[0]
+            clock[0] += min(.16, remaining)
+            return (True, False, '') if remaining >= .16 else (False, False, '结果未知：累计预算耗尽')
+        started = time.monotonic()
+        with patch.object(self.m, 'time', TimeBinding(time, {'monotonic': lambda: clock[0]})), \
+                patch.object(self.m, '_post', side_effect=post):
+            result = self.m.send_events(es)
         self.assertLess(time.monotonic() - started, .8)
         self.assertEqual(len(result), 10)
-        self.assertLessEqual(len(server.requests), 2)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual([deadline for _, deadline in attempts], [1000.28, 1000.28])
+        self.assertAlmostEqual(clock[0], 1000.28)
         records = json.loads((self.root / 'ledger.json').read_text())['records']
         self.assertNotIn(es[20]['event_id'], records)
+        self.assertTrue(all(records[e['event_id']]['status'] == 'sent' for e in es[:10]))
+        self.assertTrue(all(records[e['event_id']]['status'] == 'sending' for e in es[10:20]))
 
     def test_h1_response_limit_rejects_success_json(self):
         self.server('large'); e = viral_event(1)

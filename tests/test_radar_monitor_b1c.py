@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT));sys.path.insert(0,str(ROOT/'scripts'))
 from scripts import radar_monitor as code
 from test_radar_monitor import when
 
-LIVE = Path(os.environ.get('B1C_LIVE_FIXTURE', '/tmp/viral-b1c-deliver/evidence/live'))
+# 来源与裁剪规则见 fixtures/radar_monitor/README.md。
+LIVE = ROOT / 'tests/fixtures/radar_monitor'
 
 
 class A1bAdapterTests(unittest.TestCase):
