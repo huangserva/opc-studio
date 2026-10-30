@@ -1,6 +1,6 @@
 """Workbench-owned local schedules. SQLite claims, immutable runs, isolated Pi turns."""
 import copy
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -63,12 +63,39 @@ class ScheduledTasks:
             db.execute("UPDATE runs SET status='interrupted',finished_at=?,output=output||? WHERE status='running'",
                        (stamp(), '\n工作台重启中断；未自动重做该次运行。'))
         self.db_path.chmod(0o600)
+        from external_tasks import ExternalTasks
+        self.external_tasks = ExternalTasks(workspace)
         self.thread = None
         if autostart:self.start()
 
     def start(self):
         if self.thread is None:
             self.thread=threading.Thread(target=self.run_loop,daemon=True);self.thread.start()
+
+    def health(self):
+        """Small read-only snapshot; never expose task data or exception text."""
+        now = datetime.now(timezone.utc)
+        last_tick = None
+        age = None
+        try:
+            tick = datetime.fromisoformat(self.last_tick)
+            if tick.tzinfo is not None and tick.utcoffset() is not None:
+                last_tick = tick.astimezone(timezone.utc).isoformat()
+                age = (now - tick).total_seconds()
+        except (TypeError, ValueError):
+            pass
+        error = '调度检查失败，请检查工作台日志' if self.last_error else None
+        # A dedicated read-only connection cannot create a DB or change a run.
+        try:
+            with closing(sqlite3.connect(self.db_path.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
+                running_count = db.execute("SELECT COUNT(*) FROM runs WHERE status='running'").fetchone()[0]
+        except sqlite3.Error:
+            running_count = None
+            error = '调度数据库不可读，请检查工作台日志'
+        running = bool(self.thread and self.thread.is_alive() and not self.stop_event.is_set())
+        return {'ok': running and age is not None and 0 <= age <= 300 and not error,
+                'last_tick': last_tick, 'last_error': error, 'now': now.isoformat(),
+                'tick_age_seconds': age, 'running_count': running_count}
 
     @contextmanager
     def db(self):
@@ -436,6 +463,11 @@ class ScheduledTasks:
                 self.tick();self.last_tick=stamp();self.last_error=None
             except Exception:
                 self.last_error='调度检查失败，请检查工作台日志与任务数据库；任务没有被标记成功'
+            else:
+                try:
+                    self.external_tasks.refresh()
+                except Exception:
+                    self.external_tasks.mark_refresh_failed()
             self.stop_event.wait(2)
 
     @staticmethod
