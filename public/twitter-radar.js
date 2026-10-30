@@ -485,7 +485,8 @@ function renderDataStatus() {
   const receipt = document.getElementById('radar-read-receipt');
   if (receipt) {
     receipt.textContent = '数据回执（读取本地快照，不触发采集）｜' + bundleSummaryLine() +
-      '｜来源：' + (DATA_SOURCE.kind === 'json' ? '服务器 JSON 快照' : '页面内嵌离线数据');
+      '｜来源：' + (DATA_SOURCE.kind === 'json' ? '服务器 JSON 快照' : '页面内嵌离线数据') + '｜' + grokReceipt();
+    receipt.classList.toggle('grok-stale', grokState.stale_hours > 6);
     receipt.classList.toggle('is-error', !!DATA_SOURCE.error);
   }
 
@@ -529,9 +530,9 @@ function refreshVipChipArea() {
 
 // 只刷新低粉榜两个窗口按钮的条数
 function refreshFeedWindowCounts() {
-  const list = Array.isArray(DATA_BUNDLE.tweets) ? DATA_BUNDLE.tweets : [];
+  const list = radarTweets('feed');
   const inTrack = list.filter(t =>
-    numOr(t && t.fc, 0) <= LOWFAN_MAX_FC && (currentTrack === 'all' || normalizeTrack(t && t.track) === currentTrack));
+    isLowfanCandidate(t) && (currentTrack === 'all' || normalizeTrack(t && t.track) === currentTrack));
   updateFeedWindowButtons(inTrack.filter(t => withinWindow(t, WINDOW_24H)).length,
     inTrack.filter(t => withinWindow(t, WINDOW_48H)).length);
 }
@@ -803,18 +804,18 @@ function renderEmbeddedTweet(et) {
 // 2. 特别关注博主爆款
 // ==========================================
 function vipTodayList(list) {
-  return list.filter(t => withinWindow(t, WINDOW_24H) && isViralTweet(t));
+  return list.filter(t => withinWindow(t, WINDOW_24H) && isVipCandidate(t));
 }
 
 function vipH48List(list) {
-  return list.filter(t => withinWindow(t, WINDOW_48H) && isViralTweet(t));
+  return list.filter(t => withinWindow(t, WINDOW_48H) && isVipCandidate(t));
 }
 
 function updateVipBloggersChips() {
   const container = document.getElementById('vip-blogger-chips');
   if (!container) return;
 
-  const list = Array.isArray(DATA_BUNDLE.vip_tweets) ? DATA_BUNDLE.vip_tweets : [];
+  const list = radarTweets('vip');
   const todayCount = vipTodayList(list).length;
   const h48Count = vipH48List(list).length;
 
@@ -839,10 +840,14 @@ function updateVipBloggersChips() {
     if (!authorsMap.has(key)) return; // 名单外的账号不进博主矩阵
     const item = authorsMap.get(key);
     item.totalCount++;
-    if (withinWindow(t, WINDOW_24H) && isViralTweet(t)) item.todayCount++;
-    if (withinWindow(t, WINDOW_48H) && isViralTweet(t)) item.h48Count++;
+    if (withinWindow(t, WINDOW_24H) && isVipCandidate(t)) item.todayCount++;
+    if (withinWindow(t, WINDOW_48H) && isVipCandidate(t)) item.h48Count++;
   });
 
+  list.filter(t => t._grok).forEach(t => {
+    const key = authorKey(t);
+    if (!authorsMap.has(key)) authorsMap.set(key, {handle: t.user, name: t.name, fc: t.fc, todayCount: vipTodayList([t]).length, h48Count: vipH48List([t]).length, totalCount: 1});
+  });
   const sortedAuthors = Array.from(authorsMap.values()).sort((a, b) => {
     if (b.todayCount !== a.todayCount) return b.todayCount - a.todayCount;
     if (b.h48Count !== a.h48Count) return b.h48Count - a.h48Count;
@@ -892,7 +897,7 @@ function renderVipTweets() {
   const container = document.getElementById('vip-tweets-feed');
   if (!container) return;
 
-  const list = Array.isArray(DATA_BUNDLE.vip_tweets) ? DATA_BUNDLE.vip_tweets : [];
+  const list = radarTweets('vip');
   updateVipBloggersChips();
 
   let filtered = list.filter(t => {
@@ -902,7 +907,7 @@ function renderVipTweets() {
     if (currentTrack !== 'all' && normalizeTrack(t && t.track) !== currentTrack) return false;
     if (currentVipTime === 'today' && age > WINDOW_24H) return false;
     if (currentVipTime === 'all_48h' && age > WINDOW_48H) return false;
-    if (!isViralTweet(t)) return false;
+    if (!isVipCandidate(t)) return false;
     const views = safeNum(t.views);
     if (currentVipTier === '200k' && !(views >= 200000)) return false;
     if (currentVipTier === '100k' && !(views >= 100000)) return false;
@@ -919,6 +924,8 @@ function renderVipTweets() {
   else if (currentVipSort === 'views') filtered.sort((a, b) => cmpNumDesc(a && a.views, b && b.views));
   else if (currentVipSort === 'likes') filtered.sort((a, b) => cmpNumDesc(a && a.likes, b && b.likes));
 
+  filtered.sort((a, b) => grokRank(a) - grokRank(b));
+
   const totalCounter = document.getElementById('vip-total-count');
   if (totalCounter) totalCounter.textContent = String(vipTodayList(list).length);
 
@@ -927,7 +934,7 @@ function renderVipTweets() {
       const has48h = list.some(t =>
         (currentVipUser === 'all' || authorKey(t) === currentVipUser.toLowerCase()) &&
         (currentTrack === 'all' || normalizeTrack(t && t.track) === currentTrack) &&
-        withinWindow(t, WINDOW_48H) && isViralTweet(t));
+        withinWindow(t, WINDOW_48H) && isVipCandidate(t));
       if (has48h) {
         container.innerHTML = '<div style="color:#64748b; padding:40px; text-align:center; background:#fff; border-radius:12px; border:1px solid #fde68a;">' +
           '<p style="font-size:15px; color:#92400e; font-weight:700; margin-bottom:8px;">当前筛选下近 24 小时暂无新增 ' + VIRAL_MIN_LIKES + '赞+ & ' +
@@ -987,6 +994,7 @@ function renderVipTweets() {
       '</div>'
     ].join('\n');
   }).join('');
+  decorateRadarCards(container, filtered);
   applyMonitorColumn(container);
   focusTweetFromHash();
 }
@@ -1005,16 +1013,16 @@ function renderTweetsFeed() {
   const container = document.getElementById('tweets-feed');
   if (!container) return;
 
-  const list = Array.isArray(DATA_BUNDLE.tweets) ? DATA_BUNDLE.tweets : [];
+  const list = radarTweets('feed');
   const lowfanInTrack = list.filter(t =>
-    numOr(t && t.fc, 0) <= LOWFAN_MAX_FC && (currentTrack === 'all' || normalizeTrack(t && t.track) === currentTrack));
+    isLowfanCandidate(t) && (currentTrack === 'all' || normalizeTrack(t && t.track) === currentTrack));
   const count24h = lowfanInTrack.filter(t => withinWindow(t, WINDOW_24H)).length;
   const count48h = lowfanInTrack.filter(t => withinWindow(t, WINDOW_48H)).length;
 
   updateFeedWindowButtons(count24h, count48h);
 
   let filtered = list.filter(t => {
-    if (numOr(t && t.fc, 0) > LOWFAN_MAX_FC) return false;
+    if (!isLowfanCandidate(t)) return false;
     const age = getTweetAgeHours(t);
     if (age === null) return false; // 时间未知不进时效窗口
     if (currentTrack !== 'all' && normalizeTrack(t && t.track) !== currentTrack) return false;
@@ -1044,6 +1052,7 @@ function renderTweetsFeed() {
     filtered.sort((a, b) => cmpNumDesc(a && a.ratio, b && b.ratio));
   }
 
+  filtered.sort((a, b) => grokRank(a) - grokRank(b));
   renderUnknownTimeNote(list);
 
   const total = filtered.length;
@@ -1110,6 +1119,7 @@ function renderTweetsFeed() {
     ].join('\n');
   }).join('');
 
+  decorateRadarCards(container, pageItems);
   applyMonitorColumn(container);
   renderPagination(totalPages, total);
 }
@@ -1340,7 +1350,7 @@ const HIT_LABEL = {
   hourly_delta: '小时增量',
   upgrade_100k: '破10万'
 };
-const VERDICT_LABEL = { worth: '值得跟', not_worth: '不值得' };
+const VERDICT_LABEL = { worth: '值得跟', not_worth: '不值得', used: '已用来写' };
 
 let monitorState = { status: 'missing', generated_at: null, run_id: null, tweets: {}, feedback: {} };
 
@@ -1415,14 +1425,14 @@ function buildVerdictButtons(tweetId) {
   const group = document.createElement('span');
   group.className = 'verdict-group';
   if (!tweetId) return group;
-  const current = monitorState.feedback[tweetId] ? monitorState.feedback[tweetId].verdict : null;
-  ['worth', 'not_worth'].forEach((verdict) => {
+  const current = feedbackTable(tweetId)[tweetId]?.verdict || null;
+  (grokPostById(tweetId) ? ['worth', 'not_worth', 'used'] : ['worth', 'not_worth']).forEach((verdict) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'verdict-btn verdict-' + verdict;
     button.dataset.verdict = verdict;
     button.dataset.tweetId = tweetId;
-    button.textContent = VERDICT_LABEL[verdict];
+    button.textContent = grokPostById(tweetId) ? {worth: '准·值得学', not_worth: '不准', used: '已用来写'}[verdict] : VERDICT_LABEL[verdict];
     if (current === verdict) {
       button.classList.add('active');
       button.setAttribute('aria-pressed', 'true');
@@ -1462,7 +1472,7 @@ function refreshVerdictButtons() {
   const buttons = document.querySelectorAll('.verdict-btn');
   buttons.forEach((button) => {
     const tweetId = safeText(button.dataset.tweetId);
-    const record = monitorState.feedback[tweetId];
+    const record = feedbackTable(tweetId)[tweetId];
     const active = !!record && record.verdict === button.dataset.verdict;
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', active ? 'true' : 'false');
@@ -1489,7 +1499,7 @@ function showMonitorToast(message, isError, titleText) {
 }
 
 async function postVerdict(tweetId, verdict) {
-  const response = await fetch(FEEDBACK_URL, {
+  const response = await fetch(grokPostById(tweetId) ? '/api/radar/grok-bot/feedback' : FEEDBACK_URL, {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-Article-Studio': '1' },
@@ -1528,8 +1538,8 @@ function canApplyFeedback(state, revision, order) {
 }
 
 function confirmedVerdict(tweetId) {
-  const record = monitorState.feedback[tweetId];
-  return record && (record.verdict === 'worth' || record.verdict === 'not_worth') ? record.verdict : null;
+  const record = feedbackTable(tweetId)[tweetId];
+  return record && (record.verdict === 'worth' || record.verdict === 'not_worth' || (grokPostById(tweetId) && record.verdict === 'used')) ? record.verdict : null;
 }
 
 function setVerdictBusy(tweetId, busy) {
@@ -1554,9 +1564,9 @@ function verdictState(tweetId) {
 function applyConfirmedFeedback(tweetId, record, revision, order) {
   const state = verdictState(tweetId);
   if (!canApplyFeedback(state, revision, order)) return false;
-  const verdict = record && (record.verdict === 'worth' || record.verdict === 'not_worth') ? record.verdict : null;
-  if (verdict === null) delete monitorState.feedback[tweetId];
-  else monitorState.feedback[tweetId] = record;
+  const verdict = record && (record.verdict === 'worth' || record.verdict === 'not_worth' || (grokPostById(tweetId) && record.verdict === 'used')) ? record.verdict : null;
+  if (verdict === null) delete feedbackTable(tweetId)[tweetId];
+  else feedbackTable(tweetId)[tweetId] = record;
   state.confirmed = verdict;
   state.revision = revision;
   state.appliedOrder = Math.max(state.appliedOrder, order);
@@ -1567,6 +1577,7 @@ function syncVerdictQueuesFromServer(records, rawRevision, order) {
   const revision = parseFeedbackRevision(rawRevision);
   const ids = new Set([...Object.keys(monitorState.feedback), ...Object.keys(records), ...verdictQueues.keys()]);
   ids.forEach((tweetId) => {
+    if (grokPostById(tweetId)) return;
     const state = verdictState(tweetId);
     if (applyConfirmedFeedback(tweetId, records[tweetId], revision, order) && !state.inFlight) {
       state.desired = state.confirmed;
@@ -1622,7 +1633,7 @@ function onVerdictClick(event) {
   if (!button) return;
   const tweetId = safeText(button.dataset.tweetId);
   const verdict = safeText(button.dataset.verdict);
-  if (!tweetId || (verdict !== 'worth' && verdict !== 'not_worth')) return;
+  if (!tweetId || (verdict !== 'worth' && verdict !== 'not_worth' && !(verdict === 'used' && grokPostById(tweetId)))) return;
   queueVerdict(tweetId, verdict);
 }
 
@@ -1813,6 +1824,7 @@ async function refreshFromDisk() {
     btn.removeAttribute('title');
   }
   showRadarToast('正在读取服务器上已保存的采集快照（本地 JSON，不触发新的全网采集）', 'info', 2500);
+  await fetchGrokBot();
   try {
     const bundle = await readBundleJson();
     applyBundle(bundle);
@@ -1973,3 +1985,207 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshFeedWindowCounts();
   refreshFromDisk();
 });
+// Grok Bot 与 AIsa 混排：保留各采集源的原始快照，展示层按 ID 合并。
+let grokState = { posts: [], feedback: {}, count: 0, loading: true };
+let grokReadOrder = 0;
+function grokPostById(id) { return grokState.posts.find(p => p.id === id); }
+function feedbackTable(id) { return grokPostById(id) ? grokState.feedback : monitorState.feedback; }
+function isLowfanCandidate(t) { return t._grok ? t._groups?.has('feed') : numOr(t && t.fc, 0) <= LOWFAN_MAX_FC; }
+function isVipCandidate(t) { return !!t._grok || isViralTweet(t); }
+function grokRank(t) { return t._grok && ['推流', '观察'].includes(t._grok.label) ? 1 : 0; }
+function radarTweets(mode) {
+  if (Array.isArray(grokState.merged_posts) && grokState.posts.length) {
+    return grokState.merged_posts.filter(p => p.view_groups.includes(mode) && p.content_eligible !== false).map(p => ({
+      ...(p.aisa || {}), ...p, user: p.handle, name: p.author, fc: p.followers,
+      published_at: p.created_at, fetched_at: p.collected_at,
+      _grok: p.grok, _content: p, _sources: p.sources,
+      _groups: new Set(p.view_groups)
+    }));
+  }
+  const rows = mode === 'vip' ? DATA_BUNDLE.vip_tweets : DATA_BUNDLE.tweets;
+  const unique = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = tweetIdOf(row) || String(unique.size);
+    if (!unique.has(id)) unique.set(id, {...row, _sources: ['AIsa']});
+  }
+  return [...unique.values()];
+}
+
+function grokReceipt() {
+  if (grokState.loading) return 'Grok Bot：读取中';
+  if (grokState.error) return 'Grok Bot：读取失败，请刷新重试';
+  const latest = grokState.latest_report;
+  if (!latest) return 'Grok Bot 还没有产出报告 · 跳过坏文件 ' + (grokState.bad_files || 0);
+  return 'Grok Bot：' + formatBeijingTime(latest.collected_at) + ' ' + latest.type + ' · 48h ' + grokState.count + ' 条 · 跳过坏文件 ' + grokState.bad_files + ' / 无效条目 ' + grokState.skipped_entries + (grokState.stale_hours > 6 ? ' · Grok Bot 已 ' + Math.floor(grokState.stale_hours) + ' 小时没有新报告' : '');
+}
+async function fetchGrokBot() {
+  const order = ++feedbackOrder;
+  grokReadOrder = order;
+  try {
+    const response = await fetch('/api/radar/grok-bot', { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+    if (order !== grokReadOrder) return;
+    const previousFeedback = grokState.feedback;
+    grokState = { ...data, feedback: previousFeedback, loading: false };
+    const revision = parseFeedbackRevision(data.feedback_revision);
+    new Set([...Object.keys(previousFeedback), ...Object.keys(data.feedback)]).forEach(id => {
+      const state = verdictState(id);
+      if (applyConfirmedFeedback(id, data.feedback[id], revision, order) && !state.inFlight) state.desired = state.confirmed;
+    });
+  } catch (error) {
+    if (order === grokReadOrder) grokState = { ...grokState, loading: false, error: String(error) };
+  }
+  rerenderCurrentView();
+}
+function grokNode(tag, cls, value) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (value !== undefined) node.textContent = value;
+  return node;
+}
+function grokOriginalUrl(value) {
+  return typeof value === 'string' && /^https:\/\/(?:x\.com|twitter\.com)\/[A-Za-z0-9_]{1,15}\/status\/[0-9]{1,25}$/.test(value) && !/\s/.test(value) ? value : null;
+}
+function safeHttpUrl(value) {
+  if (typeof value !== 'string') return null;
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; } catch (_) { return null; }
+}
+function appendSafeLink(parent, value, label, original = false) {
+  const url = original ? grokOriginalUrl(value) : safeHttpUrl(value);
+  if (!url) return;
+  const a = grokNode('a', '', label); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a);
+}
+function incompleteReasons(post) {
+  const content = safeText(post.full_text) || safeText(post.text);
+  const analysis = safeText(post.why) + '\n' + safeText(post.pattern);
+  const reasons = [];
+  if (post.content_complete === false) reasons.push('来源标记内容不完整');
+  if ([...content].length < 80 && numOr(post.bookmarks, 0) >= 100) reasons.push('短正文但高收藏，可能只有摘要');
+  if (/https?:\/\/t\.co\/\S+\s*$/.test(content)) reasons.push('正文以 t.co 链接结尾，可能有后续内容');
+  if (/长文|Article|文章/i.test(analysis) && !post.article) reasons.push('提到长文但未提供文章正文');
+  if (/引用|quote/i.test(analysis) && !post.quoted) reasons.push('提到引用但未提供被引用帖');
+  if (/串推|thread/i.test(analysis) && !(Array.isArray(post.thread) && post.thread.length)) reasons.push('提到串推但未提供后续推文');
+  return reasons;
+}
+function renderRichContent(parent, post, depth = 0) {
+  if (!post || depth > 3) return;
+  if (typeof post === 'string') { parent.append(grokNode('div', 'grok-rich-text', post)); return; }
+  if (!isObject(post)) return;
+  if (post.full_text && post.full_text !== post.text) parent.append(grokNode('div', 'grok-full-text', safeText(post.full_text)));
+  if (post.article) {
+    const article = grokNode('section', 'grok-article');
+    article.append(grokNode('strong', '', 'X 长文'));
+    if (typeof post.article === 'string') article.append(grokNode('div', 'grok-rich-text', post.article));
+    else if (isObject(post.article)) {
+      article.append(grokNode('h4', '', safeText(post.article.title)), grokNode('div', 'grok-rich-text', safeText(post.article.full_text) || safeText(post.article.text) || safeText(post.article.body) || safeText(post.article.content)));
+      appendSafeLink(article, post.article.url, '打开长文');
+      renderRichContent(article, { media: post.article.media }, depth + 1);
+    }
+    parent.append(article);
+  }
+  if (Array.isArray(post.thread)) post.thread.forEach((part, i) => {
+    const item = grokNode('section', 'grok-thread'); item.append(grokNode('strong', '', '串推 ' + (i + 1)));
+    if (typeof part === 'string') item.append(grokNode('div', 'grok-rich-text', part));
+    else if (isObject(part)) {
+      item.append(grokNode('div', 'grok-meta', safeText(part.author) + ' @' + safeText(part.handle)), grokNode('div', 'grok-rich-text', safeText(part.full_text) || safeText(part.text)));
+      appendSafeLink(item, part.url, '打开这条串推', true); renderRichContent(item, {...part, full_text: null, text: null}, depth + 1);
+    }
+    parent.append(item);
+  });
+  if (post.quoted) {
+    const quote = grokNode('blockquote', 'grok-quote'); quote.append(grokNode('strong', '', '被引用帖'));
+    if (typeof post.quoted === 'string') quote.append(grokNode('div', 'grok-rich-text', post.quoted));
+    else if (isObject(post.quoted)) {
+      quote.append(grokNode('div', 'grok-meta', safeText(post.quoted.author) + ' @' + safeText(post.quoted.handle)), grokNode('div', 'grok-rich-text', safeText(post.quoted.full_text) || safeText(post.quoted.text)));
+      appendSafeLink(quote, post.quoted.url, '打开被引用帖', true); renderRichContent(quote, {...post.quoted, full_text: null, text: null}, depth + 1);
+    }
+    parent.append(quote);
+  }
+  const media = Array.isArray(post.media) ? post.media : (post.media ? [post.media] : []);
+  for (const entry of media) {
+    const item = typeof entry === 'string' ? {url: entry, type: 'photo'} : entry;
+    if (!isObject(item)) continue;
+    const video = /video|gif/i.test(safeText(item.type));
+    const src = safeHttpUrl(video ? (item.poster || item.preview_image_url || item.thumbnail_url || item.cover) : (item.url || item.media_url_https || item.media_url));
+    const figure = grokNode('figure', 'grok-media');
+    if (src) { const img = grokNode('img'); img.src = src; img.alt = safeText(item.alt) || (video ? '视频封面' : '推文图片'); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; figure.append(img); }
+    if (video) appendSafeLink(figure, post.url, '播放原帖', true);
+    else appendSafeLink(figure, item.url || item.media_url_https || item.media_url, '查看图片');
+    parent.append(figure);
+  }
+  if (post.card) {
+    const card = grokNode('section', 'grok-external-card');
+    if (typeof post.card === 'string') card.append(grokNode('div', 'grok-rich-text', post.card));
+    else if (isObject(post.card)) {
+      card.append(grokNode('strong', '', safeText(post.card.title)), grokNode('div', 'grok-rich-text', safeText(post.card.description) || safeText(post.card.text)));
+      appendSafeLink(card, post.card.url, '打开外链');
+      const image = safeHttpUrl(post.card.image || post.card.image_url);
+      if (image) {const img = grokNode('img'); img.src = image; img.alt = safeText(post.card.title); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; card.append(img);}
+    }
+    parent.append(card);
+  }
+}
+function decorateRadarCards(container, posts) {
+  const lookup = new Map(posts.map(t => [tweetIdOf(t), t]));
+  container.querySelectorAll('[data-tweet-id]').forEach(card => {
+    const post = lookup.get(card.dataset.tweetId);
+    if (!post) return;
+    const badges = grokNode('div', 'radar-source-badges');
+    (post._sources || ['AIsa']).forEach(source => badges.append(grokNode('span', 'radar-source-badge', source)));
+    card.prepend(badges);
+    const body = card.querySelector('.tweet-text');
+    if (body) body.textContent = safeText(post.full_text) || safeText(post.text);
+    const content = renderPostDetail(post);
+    if (post._grok) {
+      const signal = card.querySelector('.signal-condition');
+      if (signal) signal.textContent = 'Grok 精选：' + (post._grok.label || '—') + '（按报告互动与内容价值入选）';
+      const link = card.querySelector('.tweet-top a');
+      if (!grokOriginalUrl(post._grok.url)) link?.remove();
+      else if (link) {link.href = post._grok.url; link.textContent = '打开原帖';}
+    }
+    body?.after(content);
+  });
+}
+
+// 详情可直接放进后续右侧阅读面板，不依赖旧标签与卡片布局。
+function renderPostDetail(post) {
+    const content = grokNode('div', 'grok-content');
+    const detail = post._grok || post.grok || post;
+    const reasons = incompleteReasons({...detail, text: post.text});
+    if (reasons.length) {
+      const warning = grokNode('div', 'grok-incomplete', '原文不完整，点开原帖看全文');
+      warning.title = reasons.join('；'); content.append(warning);
+    }
+    renderRichContent(content, {...(post.aisa || post._grok || post), full_text: null});
+    // 双来源各自独有的结构化内容也保留。
+    if (post._grok && post._sources?.includes('AIsa')) renderRichContent(content, {...post._grok, full_text: null});
+    if (post._grok || post.grok) {
+      const g = post._grok || post.grok;
+      if (g.title_zh) content.append(grokNode('h4', 'grok-title-zh', g.title_zh));
+      content.append(grokNode('div', 'grok-meta', '标签：' + (g.label || '—') + ' · List：' + (g.list || '—') + ' · topic：' + (g.topic || '—') + ' · ' + (g.lang || '—')));
+      const metrics = grokNode('div', 'grok-metrics');
+      for (const [key, label] of [['bookmarks','收藏'],['replies','回复'],['views_per_hour','每小时浏览'],['hours_since_created','发帖距采集小时数']]) {
+        const value = key in post ? post[key] : g[key];
+        const item = grokNode('span', '', label + ' ' + (safeNum(value) === null ? '—' : Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 2})));
+        item.dataset.grokMetric = key; metrics.append(item);
+      }
+      content.append(metrics, grokNode('strong', 'grok-analysis-label', '为什么爆'), grokNode('div', 'grok-why', g.why || '—'), grokNode('strong', 'grok-analysis-label', '可复制写法'), grokNode('div', 'grok-pattern', g.pattern || '—'));
+      content.append(grokNode('div', 'grok-meta', '首次发现：' + formatBeijingTime(g.first_discovered_at) + '\n最近更新：' + formatBeijingTime(g.last_updated_at) + '\n出现于：' + g.sources.map(s => s.type + ' ' + s.file).join('；')));
+    }
+
+    return content;
+}
+
+function renderPostCard(post) {
+  const card = grokNode('article', 'tweet-card');
+  const id = tweetIdOf(post);
+  if (id) card.dataset.tweetId = id;
+  card.append(grokNode('h3', '', (post.author || post.name || '—') + ' @' + (post.handle || post.user || '—')));
+  const badges = grokNode('div', 'radar-source-badges');
+  (post._sources || post.sources || ['AIsa']).forEach(source => badges.append(grokNode('span', 'radar-source-badge', source)));
+  card.append(badges, grokNode('div', 'tweet-text', safeText(post.full_text) || safeText(post.text)), renderPostDetail(post));
+  appendSafeLink(card, post.url, '打开原帖', true);
+  card.append(buildVerdictButtons(id));
+  return card;
+}
