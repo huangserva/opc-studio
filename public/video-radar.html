@@ -86,15 +86,15 @@ body.vr-page { display: block; height: auto; min-height: 100vh; overflow: visibl
   <div class="vr-status is-missing" id="vr-status">正在读取视频榜数据…</div>
 
   <div class="vr-tabs" id="vr-tabs">
-    <button type="button" class="vr-tab active" data-list="xiaohongshu">小红书（每小时）</button>
-    <button type="button" class="vr-tab" data-list="douyin_realtime">抖音每小时热榜</button>
+    <button type="button" class="vr-tab active" data-list="xiaohongshu">小红书</button>
+    <button type="button" class="vr-tab" data-list="douyin_realtime">抖音 1 小时热榜</button>
     <button type="button" class="vr-tab" data-list="douyin_daily">抖音日榜（数据约晚 1–2 天）</button>
   </div>
 
   <div id="vr-body"></div>
 
   <div class="vr-foot">
-    数据来源：<code>workspace/video-radar/page.json</code>（采集侧每轮原子写）。小红书与抖音每小时热榜超过 <strong>70 分钟</strong>没有成功采集即标记「数据已过期」；抖音日榜超过 <strong>30 小时</strong>同样标记（它本来就晚 1–2 天）。播放与粉丝来自抖音热点宝榜单（近 1 小时），只有 <code>dy_multi</code> 补充来源拿不到这两项时显示「—」。
+    数据来源：<code>workspace/video-radar/page.json</code>（采集侧每轮原子写）。本页每天 <strong>21:20</strong> 更新一次：小红书与抖音 1 小时热榜超过 <strong>25 小时</strong>没有成功采集即标记「数据已过期」；抖音日榜超过 <strong>30 小时</strong>同样标记（它本来就晚 1–2 天）。播放与粉丝来自抖音热点宝榜单（近 1 小时），只有 <code>dy_multi</code> 补充来源拿不到这两项时显示「—」。
     点赞「近一小时涨速」是最近两次观察的赞增量 ÷ 实际间隔小时，只看过一次时显示「—」。
     所有「null」字段显示「—」，不显示 0。
   </div>

@@ -1,7 +1,7 @@
 {
   "timezone": "Asia/Shanghai",
   "start_hour": 6,
-  "end_hour": 23,
+  "end_hour": 22,
   "baseline_hour": 6,
   "collector_timeout_seconds": 600,
   "coverage_min": 0.95,

@@ -132,11 +132,13 @@ class PageViewTests(unittest.TestCase):
 
     def test_stale_boundaries(self):
         cases = [
-            ('xiaohongshu', timedelta(minutes=69), False),
-            ('xiaohongshu', timedelta(minutes=71), True),
-            ('xiaohongshu', timedelta(minutes=70), False),      # 正好 70 分钟还不算过期
-            ('douyin_realtime', timedelta(minutes=70), False),
-            ('douyin_realtime', timedelta(minutes=70, seconds=1), True),
+            ('xiaohongshu', timedelta(hours=24, minutes=29), False),
+            ('xiaohongshu', timedelta(hours=24, minutes=30), False),   # 24 小时 30 分还不算过期
+            ('xiaohongshu', timedelta(hours=25), False),               # 正好 25 小时还不算过期
+            ('xiaohongshu', timedelta(hours=25, minutes=1), True),
+            ('douyin_realtime', timedelta(hours=24, minutes=30), False),
+            ('douyin_realtime', timedelta(hours=25), False),
+            ('douyin_realtime', timedelta(hours=25, seconds=1), True),
             ('douyin_daily', timedelta(hours=30), False),
             ('douyin_daily', timedelta(hours=30, minutes=1), True),
         ]
@@ -150,6 +152,18 @@ class PageViewTests(unittest.TestCase):
                 self.fx.write(data)
                 view = api.page_view(self.root, now=NOW)
                 self.assertEqual(view['sources'][name]['stale'], expect_stale)
+
+    def test_stale_after_minutes_matches_daily_cadence(self):
+        """每天 21:20 一轮：实时来源阈值 25 小时（1500 分钟），日榜仍是 30 小时（1800 分钟）。"""
+        data = self.fx.page_json()
+        data['sources'] = {key: {'last_attempt_at': iso(NOW), 'last_success_at': iso(NOW),
+                                 'status': 'ok', 'note': ''} for key in
+                           ('xiaohongshu', 'douyin_realtime', 'douyin_daily')}
+        self.fx.write(data)
+        view = api.page_view(self.root, now=NOW)
+        self.assertEqual(view['sources']['xiaohongshu']['stale_after_minutes'], 1500)
+        self.assertEqual(view['sources']['douyin_realtime']['stale_after_minutes'], 1500)
+        self.assertEqual(view['sources']['douyin_daily']['stale_after_minutes'], 1800)
 
     def test_empty_last_success_is_stale(self):
         data = self.fx.page_json()

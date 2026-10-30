@@ -334,6 +334,21 @@ async function apiPost(headers, body) {
       JSON.stringify(states) + ' 残留数字=' + hasFakeNumber);
   }
 
+  // ---------------- 反例 5：推特页 150 分钟过期边界（真实页面） ----------------
+  {
+    writeHourly(Object.assign({}, hourly, { generated_at: hoursAgoIso(2 + 10 / 60) }));
+    await loadVipView();
+    const okCell = await page.locator('.tweet-monitor-value').first().innerText();
+    writeHourly(Object.assign({}, hourly, { generated_at: hoursAgoIso(2 + 31 / 60) }));
+    await loadVipView();
+    const staleCell = await page.locator('.tweet-monitor-value').first().innerText();
+    check('反例5-推特阈值', 'generated_at 2 小时 10 分 → ok（显示增量），2 小时 31 分 → 数据已过期',
+      okCell === '+1.2万/h' && /^数据已过期（\d+ 小时前）$/.test(staleCell),
+      '2h10m=' + okCell + ' ｜ 2h31m=' + staleCell);
+    await shot('05b-150分钟边界.png');
+    writeHourly(hourly);
+  }
+
   // ---------------- 反例 8/9：数值形态与未知 hit ----------------
   {
     const extended = {

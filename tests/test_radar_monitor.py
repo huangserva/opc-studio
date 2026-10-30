@@ -268,10 +268,10 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.events(), [])
         self.assertFalse((self.root / 'workspace/clues/clues.db').exists())
 
-    def test_16_twenty_three_summary_once_calls_sum(self):
-        self.run_round(22, calls=52)
-        self.run_round(23, calls=53)
-        self.monitor.run_once(when(23, 10))
+    def test_16_twenty_two_summary_once_calls_sum(self):
+        self.run_round(21, calls=52)
+        self.run_round(22, calls=53)
+        self.monitor.run_once(when(22, 10))
         summaries = self.events('daily_summary')
         self.assertEqual(len(summaries), 1)
         self.assertEqual(summaries[0]['summary']['api_calls'], 51+52+53)
@@ -279,6 +279,9 @@ class MonitorTests(unittest.TestCase):
         daily = json.loads((self.monitor.directory / 'daily-2026-10-15.json').read_text())
         self.assertEqual(daily['api_calls'], 156)
         self.assertEqual(daily['unknown_call_rounds'], 0)
+        # 22 点是新的收尾轮：23 点已在运行时段之外，不会再有采集或第二份日报。
+        self.assertEqual(self.monitor.run_once(when(23))['status'], 'outside_hours')
+        self.assertEqual(len(self.events('daily_summary')), 1)
 
     def test_17_no_credentials_in_state_outbox_logs_or_evidence(self):
         secret = 'sk-' + 'aisa-synthetic-b1-canary'
@@ -480,7 +483,7 @@ class AdapterTests(unittest.TestCase):
     def test_launchd_template_schedule_and_wrapper_syntax(self):
         path = ROOT/'scripts/launchd/com.servasyy.radar-monitor.plist'
         data = plistlib.loads(path.read_bytes())
-        self.assertEqual(data['StartCalendarInterval'], [{'Hour': h, 'Minute': 0} for h in range(6,24)])
+        self.assertEqual(data['StartCalendarInterval'], [{'Hour': h, 'Minute': 0} for h in range(6, 23, 2)])
         self.assertFalse(data['RunAtLoad'])
         self.assertEqual(data['EnvironmentVariables']['TZ'], 'Asia/Shanghai')
         result = subprocess.run(['/bin/zsh', '-n', str(ROOT/'scripts/launchd/run-radar-monitor.sh')], capture_output=True)

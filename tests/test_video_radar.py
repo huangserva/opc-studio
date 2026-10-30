@@ -328,7 +328,7 @@ class RadarTests(unittest.TestCase):
     def test_launchd_template(self):
         config=plistlib.loads((ROOT/'scripts/launchd/com.servasyy.video-radar.plist').read_bytes())
         self.assertFalse(config['RunAtLoad'])
-        self.assertEqual(config['StartCalendarInterval'],[dict(Hour=h,Minute=20) for h in range(6,24)])
+        self.assertEqual(config['StartCalendarInterval'],[dict(Hour=21,Minute=20)])
         shell=(ROOT/'scripts/launchd/run-video-radar.sh').read_text()
         self.assertNotIn('FEISHU',shell);self.assertIn('EnvironmentVariables.AISA_API_KEY',shell)
 

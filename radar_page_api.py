@@ -4,9 +4,9 @@
 反馈落盘：``workspace/twitter-radar/monitor/feedback.json``
 
 ``monitor_view`` 的 status：
-- ``ok``：文件存在、schema 为 1、generated_at 在 2 小时内
+- ``ok``：文件存在、schema 为 1、generated_at 在 150 分钟内（2 小时间隔 + 最长 10 分钟采集 + 余量）
 - ``missing``：监控未运行（文件不存在）
-- ``stale``：generated_at 超过 2 小时
+- ``stale``：generated_at 超过 150 分钟
 - ``invalid``：文件损坏或 schema 不是 1
 
 ``save_feedback`` 只接受 ``{"tweet_id": 纯数字字符串 ≤25 位, "verdict": "worth"|"not_worth"|null}``，
@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCHEMA = 1
-STALE_AFTER = timedelta(hours=2)
+STALE_AFTER = timedelta(minutes=150)
 FUTURE_TOLERANCE = timedelta(minutes=5)
 SAFE_INT_MAX = 2 ** 53 - 1
 # L1：只用 ASCII 数字 + fullmatch，全角/其他语言数字/尾换行一律拒绝，不做自动修剪

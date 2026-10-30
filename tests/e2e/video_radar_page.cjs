@@ -382,11 +382,11 @@ async function startServer() {
 
   // ================= 自测 6：过期判定边界 =================
   {
-    // 浏览器里「正好 70 分钟」会因渲染耗时漂移，这里用 ±60 秒余量；
+    // 每天 21:20 一轮，实时来源阈值 25 小时；这里避开「正好等于阈值」的漂移，
     // 正好等于阈值的边界由 tests/test_video_radar_page_api.py::test_stale_boundaries 确定性覆盖。
     const cases = [
-      ['xiaohongshu', 69 * MINUTE, false], ['xiaohongshu', 71 * MINUTE, true],
-      ['douyin_realtime', 69 * MINUTE, false], ['douyin_realtime', 70 * MINUTE + 60000, true],
+      ['xiaohongshu', 24 * HOUR + 30 * MINUTE, false], ['xiaohongshu', 25 * HOUR + MINUTE, true],
+      ['douyin_realtime', 24 * HOUR + 30 * MINUTE, false], ['douyin_realtime', 25 * HOUR + MINUTE, true],
       ['douyin_daily', 30 * HOUR - 60000, false], ['douyin_daily', 30 * HOUR + 60000, true]
     ];
     const wrong = [];
@@ -400,7 +400,7 @@ async function startServer() {
     setSourceAge('xiaohongshu', null);
     await open();
     const emptyFlag = (await page.locator('#vr-status').innerText()).indexOf('数据已过期') >= 0;
-    check('自测6', '69/71 分钟、70 分钟边界、30 小时前后、last_success_at 为空 的过期判定',
+    check('自测6', '24h30m 不过期、25h1m 过期、30 小时前后、last_success_at 为空 的过期判定',
       wrong.length === 0 && emptyFlag, '错判=' + JSON.stringify(wrong) + ' 空 last_success_at 算过期=' + emptyFlag);
     await shot('04-过期标记.png');
   }
@@ -443,10 +443,13 @@ async function startServer() {
       perTab.push(list + '=' + (await page.locator('#vr-body tbody tr').count()));
     }
     const header = (await page.locator('#vr-status').innerText()).replace(/\s+/g, ' ');
-    check('附-分页签', '三个分页签（小红书每小时/抖音实时候选/抖音日榜）各自渲染自己的列表',
+    check('附-分页签', '三个分页签（小红书/抖音 1 小时热榜/抖音日榜）各自渲染自己的列表',
       tabs.length === 3 && perTab.every((row) => row.endsWith('=1')), '标签=' + JSON.stringify(tabs) + ' 行数=' + JSON.stringify(perTab));
     check('附-顶部信息', '顶部显示今日轮次与 AIsa 调用次数', header.includes('今日') && header.includes('AIsa 调用 251'),
       header.slice(0, 110));
+    const foot = (await page.locator('.vr-foot', { hasText: '数据来源' }).innerText()).replace(/\s+/g, ' ');
+    check('附-说明文字', '页脚写「每天 21:20 更新」与 25 小时阈值，不再出现 70 分钟',
+      foot.includes('21:20') && foot.includes('25 小时') && !foot.includes('70 分钟'), foot.slice(0, 160));
     await shot('06-三视图.png');
   }
 
@@ -625,8 +628,9 @@ async function startServer() {
     const hot = await rowOf('dy:board');
     const multi = await rowOf('dy:multi');
     // 列序：0 名次 /1 标题 /2 作者 /3 粉丝 /4 播放 /5 发布时间 /6 赞 /7 赞每小时 /8 涨速 /9 标记 /10 判断
-    check('修订1', '页签名「抖音实时候选（每小时）」已改为「抖音每小时热榜」',
-      hotTab === '抖音每小时热榜' && !tabs.join(' ').includes('实时候选'), '三个页签=' + JSON.stringify(tabs));
+    check('修订1', '页签名「小红书」与「抖音 1 小时热榜」不再暗示每小时更新',
+      tabs[0] === '小红书' && hotTab === '抖音 1 小时热榜' && !tabs.join(' ').includes('实时候选') && !tabs.join(' ').includes('（每小时）'),
+      '三个页签=' + JSON.stringify(tabs));
     check('修订2', '新增「播放」列，且热榜条目的播放与粉丝都有真实值',
       head.includes('播放') && hot[3] === '4.5万' && hot[4] === '128.0万',
       '表头=' + head + ' ｜热榜首行 粉丝=' + hot[3] + ' 播放=' + hot[4]);
@@ -726,7 +730,7 @@ async function startServer() {
   // 三视口 × 三个页签。故意造 50/30/50 条生产量级数据：默认上下文只有一条，量不到真实行高。
   {
     const VIEWPORTS = [[1600, 1050], [1280, 800], [390, 844]];
-    const TABS = [['xiaohongshu', '小红书（每小时）'], ['douyin_realtime', '抖音每小时热榜'],
+    const TABS = [['xiaohongshu', '小红书'], ['douyin_realtime', '抖音 1 小时热榜'],
                   ['douyin_daily', '抖音日榜（数据约晚 1–2 天）']];
     const big = goodPage();
     for (const name of ['xiaohongshu', 'douyin_realtime', 'douyin_daily']) {

@@ -15,7 +15,7 @@
 
 过期判定（按数据约定里的来源语义）：
 
-- ``xiaohongshu`` / ``douyin_realtime``：距 ``last_success_at`` 超过 70 分钟算 stale
+- ``xiaohongshu`` / ``douyin_realtime``：距 ``last_success_at`` 超过 25 小时算 stale（每天 21:20 采集一次）
 - ``douyin_daily``：超过 30 小时算 stale（日榜约晚 1–2 天）
 - ``last_success_at`` 为空/不可解析一律算 stale（没有成功记录就等于没有新鲜数据）
 
@@ -37,10 +37,10 @@ from pathlib import Path
 SCHEMA = 'video-radar-page/v1'
 LIST_KEYS = ('xiaohongshu', 'douyin_realtime', 'douyin_daily')
 VERDICTS = ('worth', 'not_worth', 'irrelevant')
-# 时效阈值按数据约定：实时/每小时来源 70 分钟，日榜 30 小时
+# 时效阈值按数据约定：实时/每小时来源 25 小时（每天 21:20 采集一次），日榜 30 小时
 STALE_AFTER = {
-    'xiaohongshu': timedelta(minutes=70),
-    'douyin_realtime': timedelta(minutes=70),
+    'xiaohongshu': timedelta(hours=25),
+    'douyin_realtime': timedelta(hours=25),
     'douyin_daily': timedelta(hours=30),
 }
 FEEDBACK_MAX_BYTES = 2 * 1024 * 1024

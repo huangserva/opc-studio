@@ -64,6 +64,16 @@ class MonitorViewTests(unittest.TestCase):
         self.assertEqual(view['status'], 'stale')
         self.assertIn('2110000000000000001', view['tweets'], '过期也要带上数据，页面才知道不是缺失')
 
+    def test_07_stale_boundary_150_minutes(self):
+        """2 小时间隔 + 最长 10 分钟采集 + 余量：150 分钟内 ok，超过即 stale。"""
+        for age, expect in ((timedelta(hours=2, minutes=10), 'ok'),
+                            (timedelta(minutes=150), 'ok'),
+                            (timedelta(minutes=150, seconds=1), 'stale'),
+                            (timedelta(hours=2, minutes=31), 'stale')):
+            with self.subTest(age=str(age)):
+                self.write(self.base(generated_at=iso(NOW - age)))
+                self.assertEqual(api.monitor_view(self.root, now=NOW)['status'], expect)
+
     def test_07_ok(self):
         self.write(self.base())
         view = api.monitor_view(self.root, now=NOW)

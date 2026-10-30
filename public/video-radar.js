@@ -9,8 +9,8 @@ const PAGE_URL = '/api/video-radar/page';
 const FEEDBACK_URL = '/api/video-radar/feedback';
 const LIST_KEYS = ['xiaohongshu', 'douyin_realtime', 'douyin_daily'];
 const LIST_LABELS = {
-  xiaohongshu: '小红书（每小时）',
-  douyin_realtime: '抖音每小时热榜',
+  xiaohongshu: '小红书',
+  douyin_realtime: '抖音 1 小时热榜',
   douyin_daily: '抖音日榜（数据约晚 1–2 天）'
 };
 const VERDICTS = [
