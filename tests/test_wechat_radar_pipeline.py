@@ -322,4 +322,98 @@ class RadarTest(unittest.TestCase):
         self.assertGreater(row['prompt_chars'],100);self.assertGreaterEqual(row['duration_ms'],0)
         self.assertEqual(data['batches'],1)
 
+    def test_r3_normalized_duplicates_keep_real_spans_and_message_counts(self):
+        first=self.add('collision','https://example.org/repeat. https://example.org/repeat， https://example.org/repeat')
+        second=self.add('second','https://example.org/repeat')
+        for _ in range(2):
+            self.pipeline.publish_links()
+            with self.pipeline.db() as db:
+                rows=db.execute("SELECT * FROM radar_links WHERE url='https://example.org/repeat'").fetchall()
+                self.assertEqual(len(rows),2)
+                self.assertEqual(db.execute("SELECT share_count FROM trending_urls WHERE url='https://example.org/repeat'").fetchone()[0],2)
+            for row in rows:
+                doc=first if row['document_id']=='collision' else second
+                self.assertEqual(doc['body'][row['start']:row['end']],row['text'])
+                self.assertEqual(row['hash'],doc['hash'])
+
+    def test_r3_xml_duplicate_nodes_keep_encoded_span(self):
+        url='https://example.org/xml?x=1&amp;y=2'
+        doc=self.add('xml-repeat','<msg><title>合成标题</title><url>'+url+'</url><shareurl>'+url+'.</shareurl><url>'+url+'</url></msg>')
+        self.pipeline.publish_links()
+        with self.pipeline.db() as db:
+            rows=db.execute("SELECT * FROM radar_links WHERE document_id='xml-repeat'").fetchall()
+        self.assertEqual(len(rows),1)
+        row=rows[0]
+        self.assertEqual(row['url'],'https://example.org/xml?x=1&y=2')
+        self.assertEqual(doc['body'][row['start']:row['end']],url)
+        self.assertEqual(row['text'],url)
+
+    def test_r3_projection_failure_is_classified_private_and_transactional(self):
+        self.pipeline.publish_links()
+        with self.pipeline.db() as db:
+            before=[tuple(r) for r in db.execute('SELECT * FROM radar_links')]
+            db.execute("CREATE TRIGGER reject_link BEFORE INSERT ON radar_links BEGIN SELECT RAISE(ABORT,'synthetic-private-value'); END")
+        self.cp.call_pi=lambda *args:self.fail('projection failure must precede the model')
+        state,_,out=self.pipeline.analyze('r3-db-failure',{'radar_since':self.pipeline.since,'body':'test'},threading.Event(),{'model':'qwen'},time.monotonic()+300)
+        data=json.loads(out)
+        self.assertEqual(state,'failed')
+        self.assertEqual((data['processed'],data['batches']),(0,0))
+        self.assertEqual((data['error_kind'],data['exception_type'],data['error_stage']),('link_projection_error','IntegrityError','publish_links'))
+        self.assertEqual(data['exception_code'],'SQLITE_CONSTRAINT_TRIGGER')
+        self.assertTrue(any(f['function']=='publish_links' for f in data['error_trace']))
+        with self.pipeline.db() as db:
+            self.assertEqual([tuple(r) for r in db.execute('SELECT * FROM radar_links')],before)
+            failure=db.execute('SELECT error,error_kind FROM failures').fetchone()
+            self.assertEqual(json.loads(failure['error'])['exception_type'],'IntegrityError')
+            self.assertEqual(failure['error_kind'],'link_projection_error')
+            self.assertEqual(db.execute('SELECT count(*) FROM analyzed').fetchone()[0],0)
+            log=db.execute('SELECT message,error_kind FROM scan_log').fetchone()
+        self.assertNotIn('synthetic-private-value',out+failure['error']+log['message'])
+        self.assertEqual(log['error_kind'],'link_projection_error')
+
+    def test_r3_invalid_batch_is_quarantined_then_next_batch_advances(self):
+        next_doc=self.add('next','下一批合成材料')
+        original=self.pipeline.pending
+        self.pipeline.pending=lambda task,model:original(task,model)[:1]
+        calls=[]
+        def answer(*args):
+            calls.append(args[0])
+            return 'invalid json' if len(calls)<=2 else '{"topics":[],"knowledge":[],"profile":[]}'
+        self.cp.call_pi=answer
+        with patch('wechat_radar_pipeline.backend_slots',return_value='ready'):
+            state,_,out=self.pipeline.analyze('r3-next',{'radar_since':self.pipeline.since,'body':'test'},threading.Event(),{'model':'qwen'},time.monotonic()+300)
+        data=json.loads(out)
+        self.assertEqual((state,data['quarantined'],data['processed'],data['batches']),('partial',1,1,2))
+        with self.pipeline.db() as db:
+            self.assertEqual(db.execute('SELECT document_id FROM analyzed').fetchone()[0],next_doc['id'])
+            self.assertEqual(db.execute('SELECT document_id FROM quarantined').fetchone()[0],'a')
+
+    def test_r3_empty_queue_succeeds_without_model(self):
+        self.pipeline.commit([self.doc],[],'before','qwen')
+        self.cp.call_pi=lambda *args:self.fail('empty queue must not call the model')
+        state,_,out=self.pipeline.analyze('r3-empty',{'radar_since':self.pipeline.since,'body':'test'},threading.Event(),{'model':'qwen'},time.monotonic()+300)
+        self.assertEqual((state,json.loads(out)['processed'],json.loads(out)['batches']),('succeeded',0,0))
+
+    def test_r3_exhausted_model_timeout_is_partial_and_preserves_the_batch(self):
+        from wechat_source_loader import source_module
+        timeout=source_module('pi_executor').ModelTimeoutError
+        def call(*args):raise timeout('Pi 模型请求超时，本批未推进')
+        self.cp.call_pi=call
+        task={'radar_since':self.pipeline.since,'body':'test'}
+        with patch('wechat_radar_pipeline.backend_slots',return_value='ready'):
+            state,_,out=self.pipeline.analyze('r3-timeout',task,threading.Event(),{'model':'qwen'},time.monotonic()+300)
+        data=json.loads(out)
+        self.assertEqual((state,data['processed'],data['error_kind'],data['quarantined']),('partial',0,'model_timeout',0))
+        self.assertEqual([d['id'] for d in self.pipeline.pending(task,'qwen')],['a'])
+        with self.pipeline.db() as db:self.assertEqual(db.execute('SELECT count(*) FROM analyzed').fetchone()[0],0)
+
+    def test_r3_w1_prose_and_fenced_answers(self):
+        _,refs,catalog=self.pipeline.prepare([self.doc])
+        for value in ['说明：\n'+self.result(['e0'])+'\n结束。','```json\n'+self.result(['e0'])+'\n```',
+                      '说明对象 {"example":true}\n最终答案：'+self.result(['e0'])+'\n诊断对象 {"note":"end"}']:
+            with self.subTest(wrapper=value[:5]):
+                self.assertEqual(len(self.pipeline.validate(value,refs,catalog,{'a'})),3)
+        with self.assertRaisesRegex(ValueError,'多个答案'):
+            self.pipeline.validate(self.result(['e0'])+'\n'+self.result(['e0']),refs,catalog,{'a'})
+
 if __name__=='__main__':unittest.main()
