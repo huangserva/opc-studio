@@ -1,3 +1,4 @@
+const ASSISTANT_EVENTS_ENABLED=false; // 4-1：保留事件建议代码，关闭跳转入口。
 const assistantState={open:false,loaded:false,active:null,messages:[],poll:null,busy:false,config:null,contextTimer:null};
 function assistantContext(){
   const ui={page:state.page,view:state.view,more_settings_open:!!$('#chat-media-settings details')?.open};
@@ -34,7 +35,7 @@ function assistantActions(actions){
   let proposalIndex=0;
   return `<div class="assistant-actions">${actions.map(a=>{
     if(a.media_job)return `<div class="assistant-action" data-chat-media="${escapeHTML(a.media_job)}"></div>`;
-    const proposal=a.status==='done'&&a.event_proposal?`<button type="button" class="assistant-version-link" data-event-proposal="${proposalIndex++}">核对并保存事件 →</button>`:'';
+    const proposal=a.status==='done'&&a.event_proposal?`<button ${ASSISTANT_EVENTS_ENABLED?'':'hidden'} type="button" class="assistant-version-link" data-event-proposal="${proposalIndex++}">核对并保存事件 →</button>`:'';
     return `<div class="assistant-action ${a.status}"><span>${a.status==='done'?'✓':a.status==='error'?'!':'◌'} ${escapeHTML(a.label)}</span>${a.result?`<small>${escapeHTML(a.result)}</small>`:''}${chatSourceLinks(a.sources)}${proposal}${a.slug&&a.version?`<button type="button" class="assistant-version-link" data-assistant-slug="${escapeHTML(a.slug)}" data-assistant-version="${escapeHTML(a.version)}">查看 ${escapeHTML(a.version)} →</button>`:''}${a.image_url?`<a href="${escapeHTML(a.image_url)}" target="_blank" rel="noopener"><img src="${escapeHTML(a.image_url)}" alt="助手生成的文字卡片"></a>`:''}</div>`;
   }).join('')}</div>`;
 }

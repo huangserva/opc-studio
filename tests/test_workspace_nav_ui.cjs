@@ -9,7 +9,7 @@ const PAGES = ['index.html', 'knowledge.html', 'intake.html', 'cards.html', 'eve
 
 // 统一顺序（ui-audit-1 §3 建议）：我的作品 → 图片生成 → 视频生成 → 知识库 → 创意回收 → 提示词卡
 // → 线索中心 → 事项与日程 → 发布反馈 → 商单管理 → 情报采集 → GitHub 来源 → 定时任务
-const EXPECT = [
+const FALLBACK = [
   { id: 'works', href: '/', text: '▤ 我的作品' },
   { id: 'image', href: '/lab.html?kind=image', text: '▧ 图片生成' },
   { id: 'video', href: '/lab.html?kind=video', text: '▷ 视频生成' },
@@ -24,9 +24,30 @@ const EXPECT = [
   { id: 'github', href: '/github.html', text: '⑂ GitHub 来源' },
   { id: 'schedules', href: '/schedules.html', text: '◴ 定时任务' },
 ];
+const EXPECT = [
+  {id:'today',href:'/today.html',text:'◷ 今日'},
+  {id:'library',href:'/library.html',text:'▥ 素材库'},
+  {id:'works',href:'/',text:'▤ 创作台'},
+  {id:'publish',href:'/publish.html',text:'↗ 发布复盘'},
+  {id:'deals',href:'/deals.html',text:'▣ 商单'},
+  {id:'settings',href:'/settings.html',text:'⚙ 设置'},
+  {id:'image',href:'/lab.html?kind=image',text:'▧ 图片生成'},
+  {id:'video',href:'/lab.html?kind=video',text:'▷ 视频生成'},
+  {id:'clues',href:'/clues.html',text:'⌁ 线索中心'},
+  {id:'intel',href:'/intel.html',text:'☰ 情报采集'},
+  {id:'github',href:'/github.html',text:'⑂ GitHub 来源'},
+  {id:'schedules',href:'/schedules.html',text:'◴ 定时任务'},
+  {id:'feedback',href:'/feedback.html',text:'◈ 发布反馈'},
+  {id:'x-official',href:'/x-official.html',text:'Ⅹ X 官方接口'},
+  {id:'knowledge',href:'/knowledge.html',text:'▦ 知识库'},
+  {id:'intake',href:'/intake.html',text:'◇ 创意回收'},
+  {id:'cards',href:'/cards.html',text:'✦ 提示词卡'},
+];
+const RUNTIME_PAGES = fs.readdirSync('public').filter(p=>p.endsWith('.html') && fs.readFileSync('public/'+p,'utf8').includes('workspace-nav.js'));
 const CURRENT = {
+  'today.html':'today','library.html':'library','publish.html':'publish','settings.html':'settings','twitter-radar.html':null,'video-radar.html':null,'lab-test.html':null,
   'index.html': 'works', 'knowledge.html': 'knowledge', 'intake.html': 'intake', 'cards.html': 'cards',
-  'events.html': 'events', 'feedback.html': 'feedback', 'schedules.html': 'schedules', 'clues.html': 'clues',
+  'events.html': null, 'feedback.html': 'feedback', 'schedules.html': 'schedules', 'clues.html': 'clues',
   'deals.html': 'deals', 'intel.html': 'intel', 'github.html': 'github', 'lab.html': 'image',
 };
 // 页面专属的二级导航/视图切换必须原样保留。
@@ -44,29 +65,40 @@ function iconOf(text) { return [...text.trim()][0]; }
 const ICONS = EXPECT.map(i => iconOf(i.text));
 // workspace-nav.js 里 ITEMS 的 icon 字段（脚本是唯一数据源）。
 function itemsFromScript() {
-  return [...NAV_SCRIPT.matchAll(/\{\s*id: '([a-z]+)',\s*href: '([^']+)',\s*icon: '(.*?)',\s*label: '(.*?)'\s*\}/g)]
+  return [...NAV_SCRIPT.matchAll(/\{\s*id: '([a-z-]+)',\s*href: '([^']+)',\s*icon: '(.*?)',\s*label: '(.*?)'(?:, group: '[a-z]+')?\s*\}/g)]
     .map(m => ({ id: m[1], href: m[2], icon: m[3], label: m[4] }));
 }
 
-function checkNav(nav, expectedSelected, note) {
+function checkNav(nav, expectedSelected, note, expected = EXPECT) {
   assert.ok(nav, note + '：缺少 #workspace-nav');
   assert.ok(nav.classList.contains('workspace-nav'), note + '：容器缺 workspace-nav class');
   assert.equal(nav.getAttribute('aria-label'), '工作台栏目', note + '：aria-label 未统一');
   const links = [...nav.querySelectorAll('a')];
-  assert.deepEqual(links.map(a => a.getAttribute('href')), EXPECT.map(i => i.href), note + '：条目或顺序不一致');
-  assert.deepEqual(links.map(a => a.textContent.trim()), EXPECT.map(i => i.text), note + '：条目文字不一致');
+  assert.deepEqual(links.map(a => a.getAttribute('href')), expected.map(i => i.href), note + '：条目或顺序不一致');
+  assert.deepEqual(links.map(a => a.textContent.trim()), expected.map(i => i.text), note + '：条目文字不一致');
   const selected = [...nav.querySelectorAll('a.selected')];
-  assert.equal(selected.length, 1, note + '：高亮项不是唯一');
-  assert.equal(selected[0].getAttribute('href'), EXPECT.find(i => i.id === expectedSelected).href, note + '：高亮项错误');
-  assert.equal(selected[0].getAttribute('aria-current'), 'page', note + '：当前项缺 aria-current="page"');
-  assert.equal(nav.querySelectorAll('a[aria-current]').length, 1, note + '：aria-current 不唯一');
+  if (expectedSelected) {
+    assert.equal(selected.length, 1, note + '：高亮项不是唯一');
+    assert.equal(selected[0].getAttribute('href'), expected.find(i=>i.id===expectedSelected).href);
+    assert.equal(selected[0].getAttribute('aria-current'), 'page');
+  } else assert.equal(selected.length, 0, note + '：不在导航中的页面不得高亮别页');
+  assert.equal(nav.querySelectorAll('a[aria-current]').length, expectedSelected?1:0);
+  if(expected===EXPECT) {
+    assert.deepEqual([...nav.children].filter(n=>n.tagName==='A').map(n=>n.dataset.navItem), ['today','library','works','publish','deals','settings']);
+    const groups=[...nav.querySelectorAll('details')];
+    assert.deepEqual(groups.map(n=>n.querySelector('summary').textContent), ['工具','旧版']);
+    assert.deepEqual([...groups[0].querySelectorAll('a')].map(n=>n.dataset.navItem), ['image','video']);
+    assert.deepEqual([...groups[1].querySelectorAll('a')].map(n=>n.dataset.navItem), EXPECT.slice(8).map(n=>n.id));
+    if(expectedSelected && EXPECT.findIndex(n=>n.id===expectedSelected)>=6) assert.ok(selected[0].closest('details').open);
+    assert.equal(nav.querySelectorAll('a[href="/events.html"]').length,0);
+  }
 }
 
 function staticDom(page) {
   return new JSDOM(fs.readFileSync('public/' + page, 'utf8'), { url: 'http://127.0.0.1:8766/' + page });
 }
 
-test('the 13 nav icons are pairwise different and stay single plain glyphs', () => {
+test('the 17 nav icons are pairwise different and stay single plain glyphs', () => {
   // 以脚本里的 ITEMS（唯一数据源）为准，同时保证测试清单不重复。
   const groups = [['workspace-nav.js ITEMS', itemsFromScript().map(i => i.icon + ' ' + i.label)], ['测试清单 EXPECT', EXPECT.map(i => i.text)]];
   for (const [source, texts] of groups) {
@@ -97,7 +129,7 @@ test('every page static fallback repeats the ITEMS icons, not a stale copy', () 
   for (const page of PAGES) {
     const dom = staticDom(page);
     const links = [...dom.window.document.querySelectorAll('#workspace-nav a')];
-    assert.deepEqual(links.map(a => iconOf(a.textContent)), ICONS, page + '：静态兜底清单的图标与 ITEMS 不一致');
+    assert.deepEqual(links.map(a => iconOf(a.textContent)), FALLBACK.map(i=>iconOf(i.text)), page + '：静态兜底清单的图标与 ITEMS 不一致');
     dom.window.close();
   }
 });
@@ -106,10 +138,10 @@ test('every page keeps one identical static main nav as the no-JS fallback', () 
   for (const page of PAGES) {
     const dom = staticDom(page);
     const d = dom.window.document;
-    checkNav(d.querySelector('#workspace-nav'), CURRENT[page], page + ' 静态兜底');
+    checkNav(d.querySelector('#workspace-nav'), page==='events.html'?'events':CURRENT[page], page + ' 静态兜底', FALLBACK);
     assert.equal(d.querySelectorAll('#workspace-nav').length, 1, page + '：主导航容器不唯一');
     for (const cls of OLD_CLASSES) assert.ok(!d.querySelector('.' + cls), page + '：仍残留旧主导航 ' + cls);
-    for (const selector of SECONDARY[page]) assert.ok(d.querySelector(selector), page + '：二级导航 ' + selector + ' 被删掉了');
+    for (const selector of SECONDARY[page] || []) assert.ok(d.querySelector(selector), page + '：二级导航 ' + selector + ' 被删掉了');
     dom.window.close();
   }
 });
@@ -124,12 +156,12 @@ test('every page loads the shared nav stylesheet and script once', () => {
   }
 });
 
-test('the shared script renders the same nav and one correct highlight on all 12 pages', () => {
-  for (const page of PAGES) {
+test('the shared script renders the same nav and one correct highlight on all pages with shared navigation', () => {
+  for (const page of RUNTIME_PAGES) {
     const dom = new JSDOM(fs.readFileSync('public/' + page, 'utf8'), { url: 'http://127.0.0.1:8766/' + page, runScripts: 'outside-only' });
     dom.window.eval(NAV_SCRIPT);
     checkNav(dom.window.document.querySelector('#workspace-nav'), CURRENT[page], page + ' 渲染后');
-    for (const selector of SECONDARY[page]) assert.ok(dom.window.document.querySelector(selector), page + '：脚本改动了二级导航 ' + selector);
+    for (const selector of SECONDARY[page] || []) assert.ok(dom.window.document.querySelector(selector), page + '：脚本改动了二级导航 ' + selector);
     dom.window.close();
   }
 });
@@ -144,7 +176,7 @@ test('lab highlights 图片生成 or 视频生成 according to the kind query', 
 });
 
 test('works entry is / and stays current on the collection, index and reader urls', () => {
-  assert.equal(EXPECT[0].href, '/', '我的作品应统一为 /');
+  assert.equal(EXPECT.find(i=>i.id==='works').href, '/', '创作台应统一为 /');
   for (const url of ['http://127.0.0.1:8766/', 'http://127.0.0.1:8766/?collection=all', 'http://127.0.0.1:8766/index.html', 'http://127.0.0.1:8766/read/some-slug']) {
     const dom = new JSDOM(fs.readFileSync('public/index.html', 'utf8'), { url, runScripts: 'outside-only' });
     dom.window.eval(NAV_SCRIPT);
