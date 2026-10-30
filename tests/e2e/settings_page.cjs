@@ -9,7 +9,7 @@ let child,context,base,stderr='';
 const check=(name,ok,detail='')=>{assert.ok(ok,name+' '+detail);results.push({name,passed:true,detail});console.log('通过 '+name+' '+detail)};
 async function start(){
  const port=await new Promise(resolve=>{const s=net.createServer().listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p))})});base='http://127.0.0.1:'+port;
- const code=`import sys,json,sqlite3;from pathlib import Path;sys.path.insert(0,${JSON.stringify(ROOT)});import server,settings_view,grok_bot_radar;from http.server import ThreadingHTTPServer;from scheduled_tasks import ScheduledTasks;from tests.test_clues import KnowledgeFake;from types import SimpleNamespace
+ const code=`import sys,json,sqlite3;from pathlib import Path;sys.path.insert(0,${JSON.stringify(ROOT)});import server,settings_view,grok_bot_radar,external_tasks;from http.server import ThreadingHTTPServer;from scheduled_tasks import ScheduledTasks;from tests.test_clues import KnowledgeFake;from types import SimpleNamespace
 tmp=Path(${JSON.stringify(tmp)});root=tmp/'workspace';root.mkdir();grok_bot_radar.reports_dir=lambda:tmp/'reports'
 (tmp/'public').mkdir();grok_bot_radar.BUNDLE_PATH=tmp/'public/twitter-radar-bundle.json';grok_bot_radar.BUNDLE_PATH.write_text(json.dumps({'updated_at':'2026-10-29 22:00:38','collected_at':'2026-10-29T14:00:38.594Z','tweets':[],'vip_tweets':[]}))
 (root/'twitter-radar/monitor').mkdir(parents=True);(root/'twitter-radar/monitor/state.json').write_text(json.dumps({'runs':{'2026-10-29T22':{'success':True,'run_id':'20261029-140008-f6d22d61'}}}))
@@ -23,6 +23,7 @@ with sqlite3.connect(root/'intel/intel.db') as db:
 model={'model':'fixture-one','endpoint':'http://127.0.0.1:1/v1/chat/completions','api_key':'test-placeholder-not-a-key','no_api_key':False,'context_tokens':8192,'max_output_tokens':1024,'timeout_seconds':30,'temperature':0.2}
 config=tmp/'model.json';config.write_text(json.dumps({'schema_version':2,'active_profile_id':'one','profiles':[{'id':'one','display_name':'合成模型一','config':model},{'id':'two','display_name':'合成模型二','config':dict(model,model='fixture-two')}]}))
 s=ThreadingHTTPServer(('127.0.0.1',${port}),server.Handler);s.store=server.Store(root);s.assistant=server.assistant_module.Assistant(s.store,server.content,config);s.schedules=ScheduledTasks(root,s.assistant,autostart=False);s.store.schedules=s.schedules
+(tmp/'expected-external-count').write_text(str(len(external_tasks.TASKS)+len(external_tasks.SERVICES)))
 t=s.schedules.save(dict(name='GitHub 合成任务',kind='script',body='github_source.py',cwd=str(tmp),frequency='interval',minutes=60,at='08:00',weekdays=list(range(7)),ends_at=None,timeout=5,enabled=True,allow_commands=False));(tmp/'task-id').write_text(t['id'])
 with s.schedules.db() as db:db.execute('INSERT INTO runs(id,task_id,snapshot,trigger,status,started_at,finished_at,exit_code,output) VALUES(?,?,?,?,?,?,?,?,?)',('e'*32,t['id'],json.dumps(t),'manual','succeeded','2026-10-29T08:00:00Z','2026-10-29T08:01:00Z',0,'fixture'))
 doc={'id':'a'*32,'source':'wechat','kind':'wechat','title':'合成来源','body':'可回看的原文依据','hash':'b'*64,'url':'http://example.test/source','modified':'2026-10-29T00:00:00Z','provenance':{}}
@@ -40,7 +41,8 @@ async function ready(p){await p.locator('#sources[aria-busy=false]').waitFor();a
  for(let i=0;i<5;i++){const start=performance.now();await page.goto(base+'/settings.html');await ready(page);timings.push(Number(((performance.now()-start)/1000).toFixed(4)))}
  check('P8 设置页加载5次均小于1秒',timings.every(t=>t<1),JSON.stringify(timings));
  const overview=(await api('/api/settings/overview')).body,schedules=(await api('/api/schedules')).body;
- check('G1 7个真实来源及定时任务数量一致',overview.sources.length===7&&overview.schedule_task_count===schedules.tasks.length&&await page.locator('#sources .card').count()===7&&await page.locator('#tasks [data-task-row]').count()===schedules.tasks.length&&await page.locator('#tasks [data-external-row]').count()===9&&await page.locator('#tasks [data-external-row] [data-task],#tasks [data-external-row] button').count()===0&&await page.locator('#tasks tr').count()===schedules.tasks.length+9);
+ const externalTaskCount=Number(fs.readFileSync(path.join(tmp,'expected-external-count'),'utf8'));
+ check('G1 7个真实来源及定时任务数量一致',overview.sources.length===7&&overview.schedule_task_count===schedules.tasks.length&&await page.locator('#sources .card').count()===7&&await page.locator('#tasks [data-task-row]').count()===schedules.tasks.length&&await page.locator('#tasks [data-external-row]').count()===externalTaskCount&&await page.locator('#tasks [data-external-row] [data-task],#tasks [data-external-row] button').count()===0&&await page.locator('#tasks tr').count()===schedules.tasks.length+externalTaskCount);
  check('来源实际成功时间与夹具一致',(await page.locator('[data-source=grok]').innerText()).includes('2026')&&overview.sources.find(s=>s.id==='grok').last_success==='2026-10-29T08:00:00Z');
  assert.equal(overview.sources.find(s=>s.id==='twitter').last_success,'2026-10-29T14:00:38.594Z');
  assert.equal(overview.sources.find(s=>s.id==='aisa').last_success,'2026-10-29T14:00:38.594Z');
