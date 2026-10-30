@@ -1,6 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict');
 module.exports=async function({test,api,until,base,fs,path,evidence,ROOT}){
+ require('./real_write_guard.cjs').assertSandboxBase(base);
  const fixed=fs.existsSync(path.join(ROOT,'coordination/review6-fixes-a-report.md'));
  await test('11-知识库先收藏后删除回收项',async p=>{
   const url='https://example.com/e2e-knowledge-first';

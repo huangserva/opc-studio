@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const {execFileSync} = require('node:child_process');
 module.exports = async function ({test,api,until,base,fs,path,evidence,ROOT,workspace}) {
+ require('./real_write_guard.cjs').assertSandboxBase(base);
  const record=(name,value)=>fs.writeFileSync(path.join(evidence,name+'.json'),JSON.stringify(value,null,2));
  const list=async()=> (await api('/api/intake')).items;
  async function clear(){const rows=await list();for(let n=0;n<rows.length;n+=50)await api('/api/intake/delete-many',{ids:rows.slice(n,n+50).map(x=>x.id)});assert.equal((await list()).length,0);}

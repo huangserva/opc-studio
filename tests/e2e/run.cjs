@@ -1,4 +1,5 @@
 'use strict';
+const writeGuard=require('./real_write_guard.cjs');writeGuard.install();
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),http=require('node:http'),net=require('node:net'),crypto=require('node:crypto');
 const {spawn,execFileSync}=require('node:child_process'),assert=require('node:assert/strict');
 const {stopChild,forceStopSync,alive}=require('./stop_child.cjs');
@@ -427,7 +428,7 @@ async function runContentMarkdownSubsuite(){
  }
  // L1 返修：父套件临时目录在自测分支之后才创建，自测不再留下空的 article-studio-e2e-* 目录。
  temp=fs.mkdtempSync(path.join(os.tmpdir(),'article-studio-e2e-'));
- workspace=path.join(temp,'workspace');fs.mkdirSync(workspace);fs.mkdirSync(path.join(temp,'home'));
+ workspace=path.join(temp,'workspace');writeGuard.assertSandbox(workspace);fs.mkdirSync(workspace);fs.mkdirSync(path.join(temp,'home'));
  const {chromium}=playwright();
  const piModules=path.join(ROOT,'pi-runtime/node_modules');
  if(!fs.existsSync(piModules)){const official=process.env.ARTICLE_STUDIO_PI_MODULES;if(!official||!fs.existsSync(official))throw new Error('副本缺少 pi-runtime/node_modules，无法启动助手（可设 ARTICLE_STUDIO_PI_MODULES 指向正式仓库的 pi-runtime/node_modules）');fs.symlinkSync(official,piModules,'dir')}
@@ -452,7 +453,7 @@ async function runContentMarkdownSubsuite(){
  let appPort,startError;
  for(let attempt=1;attempt<=5;attempt++){
   appPort=await freePort();if(appPort===modelPort)continue;
-  base='http://127.0.0.1:'+appPort;
+  base='http://127.0.0.1:'+appPort;writeGuard.registerSandbox(base,workspace);writeGuard.registerSandbox('http://127.0.0.1:'+modelPort,path.join(temp,'model'));
   const config=path.join(temp,'model.json');fs.writeFileSync(config,JSON.stringify({model:'e2e-mock',endpoint:'http://127.0.0.1:'+modelPort+'/v1/chat/completions',no_api_key:true,context_tokens:262144,max_output_tokens:2048,temperature:0,timeout_seconds:30}));
   const log=fs.openSync(path.join(evidence,'server.log'),'a');
   child=spawn(path.resolve(ROOT,'../article-importer/.venv/bin/python'),[path.join(__dirname,'server_fixture.py'),'--workspace',workspace,'--port',String(appPort)],{cwd:ROOT,env:{...process.env,E2E_STATUS_SUMMARY:'1',PI_CODING_AGENT_DIR:path.join(temp,'home'),ARTICLE_STUDIO_MODEL_CONFIG:config,E2E_APP_PORT:String(appPort),E2E_MODEL_PORT:String(modelPort),E2E_ALLOWED_PORTS:appPort+','+modelPort,E2E_NETWORK_LOG:networkLog,NODE_OPTIONS:'--require '+path.join(__dirname,'network_guard.cjs')},detached:true,stdio:['ignore',log,log]});fs.closeSync(log);
