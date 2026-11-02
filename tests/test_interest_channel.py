@@ -53,6 +53,55 @@ class InterestTests(unittest.TestCase):
     def act(self, action, identifier='101'):
         return today.save_feedback(self.root, dict(id='x:'+identifier, channel='interest', action=action))
 
+    def test_content_notice_does_not_count_as_source_failure(self):
+        for reason in ('正文被截断，API 未返回长文全文', '仓库链接在串推后续帖，未展开', '', None):
+            with self.subTest(reason=reason):
+                record=row();record.update(content_complete=False,incomplete_reason=reason)
+                self.write([record]);items,states=interest.snapshot(self.root,NOW);state=states['G']
+                self.assertEqual(state['bad_entries'],0);self.assertIsNone(state['error'])
+                self.assertEqual(state['incomplete_entries'],1);self.assertEqual(len(items),1)
+                self.assertEqual(state['incomplete_items'][0],dict(id='x:101',title=record['what_new'],url=record['url'],reasons=[reason or '来源未提供完整正文']))
+                self.assertFalse(items[0]['content_complete'])
+                self.assertEqual(self.listing()['total'],1)
+                self.assertIn(reason or '来源未提供完整正文',self.detail()['incomplete_reasons'])
+
+    def test_missing_body_is_notice_but_illegal_field_is_failure(self):
+        record=row();record['full_text']='';self.write([record]);state=interest.snapshot(self.root,NOW)[1]['G']
+        self.assertEqual(state['incomplete_entries'],1);self.assertEqual(state['bad_entries'],0)
+        for field,value in [('content_complete','false'),('full_text',[]),('incomplete_reason',{})]:
+            with self.subTest(field=field):
+                record=row();record[field]=value;self.write([record]);state=interest.snapshot(self.root,NOW)[1]['G']
+                self.assertEqual(state['bad_entries'],1);self.assertIsNotNone(state['error'])
+                self.assertEqual(state['incomplete_entries'],0)
+
+    def test_true_failures_and_content_notices_count_separately(self):
+        incomplete=row('101');incomplete.update(content_complete=False,incomplete_reason='串推未展开')
+        broken=row('102');broken['url']='javascript:alert(1)'
+        self.write([incomplete,broken,None]);self.write('{bad',NOW.astimezone(grok.BEIJING).strftime('%Y-%m-%d-0000.json'))
+        items,state=interest.snapshot(self.root,NOW);state=state['G']
+        self.assertEqual(state['incomplete_entries'],1);self.assertEqual(state['bad_entries'],2);self.assertEqual(state['bad_files'],1)
+        self.assertIn('1 个异常文件，2 处条目或链接异常',state['error']);self.assertEqual(len(items),2)
+        # 同一条内容既有正文缺失也有坏链接，两个计数都不能丢。
+        incomplete['usable']=[dict(type='repo',url='javascript:alert(1)')]
+        self.write([incomplete]);state=interest.snapshot(self.root,NOW)[1]['G']
+        self.assertEqual(state['incomplete_entries'],1);self.assertEqual(state['bad_entries'],1)
+
+    def test_each_validation_reason_remains_source_failure(self):
+        for field,value in [('author_handle',''),('topic',''),('what_new',''),('url','https://x.com/fixture/status/999'),('relevance',4),('published_at','invalid')]:
+            with self.subTest(field=field):
+                record=row();record[field]=value;self.write([record]);state=interest.snapshot(self.root,NOW)[1]['G']
+                self.assertEqual(state['bad_entries'],1);self.assertEqual(state['incomplete_entries'],0);self.assertIsNotNone(state['error'])
+        self.write([dict(id='invalid')]);state=interest.snapshot(self.root,NOW)[1]['G']
+        self.assertEqual(state['bad_entries'],1);self.assertEqual(state['incomplete_entries'],0)
+
+    def test_content_notice_deduplicates_using_latest_post(self):
+        old=row();old.update(content_complete=False,incomplete_reason='旧正文截断',collected_at=(NOW-timedelta(hours=2)).isoformat())
+        self.write([old],NOW.astimezone(grok.BEIJING).strftime('%Y-%m-%d-0000.json'))
+        current=row();self.write([current]);items,state=interest.snapshot(self.root,NOW)
+        self.assertEqual(state['G']['incomplete_entries'],0);self.assertEqual(state['G']['incomplete_items'],[])
+        current.update(content_complete=False,incomplete_reason='新串推未展开');self.write([current]);items,state=interest.snapshot(self.root,NOW)
+        self.assertEqual(state['G']['incomplete_entries'],1);self.assertEqual(state['G']['incomplete_items'][0]['reasons'],['新串推未展开'])
+
     def test_G1_urls(self):
         cases = [('https://x.com/fixture/status/101', True),
                  ('https://x.com/fixture/status/202', False),

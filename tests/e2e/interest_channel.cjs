@@ -44,7 +44,7 @@ async function interestTab(page){const loaded=page.waitForResponse(r=>new URL(r.
  const target=REAL?(listing.items.find(i=>i.content_complete)||listing.items[0]):listing.items.find(i=>i.id==='x:101'),id=target.id;
  const card=page.locator('#item-list .item-card[data-item-id="'+id+'"]');await card.waitFor();
  check('卡片仅有存准不准三个动作',await card.locator('.item-action').count()===3&&await card.locator('[data-action=use]').count()===0);
- check('右上角沿用Grok本地SVG来源图标',await card.locator('.source-badge[data-source=G] svg').count()===1);
+ check('右上角X本地平台图标与Grok渠道',await card.locator('.source-badges[data-platform=x] img.platform-logo[alt=X]').count()===1 && await card.locator('.collection-channels').textContent()==='Grok');
  check('卡片展示相关度',await card.innerText().then(t=>t.includes('相关度')));
  await page.screenshot({path:path.join(out,mode+'-interest-1440.png')});
  const detail=await get('/api/today/item?channel=interest&id='+encodeURIComponent(id));

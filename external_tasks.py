@@ -1,4 +1,4 @@
-"""外部任务只读心跳：固定登记、北京时间计划、后台缓存；不执行外部任务。"""
+"""外部来源只读心跳与本机补跑账本；不改变外部任务计划。"""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import os
@@ -71,7 +71,7 @@ def iso(value):
 
 
 class ExternalTasks:
-    def __init__(self, workspace, reports=None, clock=time.time, service_reader=service_snapshot):
+    def __init__(self, workspace, reports=None, clock=time.time, service_reader=service_snapshot, sleep_reader=None):
         self.workspace = Path(workspace)
         self.reports = Path(reports) if reports is not None else None
         self.clock, self.service_reader = clock, service_reader
@@ -81,6 +81,13 @@ class ExternalTasks:
         self.last_error = None
         self.last_error_at = None
         self.cache = self._empty()
+        self._reports_root = self.reports
+        from source_catchup import CatchupLedger
+        self.catchup = CatchupLedger(self.workspace)
+        if sleep_reader is None:
+            from source_catchup import sleep_snapshot
+            sleep_reader = sleep_snapshot
+        self.sleep_reader = sleep_reader
 
     @staticmethod
     def row(task):
@@ -95,7 +102,7 @@ class ExternalTasks:
                       timezone='Asia/Shanghai', schedule='常驻服务', rule='launchctl list 的 PID / 退出码',
                       grace_minutes=None, last_output_at=None, status='unknown', detail='等待首次后台检查', pid=None, exit_code=None)
                  for label in SERVICES]
-        return self._snapshot(rows, None)
+        return self._snapshot(rows, None) | {'catchup': {'status': 'waiting', 'sources': [], 'checked_at': None, 'action_endpoint': False}}
 
     @staticmethod
     def _snapshot(rows, checked):
@@ -117,7 +124,8 @@ class ExternalTasks:
     def _latest(self, task, now):
         if task['owner'] == 'Grok':
             from grok_bot_radar import reports_dir
-            base = (self.reports if self.reports is not None else reports_dir()) / task['folder']
+            self._reports_root = self.reports if self.reports is not None else reports_dir()
+            base = self._reports_root / task['folder']
         else:
             base = self.workspace / task['folder']
         latest = None
@@ -225,6 +233,29 @@ class ExternalTasks:
                         detail = issue or ('上一周期也没产出' if state == 'missing' else '按产出文件修改时间判定；不代表内容质量')
                     row.update(status=state, detail=detail)
                 rows.append(row)
+            # Read-only API consumes this cached envelope; no action route is exposed.
+            from source_catchup import (GROK, grok_output, native_observations)
+            observations = []
+            for task, row in zip(TASKS, rows):
+                if task['id'] in GROK and self._reports_root is not None:
+                    _, due, upcoming = occurrences(task, now)
+                    evidence = {}
+                    output = grok_output(self._reports_root, task, due, upcoming, now, evidence)
+                    observations.append(dict(source_id=task['id'], due=due,
+                        grace_seconds=task['grace_minutes'] * 60, owner_managed=False,
+                        output_at=output, input_error=evidence.get('input_error')))
+                elif task['id'] == 'twitter-radar':
+                    _, due, _ = occurrences(task, now)
+                    from source_catchup import epoch
+                    observations.append(dict(source_id=task['id'], due=due,
+                        grace_seconds=task['grace_minutes'] * 60, owner_managed=True,
+                        output_at=epoch(row['last_output_at'])))
+            native, following = native_observations(self.workspace, now, self.catchup.owner_due())
+            catchup = self.catchup.refresh(observations + native, now, self.sleep_reader(), following)
+            by_source = {r['source_id']: r for r in catchup.get('sources', [])}
+            for row in rows:
+                if row['id'] in by_source:
+                    row['catchup'] = by_source[row['id']]
             services = self.service_reader()
             for label in SERVICES:
                 found = (services or {}).get(label, {})
@@ -236,6 +267,7 @@ class ExternalTasks:
                                  pid=found.get('pid'), exit_code=found.get('exit_code')))
             with self.lock:
                 self.cache = self._snapshot(rows, now)
+                self.cache['catchup'] = catchup
                 self.refreshed = now
                 self.last_error = None
                 self.last_error_at = None

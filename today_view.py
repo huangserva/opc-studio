@@ -15,13 +15,15 @@ import grok_bot_radar as grok
 import video_radar_page_api as video
 import linuxdo_source as linuxdo
 from clue_morning import snapshot as morning_snapshot
+from topic_registry import topic_key, topic_options, matches_topic
+from platform_registry import identity, annotate_items, registries, parse_filters, matches
 
 _LOCK = threading.RLock()
 ACTIONS = {'accurate', 'inaccurate', 'keep', 'use', 'clear'}
 METRICS = ('views', 'likes', 'bookmarks', 'retweets', 'replies', 'views_per_hour', 'hours_since_created')
-EXTRA = ('fit_score', 'doable', 'my_angle', 'outline', 'doable_resource', 'incomplete_reason')
+EXTRA = ('why', 'pattern', 'fit_score', 'doable', 'my_angle', 'outline', 'doable_resource', 'incomplete_reason', 'author_type', 'author_verification_type')
 HOT_VIEWS = 100000
-SUMMARY = ('hot', 'id', 'kind', 'sources', 'author', 'published_at', 'title', 'metrics', 'tier', 'topic', 'fit_score', 'doable', 'content_complete', 'status', 'feedback', 'content_insufficient', 'relevance_note', 'rss_boards', 'reply_change')
+SUMMARY = ('platform', 'channels', 'platform_info', 'channel_details', 'fetched_at', 'hot', 'id', 'kind', 'sources', 'author', 'published_at', 'title', 'metrics', 'tier', 'topic', 'fit_score', 'doable', 'content_complete', 'status', 'feedback', 'content_insufficient', 'relevance_note', 'rss_boards', 'reply_change', 'official')
 TIERS = {'爆款': 0, '起势': 1, '低粉爆款': 2}
 
 
@@ -89,7 +91,7 @@ def _report_extras(posts):
             if name not in files:
                 try:
                     data, _ = grok._read_json(grok.reports_dir() / name)
-                    files[name] = data.get('posts', []) + data.get('entries', [])
+                    files[name] = data.get('posts', []) + data.get('entries', []) + data.get('items', [])
                 except (OSError, ValueError, TypeError):
                     files[name] = []
                     bad = True
@@ -150,7 +152,7 @@ def _incomplete(item):
         reasons.append('短正文但高收藏，可能只有摘要')
     if re.search(r'https?://t\.co/\S+\s*$', text):
         reasons.append('正文以 t.co 链接结尾，可能有后续内容')
-    analysis = item.get('why', '') + '\n' + item.get('pattern', '')
+    analysis = str(item.get('why') or '') + '\n' + str(item.get('pattern') or '')
     for pattern, field, reason in [(r'长文|article|文章', 'article', '提到长文但未提供文章正文'), (r'引用|quote', 'quoted', '提到引用但未提供被引用帖'), (r'串推|thread', 'thread', '提到串推但未提供后续推文')]:
         if re.search(pattern, analysis, re.I) and not any(s.get(field) for s in supplements):
             reasons.append(reason)
@@ -190,6 +192,9 @@ def prepare_content(item):
     item.setdefault('relevance_note', '')
     item.setdefault('rss_boards', [])
     item.setdefault('reply_change', '')
+    item.setdefault('fetched_at', None)
+    if 'platform_info' not in item:
+        item.update(identity(item))
     return item
 
 
@@ -203,6 +208,7 @@ def apply_gate(items, channel='hot'):
         interests = []
     visible, rejected, counts = [], [], {}
     for item in items:
+        item.setdefault('official', None)
         prepare_content(item)
         verdict = today_relevance_gate(item, interests, channel)
         item['relevance_note'] = verdict['reason'] if verdict['marked_only'] else ''
@@ -277,12 +283,12 @@ def _post(row, extras):
     extra = extras.get(row['id'], {})
     author = {'handle': grok.text(row.get('handle')), 'name': grok.text(row.get('author')), 'followers': grok.number(row.get('followers'))}
     item = dict(id='x:' + row['id'], kind='post', sources=[{'Grok': 'G', 'AIsa': 'A'}.get(s, s) for s in row.get('sources', [])],
-                author=author, published_at=row.get('created_at'), full_text=grok.text(row.get('full_text')) or grok.text(row.get('text')),
+                author=author, author_type=extra.get('author_type', g.get('author_type')), author_verification_type=extra.get('author_verification_type', g.get('author_verification_type')), published_at=row.get('created_at'), full_text=grok.text(row.get('full_text')) or grok.text(row.get('text')),
                 title=grok.text(g.get('title_zh')), url=row.get('url'), metrics={k: grok.number(row.get(k)) for k in METRICS},
                 tier=_tier(g or a or row), topic=grok.text(row.get('topic')) or grok.text(row.get('track')),
                 fit_score=grok.number(extra.get('fit_score', row.get('fit_score'))), doable=grok.number(extra.get('doable', row.get('doable'))),
                 content_complete=row.get('content_complete', True), incomplete_reason=grok.text(extra.get('incomplete_reason')),
-                why=grok.text(g.get('why')) or grok.text(a.get('viral_reason')), pattern=grok.text(g.get('pattern')),
+                why=extra.get('why', g.get('why') or a.get('viral_reason') or ''), pattern=extra.get('pattern', g.get('pattern') or ''),
                 my_angle=extra.get('my_angle', a.get('plan', '')), outline=extra.get('outline', ''), doable_resource=extra.get('doable_resource', ''),
                 rich_sources=[_json_safe(s) for s in (a, g) if s], fetched_at=row.get('collected_at'), status='new', feedback=None)
     item['title'] = (item['title'] or item['full_text'])[:120]
@@ -352,24 +358,188 @@ def snapshot(root, now=None, author_mode=False):
     except ValueError as exc:
         feedback = {}
         states['feedback'] = dict(updated_at=None, error=str(exc))
+    from official_accounts import annotate
+    annotate(list(items.values()), root)
     for item in items.values():
         prepare_content(item)
-        item['hot'] = (grok.number(item['metrics'].get('views')) or 0) >= HOT_VIEWS
+        item['hot'] = item['official']['hot'] if item['official']['is_official'] else (grok.number(item['metrics'].get('views')) or 0) >= HOT_VIEWS
         _heat(item)
         record = feedback.get(item['id'], {})
         item.update(status=record.get('status', 'new'), feedback=record.get('feedback'))
+    annotate_items(root, list(items.values()))
     return list(items.values()), states
+
+
+def interest_detail_metrics(root, items):
+    """列表范围影响入选来源；数字口径与详情的7天合并记录一致，只读数字。"""
+    import sqlite3
+    from interest_projection import connect
+    wanted={item['id'] for item in items}
+    if not wanted:return items
+    try:
+        with connect(root) as db:
+            # 不读取正文/detail，也不逐条调用详情造成N+1次原文解析。
+            rows=db.execute("SELECT id,json_extract(summary,'$.metrics') FROM cards WHERE period='7d'")
+            merged={ident:json.loads(raw) for ident,raw in rows if ident in wanted and raw}
+    except (OSError,sqlite3.Error,ValueError,TypeError):return items
+    output=[]
+    for item in items:
+        metrics=merged.get(item['id'])
+        if isinstance(metrics,dict):
+            metrics={key:value for key,value in metrics.items() if isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value)}
+            output.append(dict(item,metrics=metrics))
+        else:output.append(item)
+    return output
+
+
+def heat_thresholds():
+    # 来源等级是采集侧标签，不为起势臆造浏览量阈值。
+    return dict(hot_views=HOT_VIEWS, tiers={'爆款':'来源标记为爆款', '起势':'来源标记为起势', '其他':'未标记爆款、起势或低粉爆款'}, hot_rule='浏览 ≥ HOT_VIEWS；官方号还须超过自身粉丝数')
+
+
+def matches_tier(item, tier):
+    if not tier or tier == 'top':return True
+    if tier == '火爆':return bool(item.get('hot'))
+    if tier == '其他':return item.get('tier') not in TIERS
+    return item.get('tier') == tier
+
+
+def sort_items(items, mode):
+    if not mode:return
+    if mode == 'heat':
+        for item in items:_heat(item)
+        key=lambda p:(-(grok.number(p['metrics'].get('heat')) or 0), -_ts(p.get('published_at')), p['id'])
+    elif mode == 'time':key=lambda p:(-_ts(p.get('published_at')),p['id'])
+    else:key=lambda p:(-(grok.number(p.get('relevance')) or 0), -(grok.number(p.get('fit_score')) or 0), -(grok.number(p.get('doable')) or 0), -_ts(p.get('published_at')),p['id'])
+    items.sort(key=key)
+
+
+def today_todo_view(root, now=None):
+    """Read today's daily report verbatim in report order; never rank or borrow yesterday."""
+    now = now or datetime.now(timezone.utc)
+    date = now.astimezone(grok.BEIJING).date().isoformat()
+    result = dict(date=date, report='daily/' + date + '.json', status='pending', items=[],
+                  reason='今天的日报还没出，09:00 后更新')
+    try:
+        projection = grok.load_today_todo(date, with_notes=True)
+        todo = projection['items']
+        if todo is None:
+            return result
+        if not isinstance(todo, list):
+            raise ValueError('今天该做的清单结构不正确')
+        # Use the same daily file only to complete content/metrics; the reader owns todo order and presence.
+        data, _ = grok._read_json(grok.reports_dir() / result['report'])
+        if not isinstance(data, dict) or data.get('date', date) != date:
+            raise ValueError('当天日报日期或结构不正确')
+        rows = {}
+        for key in ('items', 'posts', 'entries'):
+            for row in data.get(key, []) if isinstance(data.get(key), list) else []:
+                if isinstance(row, dict):
+                    rows[str(row.get('id', row.get('tweet_id', ''))).removeprefix('x:')] = row
+        items = []
+        for entry in todo:
+            entry = {'id': entry} if isinstance(entry, (str, int)) and not isinstance(entry, bool) else entry
+            if not isinstance(entry, dict):
+                raise ValueError('今天该做的条目结构不正确')
+            report_id = str(entry.get('id', entry.get('tweet_id', ''))).removeprefix('x:')
+            if not grok.ID_RE.fullmatch(report_id):
+                raise ValueError('今天该做的条目缺少有效帖子 id')
+            raw = {**rows.get(report_id, {}), **entry}
+            author = raw.get('author')
+            if isinstance(author, dict):
+                raw.update(author=author.get('name') or author.get('handle'), handle=raw.get('handle') or author.get('handle'), followers=raw.get('followers', author.get('followers')))
+            title = raw.get('title_zh') or raw.get('title') or raw.get('what_new') or raw.get('full_text') or raw.get('text') or raw.get('why') or '日报条目'
+            if not (grok.text(raw.get('full_text')) or grok.text(raw.get('text'))):
+                raw.update(content_complete=False, incomplete_reason='日报只提供建议，未提供完整原文')
+            record = {**raw, 'id': report_id, 'sources': ['Grok'],
+                      'grok': {**raw, 'title_zh': grok.text(title)},
+                      'collected_at': raw.get('collected_at') or data.get('collected_at_iso') or data.get('collected_at')}
+            metrics = raw.get('metrics')
+            if isinstance(metrics, dict):
+                record.update({k: metrics[k] for k in METRICS if k in metrics and k not in record})
+            item = _post(record, {report_id: {k: raw[k] for k in EXTRA if k in raw}})
+            item.update(report_id=report_id, hot=(grok.number(item['metrics'].get('views')) or 0) >= HOT_VIEWS)
+            items.append(item)
+        try:
+            feedback = _load_feedback(root)
+        except ValueError:
+            feedback = {}
+        for item in items:
+            record = feedback.get(item['id'])
+            if record:
+                item.update(status=record.get('status', 'new'), feedback=record.get('feedback'))
+        annotate_items(root, items)
+        notes = projection.get('notes')
+        reason = notes if isinstance(notes, str) and notes.strip() else '今天的日报没有安排值得做的条目。'
+        result.update(status='ready' if items else 'empty', items=items, reason='' if items else reason)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
+        result.update(status='unavailable', reason='当天日报暂不可读，不能据此判断今天没有值得做的。')
+    return result
 
 
 def page_view(root, query=None, now=None):
     query = query or {}
-    if set(query) - {'range', 'tier', 'source', 'topic', 'q', 'page', 'author', 'channel'} or any(not isinstance(v, list) or len(v) != 1 for v in query.values()):
+    # A bounded receipt-only read: never scan reports, initialize state or trigger work.
+    if 'source_catchup' in query:
+        if query != {'source_catchup': ['1']}:
+            raise ValueError('漏报状态查询参数无效')
+        from source_catchup import status_snapshot
+        return {'source_catchup': status_snapshot(_workspace(root))}
+    if set(query) - {'range', 'tier', 'source', 'topic', 'q', 'page', 'author', 'channel', 'platform', 'collection_channel', 'view', 'audit', 'sort'} or any(not isinstance(v, list) or not v or len(v) > (10 if k == 'platform' else 1) or any(not isinstance(x,str) or len(x)>2000 for x in v) for k,v in query.items()):
         raise ValueError('今日查询参数无效')
-    if query.get('channel', ['hot'])[0] not in ('hot', 'interest'):
+    if query.get('view', [''])[0] not in ('','summary') or query.get('audit',[''])[0] not in ('','0') or ('view' in query or 'audit' in query) and query.get('channel') != ['interest']:
+        raise ValueError('摘要参数无效')
+    mode=query.get('sort',[''])[0]
+    if mode not in ('','relevance','heat','time'):raise ValueError('排序参数无效')
+    tier=query.get('tier',[''])[0]
+    if tier not in ('','top','火爆','其他',*TIERS):raise ValueError('热度参数无效')
+    filters = parse_filters(query)
+    if query.get('channel', ['hot'])[0] not in ('hot', 'interest', 'official'):
         raise ValueError('通道无效')
     if query.get('channel') == ['interest']:
-        from interest_channel import page_view as interest_view
-        return {**interest_view(root, query, now), 'clue_morning': morning_snapshot(root, now)}
+        from interest_channel import cross_source_page as interest_view
+        import interest_match as interest_matching
+        from official_accounts import annotate, interest_hints
+        # 先汇齐兴趣与微信工具，再用 K1 平台/采集渠道筛选，最后分页。
+        clean = {k:v for k,v in query.items() if k not in ('platform','collection_channel','source','topic','tier','sort')}
+        result = interest_view(root, {**clean, 'page':['1']}, now)
+        candidates = interest_detail_metrics(root,result['items'])
+        if mode=='heat':candidates=[dict(item,metrics=dict(item.get('metrics') or {})) for item in candidates]
+        candidates = [item for item in candidates if matches(item, filters, query.get('source',[''])[0])]
+        options = interest_matching.options(candidates,interest_matching.compile_topics(result.pop('configured_topics')))
+        requested_topic=query.get('topic',[''])[0]
+        selected_topic=requested_topic if requested_topic.startswith('custom:') else topic_key(requested_topic) if requested_topic else ''
+        candidates = [item for item in candidates if not selected_topic or any(m['direction']==selected_topic for m in item['interest_matches'])]
+        candidates = [item for item in candidates if matches_tier(item,tier)]
+        sort_items(candidates,mode)
+        if mode:result['sort_policy']={'relevance':'相关度倒序 · 画像与可做分辅助 · 发布时间倒序','heat':'既有排序热度倒序 · 发布时间倒序','time':'发布时间倒序'}[mode]
+        from collections import Counter
+        result['daily_counts']=dict(Counter(grok.stamp(p['fetched_at']).astimezone(grok.BEIJING).date().isoformat() for p in candidates))
+        requested = int(query.get('page',['1'])[0])
+        if requested < 1:raise ValueError('页码至少为 1')
+        result.update(items=candidates[(requested-1)*50:requested*50],total=len(candidates),page=requested,registries=registries(),topic_options=options,topics=[row['display_name'] for row in options],selected_topic=selected_topic)
+        try:live_feedback=_load_feedback(root)
+        except ValueError:live_feedback={}
+        for item in result['items']:
+            record=live_feedback.get('interest:'+item['id'])
+            if record:item.update(status=record.get('status','new'),feedback=record.get('feedback'))
+        from wechat_tools_view import overlay_feedback
+        overlay_feedback(root,result['items'])
+        annotate_items(root,result['items'])
+        hints=result.pop('_official_hints',None)
+        if hints is None:hints=interest_hints() if result['items'] else {}
+        annotate(result['items'], root, hints=hints)
+        comparisons=[p for item in result['items'] for p in item.get('_discovery_candidates',[])]
+        if comparisons:annotate(comparisons,root)
+        for item in result['items']:
+            own_comparisons=item.pop('_discovery_candidates',None)
+            if own_comparisons is not None:
+                item['discovery_overlap']=any(not p['official']['is_official'] or p['official']['hot'] for p in own_comparisons)
+        interest_fields=(*SUMMARY,'channel','what_new','usable','relevance','incomplete_reasons','canonical_key','clue_id','identity_state','input_sources','interest_matches','discovery_overlap','interest_rule_version','interest_rank',*interest_matching.TOOL_FIELDS)
+        result['items']=[{key:item.get(key) for key in interest_fields} for item in result['items']]
+        return {**result, 'heat_thresholds':heat_thresholds(), 'selected_sort':mode, 'clue_morning': morning_snapshot(root, now), 'today_todo': today_todo_view(root, now)}
     get = lambda k, default='': query.get(k, [default])[0]
     period = get('range', 'today')
     if period not in ('today', '48h', '7d'):
@@ -377,12 +547,24 @@ def page_view(root, query=None, now=None):
     page = int(get('page', '1'))
     if page < 1:
         raise ValueError('页码至少为 1')
-    if get('tier') not in ('', 'top', '火爆', '其他', *TIERS) or get('source') not in ('', 'G', 'A', 'V', 'L'):
+    if get('tier') not in ('', 'top', '火爆', '其他', *TIERS):
         raise ValueError('热度或来源参数无效')
     linuxdo.refresh_background(root)
     now = now or datetime.now(timezone.utc)
     author = get('author')
     items, states = snapshot(root, now, author_mode=bool(author))
+    from official_accounts import annotate
+    annotate(items, root)
+    official_channel = get('channel') == 'official'
+    if official_channel:
+        from interest_channel import snapshot as interest_snapshot
+        from official_accounts import annotate, interest_hints
+        extra_items, _ = interest_snapshot(root, now)
+        annotate(extra_items, root, hints=interest_hints())
+        for item in extra_items:prepare_content(item)
+        annotate_items(root, extra_items)
+        known_ids = {p['id'] for p in items}
+        items.extend(p for p in extra_items if p['id'] not in known_ids)
     cutoff = now - timedelta(days=30) if author else now.astimezone(grok.BEIJING).replace(hour=0, minute=0, second=0, microsecond=0) if period == 'today' else now - timedelta(hours=48 if period == '48h' else 168)
     filtered = []
     for item in items:
@@ -392,54 +574,108 @@ def page_view(root, query=None, now=None):
         if author and author.casefold() not in (item['author']['handle'].casefold(), item['author']['name'].casefold()):
             continue
         filtered.append(item)
-    filtered, filtering = apply_gate(filtered)
-    filtering['aisa_all'], all_audit = aisa_full_stats(root, cutoff, now)
-    seen = {p['id'] for p in filtering['items']}
-    filtering['aisa_all_items'] = all_audit
-    filtering['items'].extend(dict(p, sources=['AIsa 51 人全量推文']) for p in all_audit if p['id'] not in seen)
-    filtering['total'] = len({p['id'] for p in filtering['items'] if p['hidden']})
+    if official_channel:
+        filtered = [p for p in filtered if p['official']['is_official']]
+        filtering = dict(by_source={}, items=[], total=0,
+                         policy='本栏收录全部官方号帖子，按发布时间倒序；身份不符不计入本栏已过滤条数。')
+    else:
+        filtered, filtering = apply_gate(filtered)
+        from today_filter_config import SOURCE_NAMES
+        diverted = [p for p in filtered if p['official']['is_official'] and not p['official']['hot']]
+        for item in diverted:
+            filtering['items'].append(dict(id=item['id'], title=item['title'], url=item.get('url',''),
+                sources=[SOURCE_NAMES.get(k,k) for k in item['sources']], hidden=True,
+                reason='已分流至官方号栏：'+item['official']['eligibility']))
+            for source in set(SOURCE_NAMES.get(k,k) for k in item['sources']):
+                count=filtering['by_source'][source];count['filtered']+=1;count['visible']-=1
+                count['ratio']=count['filtered']/count['total'] if count['total'] else 0
+        filtered = [p for p in filtered if not p['official']['is_official'] or p['official']['hot']]
+        filtering['official_diverted'] = len(diverted)
+        filtering['policy'] = '官方号默认分流至官方号栏，计入已过滤；浏览≥10万且超过自身粉丝数才保留在发现和今天该做的3条。兴趣栏保留官方号。'
+        filtering['aisa_all'], all_audit = aisa_full_stats(root, cutoff, now)
+        seen = {p['id'] for p in filtering['items']}
+        filtering['aisa_all_items'] = all_audit
+        filtering['total'] = len({p['id'] for p in filtering['items'] if p['hidden']})
+        filtering['aisa_all_filtered'] = len({p['id'] for p in all_audit if p['hidden']})
+        filtering['items'].extend(dict(p, sources=['AIsa 51 人全量推文']) for p in all_audit if p['id'] not in seen)
     items = filtered
     filtered = []
     for item in items:
-        if get('source') and get('source') not in item['sources']:
+        if not matches(item, filters, query.get('source',[''])[0]):
             continue
-        if get('tier') == '火爆' and not item['hot']:
-            continue
-        if get('tier') and get('tier') not in ('top', '火爆') and get('tier') != item['tier']:
-            continue
-        if get('topic') and get('topic') != item['topic']:
+        if not matches_tier(item,get('tier')):
             continue
         if get('q').casefold() not in (item['title'] + item['full_text'] + str(item['author'])).casefold():
             continue
         filtered.append(item)
-    filtered.sort(key=lambda p: (p['content_insufficient'], TIERS.get(p['tier'], 3), -p['metrics']['heat'], -_ts(p['published_at']), p['id']))
-    top = sorted([p for p in filtered if not p['content_insufficient'] and p['tier'] in TIERS and (p['fit_score'] or 0) >= 2 and (p['doable'] or 0) >= 2], key=lambda p: (-(p['fit_score'] + p['doable']), -_ts(p['published_at'])))[:3]
+    options = topic_options(filtered)
+    filtered = [item for item in filtered if matches_topic(item,get('topic'))]
+    if not official_channel:
+        filtered.sort(key=lambda p: (p['content_insufficient'], TIERS.get(p['tier'], 3), -p['metrics']['heat'], -_ts(p['published_at']), p['id']))
+    if official_channel:
+        filtered.sort(key=lambda p: (-_ts(p['published_at']), p['id']))
+    sort_items(filtered,mode)
+    top = sorted([p for p in filtered if not official_channel and not p['content_insufficient'] and p['tier'] in TIERS and (p['fit_score'] or 0) >= 2 and (p['doable'] or 0) >= 2], key=lambda p: (-(p['fit_score'] + p['doable']), -_ts(p['published_at'])))[:3]
     waiting = not any(p['fit_score'] is not None and p['doable'] is not None for p in filtered if 'G' in p['sources'])
     if get('tier') == 'top':
-        filtered = top
-    summary = lambda p: {k: p[k] for k in SUMMARY}
+        filtered = list(top)
+        sort_items(filtered,mode)
+    summary = lambda p: {**{k: p[k] for k in SUMMARY}, **({k:p[k] for k in ('channel','what_new','usable','relevance','incomplete_reasons')} if p.get('channel')=='interest' else {})}
     return dict(items=[summary(p) for p in filtered[(page - 1) * 50:page * 50]], total=len(filtered), page=page, page_size=50,
                 top=[summary(p) for p in top], top_message='' if top else '等 Grok Bot 按画像打分后出现' if waiting else '今天没有值得做的',
-                sources=states, filtering=filtering, topics=sorted({p['topic'] for p in items if p['topic']}),
-                clue_morning=morning_snapshot(root, now))
+                registries=registries(), sources=states, filtering=filtering, topics=[row['display_name'] for row in options], topic_options=options, selected_topic=topic_key(get('topic')) if get('topic') else '',
+                heat_thresholds=heat_thresholds(),selected_sort=mode,clue_morning=morning_snapshot(root, now),today_todo=today_todo_view(root, now))
 
 
 def item_view(root, query):
+    if set(query) == {'id', 'today_todo'} and query.get('today_todo') == ['1'] and len(query['id']) == 1:
+        item = next((p for p in today_todo_view(root)['items'] if p['id'] == query['id'][0]), None)
+        if item is None:
+            raise ValueError('当日日报没有这条待办')
+        return item
+    if query.get('channel') == ['official'] and set(query) == {'id', 'channel'} and len(query['id']) == 1:
+        item = next((p for p in snapshot(root, author_mode=True)[0] if p['id'] == query['id'][0]), None)
+        if item is None:
+            from interest_channel import snapshot as interest_snapshot
+            from official_accounts import annotate, interest_hints
+            item = next((p for p in interest_snapshot(root)[0] if p['id'] == query['id'][0]), None)
+            if item is not None:annotate([item], root, hints=interest_hints())
+        if item is None:raise ValueError('官方号条目不存在或报告已过期')
+        return annotate_items(root, [item])[0]
     if query.get('channel') == ['interest'] and set(query) == {'id', 'channel'} and len(query['id']) == 1:
-        from interest_channel import snapshot as interest_snapshot
-        item = next((p for p in interest_snapshot(root)[0] if p['id'] == query['id'][0]), None)
+        from interest_projection import detail
+        item = detail(root,query['id'][0])
+        if item is None:
+            from interest_channel import cross_source_page
+            item = next((p for p in cross_source_page(root,{'range':['7d']})['items'] if p['id'] == query['id'][0]), None)
         if item is None:
             raise ValueError('兴趣条目不存在或报告已过期')
-        return item
+        from official_accounts import annotate, interest_hints
+        annotate([item], root, hints=interest_hints())
+        comparisons=item.pop('_discovery_candidates',None)
+        if comparisons is not None:
+            annotate(comparisons,root)
+            item['discovery_overlap']=any(not p['official']['is_official'] or p['official']['hot'] for p in comparisons)
+        try:record=_load_feedback(root).get('interest:'+item['id'])
+        except ValueError:record=None
+        if record:item.update(status=record.get('status','new'),feedback=record.get('feedback'))
+        from wechat_tools_view import overlay_feedback
+        overlay_feedback(root,[item])
+        return annotate_items(root, [item])[0]
     if set(query) != {'id'} or len(query['id']) != 1:
         raise ValueError('详情必须提供一个 id')
     item = next((p for p in snapshot(root, author_mode=True)[0] if p['id'] == query['id'][0]), None)
     if item is None:
+        item = next((p for p in today_todo_view(root)['items'] if p['id'] == query['id'][0]), None)
+    if item is None:
         raise ValueError('条目不存在或已下榜')
-    return item
+    return annotate_items(root, [item])[0]
 
 
 def save_feedback(root, payload):
+    if isinstance(payload, dict) and isinstance(payload.get('id'), str) and payload['id'].startswith('tool:'):
+        from wechat_tools_view import feedback
+        return feedback(root, payload)
     if isinstance(payload, dict) and payload.get('channel') == 'interest':
         from interest_channel import save_feedback as interest_feedback
         return interest_feedback(root, payload)
@@ -490,6 +726,8 @@ def feedback_route(handler, payload):
     try:
         return handler.reply(200, save_feedback(handler.server.store.workspace, payload))
     except (grok.FeedbackCorrupt, video.FeedbackCorrupt) as exc:
+        return handler.reply(409, {'error': str(exc)})
+    except __import__('wechat_tools_config').Conflict as exc:
         return handler.reply(409, {'error': str(exc)})
     except ValueError as exc:
         return handler.reply(400, {'error': str(exc)})

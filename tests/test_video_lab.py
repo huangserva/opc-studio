@@ -47,3 +47,21 @@ class VideoLabTests(unittest.TestCase):
    for x in ['../bad','a'*32]:
     with self.assertRaises(ValueError):g.reference_path(x)
    with self.assertRaises(ValueError):g.upload_reference({'data':'not image'})
+ def test_multi_segment_sequence_video_builds_director_timeline(self):
+  script = "【第1段｜5秒】\nShot 1\n\n【第2段｜5秒】\nShot 2\n\n【第3段｜5秒】\nShot 3"
+  _, _, s, g = build({
+   'model': 'h3',
+   'size': '768x448',
+   'prompt': script,
+   'workflow': 'r2v',
+   'references': {'images': ['char1']},
+   '_references': {'images': [{'id': 'char1', 'kind': 'image', 'remote_file': 'article_studio_refs/char1/reference.png', 'imageB64': 'dummy'}]}
+  }, 'job')
+  self.assertEqual(s['engine'], 'director')
+  self.assertIn('5', g)
+  t = json.loads(g['5']['inputs']['timeline_data'])
+  self.assertEqual(len(t['segments']), 3)
+  self.assertEqual(t['output']['continuityEnabled'], True)
+  self.assertEqual(t['segments'][0]['refs'][0]['imageFile'], 'article_studio_refs/char1/reference.png')
+  self.assertEqual(s['frames'], 124 * 3)
+

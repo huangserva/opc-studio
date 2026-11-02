@@ -1,0 +1,687 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>视频生成测试实验室 · 内容工作台</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/lab.css"><script src="/lab-core.js" defer></script><script src="/media-progress.js" defer></script><script src="/media-size.js" defer></script><script src="/media-lora.js" defer></script><script src="/lab-video.js" defer></script><script src="/lab-management.js" defer></script><script src="/lab-test.js" defer></script><link rel="stylesheet" href="/workspace-nav.css"><script src="/workspace-nav.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script>
+<style>
+/* 宽度与栅格优化：给控制区足够的呼吸感 */
+.lab-layout {
+  grid-template-columns: minmax(490px, 540px) minmax(0, 1fr) !important;
+  gap: 20px;
+}
+.lab-controls {
+  padding: 16px 18px;
+}
+
+/* 模型与参数紧凑栅格：2列排布 */
+.lab-engine-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  background: #f8fafc;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+.lab-engine-grid label {
+  margin: 2px 0 2px !important;
+  font-size: 11px !important;
+  color: #64748b;
+  font-weight: 500;
+}
+.lab-engine-grid select {
+  padding: 5px 8px !important;
+  height: 30px !important;
+  font-size: 11px !important;
+}
+
+/* 导演微短剧主创区 - 核心突出 */
+.director-script-card {
+  background: #ffffff;
+  border: 1.5px solid #3b82f6;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 10px 0;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
+}
+.director-script-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.director-script-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e3a8a;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.script-preset-bar {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.script-preset-btn {
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+  font-weight: 550;
+  transition: all 0.15s ease;
+}
+.script-preset-btn:hover {
+  border-color: #3b82f6;
+  color: #2563eb;
+  background: #eff6ff;
+}
+.script-preset-btn.highlight {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #1d4ed8;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+}
+
+/* 提示词输入框微调 */
+#lab-prompt {
+  width: 100%;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
+  min-height: 120px;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+#lab-prompt:focus {
+  border-color: #2563eb;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* 分镜解析卡片流：浅色现代卡片 */
+.lab-sequence-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  margin: 6px 0 4px;
+  font-size: 11px;
+  color: #1e40af;
+  font-weight: 600;
+}
+.lab-sequence-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 5px;
+  margin: 4px 0 8px;
+  max-height: 130px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.sequence-card-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+.sequence-card-badge {
+  display: inline-block;
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-bottom: 2px;
+  font-size: 9px;
+}
+.sequence-card-prompt {
+  color: #475569;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+/* 导演配图与角色锁定区 */
+.director-cast-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+.director-cast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.director-cast-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.director-cast-flow {
+  background: #f1f5f9;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 10px;
+  color: #64748b;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.director-cast-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+/* 参考图区域压缩尺寸：绝对不能撑破屏幕！ */
+#lab-video-refs .video-reference {
+  margin-top: 6px !important;
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  border: 1px dashed #cbd5e1 !important;
+  background: #ffffff !important;
+}
+#lab-video-refs .video-reference-grid {
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)) !important;
+  gap: 6px !important;
+  margin-top: 6px !important;
+}
+#lab-video-refs .video-reference-tile {
+  padding: 4px !important;
+  border-radius: 6px !important;
+  background: #f8fafc !important;
+}
+#lab-video-refs .video-reference-tile img,
+#lab-video-refs .video-reference img {
+  width: 100% !important;
+  max-height: 75px !important;
+  height: 75px !important;
+  object-fit: cover !important;
+  border-radius: 4px !important;
+}
+#lab-video-refs .video-reference-heading {
+  margin-bottom: 2px !important;
+}
+#lab-video-refs .video-reference-heading strong {
+  font-size: 10px !important;
+  color: #2563eb !important;
+}
+#lab-video-refs .video-reference-heading button {
+  font-size: 9px !important;
+  padding: 1px 4px !important;
+  color: #ef4444 !important;
+  background: #fee2e2 !important;
+  border-radius: 3px !important;
+}
+#lab-video-refs .video-reference-name {
+  display: none !important;
+}
+#lab-video-refs .video-reference-guide {
+  font-size: 9.5px !important;
+  line-height: 1.3 !important;
+  color: #64748b !important;
+  display: block;
+}
+
+/* 超大醒目的生成按钮 */
+.lab-generate-btn {
+  width: 100%;
+  padding: 10px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 8px;
+}
+.lab-generate-btn:hover {
+  background: linear-gradient(135deg, #1d4ed8, #1e40af) !important;
+  transform: translateY(-1px);
+}
+.lab-generate-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 4 幕微短剧导演台专属样式 */
+.drama-workbench {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.drama-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.drama-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.drama-subtitle {
+  font-size: 10.5px;
+  color: #64748b;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.drama-presets {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.drama-preset-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.drama-preset-btn:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+}
+.drama-preset-btn.active {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #ffffff;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+.drama-master-bar {
+  background: linear-gradient(to right, #f8fafc, #f1f5f9);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.drama-master-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.drama-concat-btn {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.3);
+  transition: all 0.15s ease;
+}
+.drama-concat-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.45);
+  transform: translateY(-1px);
+}
+.drama-concat-btn:disabled {
+  background: #cbd5e1;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+  opacity: 0.6;
+}
+.drama-concat-btn.pulse {
+  animation: pulse-glow 1.5s infinite;
+}
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(124, 58, 237, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+}
+.act-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+@media (min-width: 900px) {
+  .act-cards-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.act-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.act-card:hover {
+  border-color: #cbd5e1;
+}
+.act-card.active-rendering {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+.act-card.completed {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+.act-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.act-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.act-status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.act-status-idle { background: #f1f5f9; color: #64748b; }
+.act-status-running { background: #fef3c7; color: #d97706; }
+.act-status-done { background: #dcfce7; color: #15803d; }
+.act-status-error { background: #fee2e2; color: #b91c1c; }
+.act-prompt-input {
+  width: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 6px 8px;
+  resize: vertical;
+  min-height: 65px;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+.act-prompt-input:focus {
+  border-color: #2563eb;
+  outline: none;
+}
+.act-card-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.act-render-btn {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.act-render-btn:hover:not(:disabled) { background: #1d4ed8; }
+.act-render-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+.act-retry-btn {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.act-retry-btn:hover { background: #e2e8f0; }
+.act-video-preview {
+  margin-top: 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+  position: relative;
+}
+.act-video-preview video {
+  width: 100%;
+  max-height: 120px;
+  display: block;
+}
+</style>
+</head><body class="generation-lab">
+<aside class="sidebar"><a class="brand" href="/"><span class="brand-icon">🧪</span><span>实验工作台<small>TEST STUDIO</small></span></a><nav id="workspace-nav" class="workspace-nav" aria-label="工作台栏目"><a href="/">▤ 我的作品</a><a href="/lab.html?kind=image">▧ 图片生成</a><a href="/lab.html?kind=video">▷ 正式视频生成</a><a class="selected" href="/lab-test.html" aria-current="page">🧪 视频生成测试台</a><a href="/knowledge.html">▥ 知识库</a><a href="/intake.html">◈ 创意回收</a><a href="/cards.html">✦ 提示词卡</a><a href="/clues.html">⌁ 线索中心</a><a href="/events.html">◷ 事项与日程</a><a href="/feedback.html">↗ 发布反馈</a><a href="/deals.html">▣ 商单管理</a><a href="/intel.html">☰ 情报采集</a><a href="/github.html">⑂ GitHub 来源</a><a href="/schedules.html">◴ 定时任务</a></nav><div class="lab-sidebar-note"><strong>测试专属环境</strong><br>AICG3D / Skills 实验区<br>参数独立隔离</div><div class="local-note"><span></span>测试任务和结果已隔离</div></aside>
+<main class="main"><header class="topbar"><a class="button subtle" href="/lab.html?kind=video">← 返回正式视频生成</a><span class="lab-top-title">🧪 视频生成独立实验台</span><button class="button" id="lab-refresh" type="button">刷新状态</button></header><div class="lab-scroll"><section class="lab-heading"><div><span class="lab-eyebrow" style="color:#d97706;font-weight:600;">TESTING SANDBOX · AICG3D & SKILLS</span><h1 id="lab-title" class="page-title">微短剧连续视频导演台（60s 测试专区）</h1><p id="lab-subtitle">支持 MiniMax H3 官方 Director 连续分镜长视频生成（12分镜·60秒），具备剧情自动定妆与跨分段角色锁定。</p></div><div class="lab-kind-tabs"><a href="/lab.html?kind=video">正式视频生成</a><a class="active" href="/lab-test.html">实验测试台</a></div></section>
+<div class="lab-layout"><section class="lab-card lab-controls"><div class="lab-card-heading"><h2>微短剧导演创作台</h2><button class="button subtle" id="lab-defaults" type="button">恢复模型默认</button></div><form id="lab-form">
+
+<!-- 顶部：模型与引擎配置栅格 -->
+<div class="lab-engine-grid">
+  <div>
+    <label for="lab-model">模型</label>
+    <select id="lab-model"></select>
+  </div>
+  <div>
+    <label>工作流模式</label>
+    <select id="lab-workflow" aria-label="ComfyUI 工作流"></select>
+  </div>
+  <div>
+    <label>H3 模型权重</label>
+    <select id="lab-checkpoint" aria-label="H3 模型权重"></select>
+  </div>
+  <div>
+    <label>加速 / 采样</label>
+    <div style="display:flex;gap:4px;">
+      <select id="lab-accelerator" aria-label="加速 LoRA" style="flex:1;"></select>
+      <select id="lab-video-sampling" style="width:75px;"><option value="single">单采</option><option value="dual">双采</option></select>
+    </div>
+  </div>
+  <div>
+    <label for="lab-ref-image-size">参考图编码尺寸 (ref_image_size)</label>
+    <select id="lab-ref-image-size" aria-label="参考图编码尺寸">
+      <option value="1k" selected>1k · 1024级高清人脸（官方推荐）</option>
+      <option value="1.5k">1.5k · 1536级超清参考</option>
+      <option value="2k">2k · 2048级原图参考</option>
+      <option value="original">original · 原图原始像素</option>
+      <option value="match">match · 跟随视频画布缩放</option>
+    </select>
+  </div>
+  <div>
+    <label for="lab-seq-seg-seconds">无限流分段粒度 (b25-49 甜区·共60s)</label>
+    <select id="lab-seq-seg-seconds" aria-label="无限流分段粒度">
+      <option value="5" selected>5秒/镜 · 全剧12镜单次直出 60s（b25-49 官方甜区·最稳）</option>
+      <option value="7.5">7.5秒/镜 · 全剧8镜单次直出 60s（b25-49 甜区上限）</option>
+      <option value="15">15秒/幕 · 全剧4幕单次直出 60s（超长单段）</option>
+    </select>
+  </div>
+</div>
+<small id="lab-model-note" style="display:none;"></small>
+<section id="lab-video-controls" style="display:none;"></section>
+<div id="lab-video-refine" hidden><div class="lab-row"><label>精修步数<input id="lab-video-refine-steps" type="number" min="1" max="25" step="1" value="4"></label><label>精修去噪<input id="lab-video-refine-denoise" type="number" min="0.05" max="0.75" step="0.05" value="0.35"></label><label>放大倍数<input id="lab-video-upscale" type="number" min="1" max="2" step="0.1" value="2"></label></div><small>先低分辨率采样，再放大精修；最终尺寸按所选尺寸输出，宽高须为 32 的倍数。</small></div>
+<small id="lab-video-note" style="display:none;"></small>
+
+<!-- 核心区 1：4 幕微短剧导演台 (Act 1 ~ Act 4 工业级流水线) -->
+<div class="drama-workbench">
+  <div class="drama-header">
+    <div class="drama-title">
+      <span>🎬</span>
+      <span>AICG3D 无限长视频导演台：同空间一镜到底（12 镜 × 5 秒 = 60 秒）</span>
+    </div>
+    <div style="display:flex;gap:4px;">
+      <button type="button" class="button subtle small" id="drama-reset-btn" style="font-size:10px;padding:2px 6px;">重置剧本</button>
+      <button type="button" class="button subtle small" id="drama-clear-btn" style="font-size:10px;padding:2px 6px;color:#ef4444;">清空</button>
+    </div>
+  </div>
+  <div class="drama-subtitle">
+    已完整接入 <strong>comfyui-AICG3D 原装《无限视频生成提示词模板V1.MD》编译器 + 21 个导演 Skills + 13号工作流原装剧本</strong>：严守「同空间不瞬移、段尾未完成动作钩子咬合下段 0.0 秒、每段单说话人、零元指令词」13 项自查铁律！
+  </div>
+
+  <!-- 剧本题材预设切换 -->
+  <div class="drama-presets">
+    <button type="button" class="drama-preset-btn active" data-preset="island">🔥 极客荒岛·篝火守夜 (AICG3D编译器·同空间一镜到底60s)</button>
+    <button type="button" class="drama-preset-btn" data-preset="tushan">🏛️ 涂山仙境·如烟大帝与红果 (13号工作流原装连续剧60s)</button>
+    <button type="button" class="drama-preset-btn" data-preset="cyberpunk">💻 极客实验室·AI觉醒 (AICG3D编译器·同空间60s)</button>
+    <button type="button" class="drama-preset-btn" data-preset="desert">⚔️ 古风石阶·师兄师妹夜探 (无限视频模板V1原装延展60s)</button>
+    <button type="button" class="drama-preset-btn" data-preset="desert_sequel">🦌 古风石阶·续集：灵鹿衔玉示警 (60s双采精修版)</button>
+  </div>
+
+  <!-- ✦ AICG3D 原装提示词编译器 & 导演 Skills 面板 -->
+  <div id="aicg3d-compiler-panel" style="background:#f8fafc;border:1px solid #bfdbfe;border-radius:8px;padding:9px 11px;margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+      <span style="font-size:11.5px;font-weight:700;color:#1e3a8a;display:flex;align-items:center;gap:4px;">
+        ✦ AICG3D 原装提示词编译器 <small style="font-weight:500;color:#475569;">(无限视频生成提示词模板V1.MD + 21个导演Skill)</small>
+      </span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <label for="aicg3d-skill-select" style="font-size:10.5px;color:#475569;margin:0;">导演 Skill：</label>
+        <select id="aicg3d-skill-select" style="font-size:11px;padding:3px 6px;height:26px;border-radius:5px;border:1px solid #cbd5e1;background:#fff;max-width:220px;">
+          <option value="short-scene-director-lite">15 秒剧情镜头导演 (short-scene-director-lite)</option>
+          <option value="chinese-celestial-palace">中式天宫仙境 (chinese-celestial-palace)</option>
+          <option value="zh_dialogue">H3 场景方案·文戏 (zh_dialogue)</option>
+          <option value="zh_action">H3 场景方案·动作 (zh_action)</option>
+          <option value="high-density-fight-prompt">高密度打斗提示词 (high-density-fight-prompt)</option>
+          <option value="phone-vlog">真实手机自拍 Vlog (phone-vlog)</option>
+          <option value="light-fresh-short-film">光感小清新短片 (light-fresh-short-film)</option>
+          <option value="eastern-megastructure-director">东方巨构导演 (eastern-megastructure-director)</option>
+          <option value="brand-promo-video-generator">品牌宣传短片生成器 (brand-promo-video-generator)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:stretch;margin-bottom:6px;">
+      <input id="aicg3d-story-input" type="text" placeholder="输入一句话故事创意（编译器将严格在同一空间内按「段尾动作钩子接下段开头」生成 12 段×5s 连贯提示词）…" value="黄昏礁石海滩的篝火旁，年轻极客创业者添柴稳住篝火后打开金属工具箱取出改装信号终端，精准调频并起身拉出天线向轨道信标发射求救坐标，成功收到回执后安心坐回篝火旁拨火守夜。" style="flex:1;font-size:11px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;">
+      <button type="button" class="button small primary" id="aicg3d-compile-btn" style="background:linear-gradient(135deg,#0284c7,#2563eb);color:#fff;font-weight:600;font-size:11px;padding:5px 10px;white-space:nowrap;">
+        ✦ 用原装编译器生成 12 段连贯剧本
+      </button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#64748b;">
+      <span id="aicg3d-compile-status">✅ 已就绪：当前为 AICG3D 原装编译器规范剧本（全程同一场景·段尾动作钩子首尾咬合·13项自查通过）</span>
+      <button type="button" class="button subtle small" id="aicg3d-toggle-raw-btn" style="font-size:10px;padding:1px 6px;">📋 查看/粘贴【第1~12段】原始分段文本</button>
+    </div>
+    <div id="aicg3d-raw-drawer" hidden style="margin-top:8px;border-top:1px dashed #cbd5e1;padding-top:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <small style="font-size:10px;color:#334155;font-weight:600;">AICG3D 分段提示词解析文本区（与 ComfyUI「AICG3D 分段提示词解析」节点 100% 互通）：</small>
+        <div style="display:flex;gap:4px;">
+          <button type="button" class="button subtle small" id="aicg3d-parse-raw-btn" style="font-size:10px;padding:2px 6px;color:#2563eb;font-weight:600;">📥 解析并填入下方 4 幕 / 12 镜</button>
+          <button type="button" class="button subtle small" id="aicg3d-copy-raw-btn" style="font-size:10px;padding:2px 6px;">📋 复制全文</button>
+        </div>
+      </div>
+      <textarea id="aicg3d-raw-textarea" rows="8" style="width:100%;font-family:monospace;font-size:10.5px;line-height:1.45;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;box-sizing:border-box;" placeholder="【第1段｜5秒】&#10;integrated_multimodal_description: ..."></textarea>
+    </div>
+  </div>
+
+  <!-- 全局主控操作栏 -->
+  <div class="drama-master-bar" id="drama-master-bar">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span id="drama-pipeline-status" style="font-size:11px;font-weight:600;color:#1e40af;">
+        AICG3D 无限流就绪：12 镜×5s · 22帧尾帧 Latent 续写 · 跨段曝光锁定
+      </span>
+      <span id="drama-auto-timer" style="font-size:10px;color:#64748b;"></span>
+    </div>
+    <div class="drama-master-actions">
+      <button type="button" class="button small primary" id="drama-run-all-btn" style="background:#2563eb;color:#fff;font-weight:600;font-size:11px;padding:6px 12px;white-space:normal;max-width:100%;line-height:1.35;">
+        ⚡ 单次直出 60s 连续长视频 (12镜×5s · 尾帧 Latent 续写)
+      </button>
+      <button type="button" class="drama-concat-btn" id="drama-concat-btn" disabled>
+        🎞️ 分幕拼接备用 (FFmpeg)
+      </button>
+    </div>
+  </div>
+
+  <!-- 4 幕卡片容器 -->
+  <div class="act-cards-grid" id="act-cards-container">
+    <!-- 由 JavaScript 动态渲染 4 幕卡片 -->
+  </div>
+
+  <!-- 兼容隐藏提示词输入框 -->
+  <textarea id="lab-prompt" style="display:none;"></textarea>
+  <div class="lab-sequence-summary-row" id="sequence-summary-row" style="display:none;"></div>
+  <div class="lab-sequence-cards" id="sequence-cards" style="display:none;"></div>
+</div>
+
+<!-- 核心区 2：导演配图与主角定妆 (专为剧本服务！) -->
+<div class="director-cast-card">
+  <div class="director-cast-header">
+    <div class="director-cast-title">
+      <span>🎨</span>
+      <span>第二步：主角定妆照与参考素材 (导演台)</span>
+    </div>
+    <button type="button" class="button subtle small" id="clear-all-refs-btn" style="color:#ef4444;font-size:10px;padding:2px 6px;">🗑️ 一键清空参考图</button>
+  </div>
+  
+  <div class="director-cast-flow">
+    <strong>🎯 导演标准工作流：</strong> 选定上方剧本 ➔ 点击下方「依据剧情生成主角定妆照」 ➔ 自动入库并绑定为 &lt;Picture 1&gt; ➔ 点击最下方「开始生成」即可输出角色一致 60s 微短剧！
+  </div>
+
+  <div class="director-cast-actions">
+    <button type="button" class="button small primary" id="seq-auto-cast-btn" style="background:#2563eb;color:#fff;font-weight:600;font-size:11px;padding:4px 10px;">
+      🎯 依据当前剧情自动生成主角定妆照 (Qwen 2.1)
+    </button>
+    <button type="button" class="button subtle small" id="gallery-pick-btn" style="font-size:11px;padding:4px 8px;">🖼️ 从历史图库选择</button>
+    <span id="seq-director-status" style="font-size:10px;color:#64748b;margin-left:4px;"></span>
+  </div>
+
+  <!-- 参考素材渲染槽 (小缩略图，高度固定，不撑破页面) -->
+  <div id="lab-video-refs"></div>
+</div>
+
+<!-- 核心区 3：生成参数与出片 -->
+<details class="lab-loras-drawer" style="margin:4px 0 6px 0;"><summary style="font-size:11px;color:#71809b;cursor:pointer;user-select:none;">附加微调 LoRA（可选，最多 3 个）</summary><div id="lab-video-loras" style="margin-top:6px;"></div></details>
+
+<div class="lab-row">
+  <label>生成尺寸<select id="media-size" aria-label="生成尺寸"></select><small id="media-size-note" role="status"></small></label>
+  <label>随机种子<input id="lab-seed" type="number" min="0" max="4294967295" placeholder="留空随机"></label>
+</div>
+<div id="media-custom-size" class="lab-row" hidden><label>宽（像素）<input id="media-width" aria-label="自定义宽度" type="number" min="512" max="2048" step="16" value="1024" required disabled></label><label>高（像素）<input id="media-height" aria-label="自定义高度" type="number" min="512" max="2048" step="16" value="1024" required disabled></label><small id="media-custom-note">512–2048 像素，按 16 像素递增</small></div><label id="lab-style-label" hidden>风格<select id="lab-style"></select></label>
+<div id="media-lora-fields" class="lab-lora" hidden><label>LoRA<select id="media-lora" aria-label="Krea2 LoRA"></select></label><div class="lab-row"><label>强度<input id="media-lora-strength" aria-label="LoRA 强度" type="number" min="0" max="2" step="0.05" value="0.8"></label><label>触发词（可选）<input id="media-lora-trigger" aria-label="LoRA 触发词" maxlength="200" placeholder="按作者说明填写"></label></div></div>
+
+<div class="lab-row" style="margin-top:4px;">
+  <label id="lab-duration-label" style="flex:1;">
+    视频总时长
+    <select id="lab-frames"></select>
+  </label>
+</div>
+<small id="lab-frames-note" style="display:block;margin-top:2px;font-size:10px;color:#2563eb;"></small>
+
+<details id="lab-sampling" hidden><summary>高级采样设置</summary><div class="lab-row"><label>步数<input id="lab-steps" aria-label="采样步数" required type="number" min="1" max="60" step="1"></label><label>CFG<input id="lab-cfg" aria-label="CFG" required type="number" min="0" max="20" step="0.1"></label></div><small id="lab-sampling-note"></small></details>
+
+<p id="lab-submit-status" role="status" style="margin:4px 0 2px;"></p>
+<button class="button primary lab-generate lab-generate-btn" id="lab-generate" type="submit">🚀 开始生成 60s 连续微短剧 (12镜头)</button>
+<small class="lab-form-note" style="display:block;text-align:center;margin-top:4px;font-size:10px;color:#94a3b8;">4090 MiniMax H3 官方 Director 引擎 · 跨分段 Latent 连续衔接</small>
+</form></section>
+
+<!-- 右侧预览与结果 -->
+<section class="lab-result-column"><div class="lab-card lab-result"><div class="lab-card-heading"><h2>测试生成预览</h2><span id="lab-result-model"></span></div><div id="lab-progress" hidden></div><div id="lab-preview" class="lab-preview"><div class="lab-empty"><span>▷</span><h3>从一个画面开始</h3><p>填写描述，测试结果会出现在这里。</p></div></div><div id="lab-result-actions" class="lab-result-actions" hidden><button class="button lab-danger" id="lab-cancel-result" type="button" style="background:#fee2e2;color:#b91c1c;border-color:#fca5a5;font-weight:600;">⏹️ 停止生成</button><button class="button" id="lab-refill" type="button">沿用参数</button><button class="button" id="lab-save" type="button">保存为作品</button><a class="button" id="lab-download" download>下载原文件</a><button class="button subtle" id="lab-export" type="button">导出参数</button><button class="button lab-danger" id="lab-delete-result" type="button">删除记录</button></div><details id="lab-job-details" hidden><summary>任务参数与描述</summary><pre id="lab-job-json"></pre></details></div><section class="lab-card"><div class="lab-card-heading"><div><h2>结果对比</h2><small>从下方记录选 2–4 项；沿用相同种子，便于比较。</small></div><button class="button subtle" id="lab-clear-compare" type="button">清空</button></div><div id="lab-compare" class="lab-compare"><p class="lab-muted">选择完成的结果进行对比。</p></div></section></section></div>
+<section class="lab-card lab-history"><div class="lab-card-heading"><div><h2>生成记录</h2><small id="lab-history-count">最近 100 条</small></div><div class="lab-history-filters"><input id="lab-history-search" type="search" aria-label="搜索生成记录" placeholder="搜索描述、模型或 LoRA"><select id="lab-scope" aria-label="记录来源"><option value="lab">独立生成页</option><option value="all">所有来源（含 AI 助手）</option></select></div></div><div class="lab-management-bar"><button class="button" id="lab-trash-toggle" type="button">回收站</button><label><input id="lab-select-all" type="checkbox">选择当前列表</label><span id="lab-selection-count">已选 0 项</span><button class="button lab-danger" id="lab-batch-manage" type="button" disabled>删除所选</button></div><div id="lab-history-list" class="lab-history-list"><p class="lab-muted">正在读取记录…</p></div></section></div></main><dialog id="lab-delete-dialog"><h2>删除生成记录？</h2><p id="lab-delete-message"></p><p class="lab-muted">记录会移入回收站，可以恢复。已保存的作品不受影响。</p><div class="lab-result-actions"><button class="button" id="lab-delete-cancel" type="button">取消</button><button class="button lab-danger" id="lab-delete-confirm" type="button">移入回收站</button></div></dialog><div id="toast" role="status"></div></body></html>

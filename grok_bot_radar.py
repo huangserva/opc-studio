@@ -12,7 +12,7 @@ import stat
 import tempfile
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 BEIJING = timezone(timedelta(hours=8))
@@ -21,6 +21,7 @@ ID_RE = re.compile(r'[0-9]{1,25}')
 URL_RE = re.compile(r'https://(?:x\.com|twitter\.com)/[A-Za-z0-9_]{1,15}/status/([0-9]{1,25})')
 KINDS = {'daily': '日报', 'alerts': '快报', 'weekly': '周报'}
 VERDICTS = ('worth', 'not_worth', 'used')
+POST_KEYS = ('posts', 'entries', 'items')
 _LOCK = threading.RLock()
 _EPOCH = uuid.uuid4().hex
 _REVISIONS = {}
@@ -82,7 +83,7 @@ def _read_json(path):
 def load_reports(directory=None):
     base = Path(directory) if directory is not None else reports_dir()
     merged, latest, latest_alert = {}, None, None
-    bad_files = skipped_entries = ignored_files = report_count = 0
+    bad_files = skipped_entries = ignored_files = skipped_aux_files = report_count = 0
     for kind, label in KINDS.items():
         folder = base / kind
         if folder.is_symlink():
@@ -93,6 +94,14 @@ def load_reports(directory=None):
         except (FileNotFoundError, NotADirectoryError, PermissionError):
             continue
         for path in files:
+            # Intermediate knowledge/fetch results are not post reports.
+            # Keep malformed files outside these exact prefixes as bad_files.
+            if path.suffix == '.json' and path.name.startswith(
+                ('knowledge_payloads', 'knowledge_post_results', '_post_results')
+            ):
+                ignored_files += 1
+                skipped_aux_files += 1
+                continue
             if path.suffix != '.json':
                 ignored_files += 1
                 continue
@@ -100,11 +109,17 @@ def load_reports(directory=None):
                 data, mtime = _read_json(path)
                 if not isinstance(data, dict):
                     raise ValueError('报告必须是对象')
-                if any(key in data and not isinstance(data[key], list) for key in ('posts', 'entries')):
-                    raise ValueError('posts/entries 必须是数组')
-                if 'posts' not in data and 'entries' not in data:
-                    raise ValueError('缺少 posts/entries')
-                rows = data.get('posts', []) + data.get('entries', [])
+                # Legacy weekly files with post keys remain post reports.
+                # Only parsed summary objects without any post key are auxiliary.
+                if kind == 'weekly' and not any(key in data for key in POST_KEYS):
+                    ignored_files += 1
+                    skipped_aux_files += 1
+                    continue
+                if any(key in data and not isinstance(data[key], list) for key in POST_KEYS):
+                    raise ValueError('posts/entries/items 必须是数组')
+                if not any(key in data for key in POST_KEYS):
+                    raise ValueError('缺少 posts/entries/items')
+                rows = [row for key in POST_KEYS for row in data.get(key, [])]
                 moment = stamp(data.get('collected_at')) or stamp(data.get('generated_at')) or datetime.fromtimestamp(mtime, timezone.utc)
                 source = {'file': kind + '/' + path.name, 'kind': kind, 'type': label, 'collected_at': moment.isoformat()}
                 order = (moment.timestamp(), mtime, source['file'])
@@ -149,7 +164,35 @@ def load_reports(directory=None):
                           last_updated_at=value['last'].isoformat(), sources=sorted(value['sources'], key=lambda x: (x['collected_at'], x['file']))))
     return {'posts': posts, 'latest_report': latest[1] if latest else None,
             'latest_alert_at': latest_alert.isoformat() if latest_alert else None,
-            'bad_files': bad_files, 'skipped_entries': skipped_entries, 'ignored_files': ignored_files, 'report_count': report_count}
+            'bad_files': bad_files, 'skipped_entries': skipped_entries, 'ignored_files': ignored_files, 'skipped_aux_files': skipped_aux_files, 'report_count': report_count}
+
+
+def load_today_todo(day, directory=None, *, with_notes=False):
+    """只读指定北京日期（YYYY-MM-DD）的日报，保留 today_todo 顺序和原字段。
+
+    默认返回 None（文件未出）或列表（[] 表示今天没有）；with_notes=True
+    返回 {"items": 同一结果, "notes": 日报原 notes 或 None}，供页面解释空态。
+    报告损坏或缺少/错误的 today_todo 抛出 ValueError；读取失败原样抛出，
+    不把故障误报为“日报未出”或“今天没有”。不回退读取其它日期。
+    """
+    if not isinstance(day, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day):
+        raise ValueError('day 必须是北京日期 YYYY-MM-DD')
+    date.fromisoformat(day)
+    base = Path(directory) if directory is not None else reports_dir()
+    folder = base / 'daily'
+    if folder.is_symlink():
+        raise ValueError('日报目录不允许符号链接')
+    try:
+        data, _ = _read_json(folder / (day + '.json'))
+    except FileNotFoundError:
+        items, notes = None, None
+    else:
+        if not isinstance(data, dict) or not isinstance(data.get('today_todo'), list):
+            raise ValueError('today_todo 必须是数组')
+        items, notes = data['today_todo'], data.get('notes')
+        if any(not isinstance(item, dict) for item in items):
+            raise ValueError('today_todo 每条必须是对象')
+    return {'items': items, 'notes': notes} if with_notes else items
 
 
 class FeedbackCorrupt(ValueError):

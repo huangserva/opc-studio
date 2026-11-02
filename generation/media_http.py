@@ -1143,7 +1143,7 @@ class MediaApi:
             temporary.unlink(missing_ok=True)
         return {'bytes': received, 'sha256': digest.hexdigest(), 'content_sha256': claimed}
 
-    def events(self, api_job_id, since, on_event, stop, max_seconds=3600):
+    def events(self, api_job_id, since, on_event, stop, max_seconds=7200):
         """Consume the API's SSE progress stream. Returns the last seen event id."""
         last = since
         deadline = time.monotonic() + max_seconds

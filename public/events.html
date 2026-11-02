@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>事项与日程 · 内容工作台</title><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/events.css"><script src="/events.js" defer></script><link rel="stylesheet" href="/workspace-nav.css"><script src="/workspace-nav.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>事项与日程 · 内容工作台</title><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/events.css"><script src="/events.js" defer></script><link rel="stylesheet" href="/workspace-nav.css"><script src="/workspace-nav.js" defer></script><link rel="stylesheet" href="/panel-layout.css"><script src="/panel-layout.js" defer></script></head>
 <body class="events-workspace">
 <aside class="sidebar">
   <a class="brand" href="/"><span class="brand-icon">▤</span><span>内容工作台<small>CONTENT STUDIO</small></span></a>
@@ -20,7 +20,7 @@
 <main class="main">
   <header class="topbar"><div class="breadcrumb">我的知识 <span>/</span> <b>事项与日程</b></div><div class="top-actions"><button id="ev-refresh" class="button">刷新</button><button id="ev-new" class="button primary">＋ 从资料建立事项</button></div></header>
   <section class="ev-canvas">
-    <div class="ev-heading"><div><span class="eyebrow">EVIDENCE TO ACTION</span><h1>重要的事，留下依据与下一步。</h1><p>记录来龙去脉、约定和跟进事项，随时回到原文核对。</p></div><span id="ev-total" class="ev-total">正在读取本机事项…</span></div>
+    <div class="ev-heading"><div><span class="eyebrow">EVIDENCE TO ACTION</span><h1 class="page-title">重要的事，留下依据与下一步。</h1><p>记录来龙去脉、约定和跟进事项，随时回到原文核对。</p></div><span id="ev-total" class="ev-total">正在读取本机事项…</span></div>
     <form id="ev-search-form" class="ev-search"><label><span>⌕</span><input id="ev-query" type="search" aria-label="搜索事项" placeholder="搜索事项、人物或跟进内容" maxlength="200"></label><select id="ev-mobile-view" aria-label="事项视图"><option value="all">全部事项</option><option value="important">重大事项</option><option value="mine">由我跟进</option><option value="waiting">等待回复</option><option value="confirm">待确认</option><option value="calendar">日程</option></select><button class="button">搜索</button></form>
     <div id="ev-status" class="ev-status" role="status" aria-live="polite"></div>
     <div class="ev-body"><section class="ev-list-column" aria-label="事项列表"><div class="ev-list-heading"><strong id="ev-view-title">全部事项</strong><span id="ev-result-count"></span></div><p id="ev-view-help" class="ev-view-help">重大事项与需要跟进的记录，都在这里。</p><div id="ev-list" aria-live="polite"><div class="ev-empty">正在读取事项…</div></div></section><aside id="ev-detail" class="ev-detail" aria-label="事项详情"><div class="ev-empty"><span class="ev-empty-icon">◷</span><h2>选择一件事，查看完整脉络。</h2><p>证据、行动与每次人工修改，都会保留在这里。</p></div></aside></div>

@@ -8,6 +8,8 @@ let state = {tasks:[],models:[],clue_threads:[]}, editing = null, runs = [];
 let batchMode = false, batchBusy = false, filterTask = null, runPage = 1;
 let listingRequest = 0, runsRequest = 0, searchTimer = null, minutesTouched = false, scheduleTouched = false;
 const selected = new Map();
+let taskScope = 'all', summaryFilter = null, overviewFailure = null;
+let recentRuns = [];
 function dateOf(value) {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
   return value !== null && value !== undefined && value !== '' && Number.isFinite(date.getTime()) ? date : null;
@@ -54,8 +56,63 @@ function quoteMappingSummary(format) {
   if (!format || typeof format !== 'object' || Array.isArray(format) || !Number.isSafeInteger(format.quote_mapped) || format.quote_mapped <= 0) return '';
   return '<p class="run-format-summary">原文引用已精确映射为证据编号 ' + format.quote_mapped + ' 次</p>';
 }
+function runCompletion(run) {
+  const kind = run?.snapshot?.kind;
+  if (!['wechat_clues','wechat_radar','deals_review'].includes(kind) || run.status === 'running' ||
+      typeof run.output !== 'string' || run.output.length > 2 * 1024 * 1024) return null;
+  try {
+    const d = JSON.parse(run.output), count = n => Number.isSafeInteger(n) && n >= 0;
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+    if (d.receipt_pending === true && d.source_receipt_final !== true &&
+        typeof d.source_run_id === 'string' && /^[a-f0-9]{32}$/.test(d.source_run_id)) {
+      return {type:'pending',processed:count(d.processed)?d.processed:null,
+        remaining:'最终回执尚未确认，结果可能还在路上；不会自动重发',phase:'receipt',reason:'等待按原运行编号核对',rotation:false};
+    }
+    const valid = kind === 'deals_review' ? count(d.progress?.checked) && count(d.evidence?.checked) :
+      count(d.processed) && typeof d.has_more === 'boolean' && (kind !== 'wechat_clues' || Array.isArray(d.clues));
+    if (!valid) return null;
+    const historical = e => e && typeof e === 'object' && typeof e.batch_id === 'string' &&
+      /^[a-f0-9]{64}$/i.test(e.batch_id) && ['waiting','needs_review'].includes(e.state);
+    const errors = Array.isArray(d.errors) ? d.errors : [];
+    const c = d.completion;
+    const validCompletion = c && typeof c === 'object' && ['completed','continuation','failed'].includes(c.type) &&
+      count(c.processed) && typeof c.phase === 'string' && typeof c.reason === 'string' && typeof c.remaining_scope === 'string';
+    // Only an explicitly unsent radar batch may retain its model-busy diagnostic as continuation.
+    const unsentBusy = kind === 'wechat_radar' && run.status === 'partial' && validCompletion &&
+      c.type === 'continuation' && c.reason_code === 'model_busy' && c.processed === d.processed &&
+      c.phase === 'analyze' && d.error_stage === 'analyze' && d.has_more === true &&
+      d.error_kind === 'model_busy' && typeof d.error === 'string' && d.error.includes('本批未发送') &&
+      !(count(d.quarantined) && d.quarantined > 0);
+    const ownFailure = Boolean(!unsentBusy && (d.error || d.error_kind) || errors.some(e => !historical(e)) ||
+      d.errors !== undefined && !Array.isArray(d.errors));
+    let type = ownFailure || ['timeout','cancelled','interrupted'].includes(run.status) ? 'failed' :
+      d.has_more || count(d.deferred) && d.deferred > 0 || errors.length ? 'continuation' :
+      run.status === 'succeeded' ? 'completed' : 'failed';
+    if (validCompletion) {
+      // A new failure must never be hidden by a malformed/contradictory completion field.
+      type = ownFailure || ['timeout','cancelled','interrupted'].includes(run.status) ? 'failed' : c.type;
+    }
+    const processed = kind === 'deals_review' ? d.evidence.checked : d.processed;
+    const pending = kind === 'deals_review' && count(d.evidence?.deferred) && count(d.conflicts?.deferred) ? d.evidence.deferred + d.conflicts.deferred : null;
+    const remaining = c && typeof c.remaining_scope === 'string' ? excerpt(c.remaining_scope,200) :
+      kind === 'deals_review' ? '待复查商单或邀约 ' + (pending ?? '数量未记录') + ' 项' :
+      d.has_more ? '仍有未处理消息（精确数量未随本轮回执提供）' : '本轮消息范围已处理完';
+    const review = count(d.deferred) && d.deferred > 0 ? '；待重试或核对 ' + d.deferred + ' 条，待核对批次不会自动重放' : '';
+    const phase = c && typeof c.phase === 'string' ? excerpt(c.phase,40) : kind === 'deals_review' ? 'deal_review' : ownFailure ? 'analysis_or_capture' : 'analysis';
+    const reason = c && typeof c.reason === 'string' ? excerpt(c.reason,240) : ownFailure ? '本轮发生错误，具体原因见下方运行结果' :
+      type === 'failed' ? '本轮未完成，请核对原始状态与错误' : type === 'continuation' ? '已保存进度，未完成范围仍保留' : '本轮范围已完成';
+    return {type,processed,remaining:remaining+review,phase,reason,rotation:kind==='deals_review'};
+  } catch { return null; }
+}
+function completionSummary(run) {
+  const c = runCompletion(run); if (!c) return '';
+  const title = {completed:'本轮完成',continuation:'续跑中',failed:'真失败',pending:'回执待确认'}[c.type];
+  return '<p class="completion-summary" data-completion="'+c.type+'">'+esc(title)+' · 已处理 '+(c.processed === null ? '数量未确认' : c.processed)+
+    ' · 剩余范围：'+esc(c.remaining)+(c.rotation?' · 每轮最多 6 笔轮转':'')+
+    (c.type==='failed'?' · 阶段 '+esc(c.phase)+'：'+esc(c.reason):'')+'</p>';
+}
 function wechatResult(run) {
-  if (run.snapshot?.kind !== 'wechat_clues' || typeof run.output !== 'string' || run.output.length > 65536) return null;
+  if (run.snapshot?.kind !== 'wechat_clues' || typeof run.output !== 'string' || run.output.length > 2 * 1024 * 1024) return null;
   try {
     const data = JSON.parse(run.output);
     if (!data || typeof data !== 'object' || Array.isArray(data) || !Number.isSafeInteger(data.processed) || data.processed < 0 ||
@@ -86,6 +143,8 @@ function wechatResult(run) {
   } catch (error) { return null; }
 }
 function runResultSummary(run) {
+  if (runCompletion(run)?.type === 'pending') return '<p class="run-retry-summary">最终回执待确认，结果可能还在路上；原始状态和已保存检查点保留。</p>';
+  if (run.snapshot?.kind === 'source_events') return sourceRunResults(run);
   if (run.snapshot?.kind === 'intake_cards') {
     try {
       const d = JSON.parse(run.output || '{}');
@@ -205,16 +264,16 @@ function runResultSummary(run) {
 function frequency(task) {
   if (task.frequency === 'interval') {
     const minutes = Number(task.minutes);
-    if (minutes >= 1440 && minutes % 1440 === 0) return minutes === 1440 ? '每 1 天' : '每 ' + minutes / 1440 + ' 天';
-    if (minutes >= 60) return '每 ' + Math.floor(minutes / 60) + ' 小时' + (minutes % 60 ? ' ' + minutes % 60 + ' 分钟' : '');
-    return '每 ' + minutes + ' 分钟';
+    if (!Number.isInteger(minutes) || minutes < 1) return '间隔未知';
+    return minutes % 60 === 0 ? '每 ' + minutes / 60 + ' 小时' : '每 ' + minutes + ' 分钟';
   }
-  const days = [...new Set(task.weekdays || [])].sort((a,b) => a-b);
-  const prefix = days.length === 7 ? '每天' : String(days) === '0,1,2,3,4' ? '工作日' : String(days) === '5,6' ? '周末' : days.map(day => '周' + '一二三四五六日'[day]).join('、');
-  return prefix + ' ' + (task.at || '—') + '（北京时间）';
+  if (task.frequency !== 'daily') return '未知';
+  const days = [...new Set((Array.isArray(task.weekdays) ? task.weekdays : []).filter(day => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a,b) => a-b);
+  const prefix = days.length === 7 ? '每天' : String(days) === '0,1,2,3,4' ? '工作日' : String(days) === '5,6' ? '周末' : days.length ? '周' + days.map(day => '一二三四五六日'[day]).join('、') : '执行日未知';
+  return prefix + ' ' + (task.at || '未知时刻');
 }
 function executor(task) {
-  return task.executor_name || (task.kind === 'script' ? 'Bash 脚本' : task.kind === 'wechat_radar' ? '微信雷达分析（Pi）' : task.kind === 'wechat_clues' ? '微信线索分析（Pi）' : task.kind === 'github_clues' ? 'GitHub 线索分析（Pi）' : task.kind === 'deals_review' ? '商单分析（Pi）' : task.kind === 'intake_cards' ? '创意提炼（Pi）' : task.kind === 'outsourced' ? '外包任务（WorkBuddy 优先，本机 Pi 兜底）' : task.assistant_id === 'workbench' ? '工作台助手（Pi）' : '独立 Pi');
+  return task.kind === 'source_events' ? '微信雷达 · 所选事件' : task.executor_name || (task.kind === 'script' ? 'Bash 脚本' : task.kind === 'wechat_radar' ? '微信雷达分析（Pi）' : task.kind === 'wechat_clues' ? '微信线索分析（Pi）' : task.kind === 'github_clues' ? 'GitHub 线索分析（Pi）' : task.kind === 'deals_review' ? '商单分析（Pi）' : task.kind === 'intake_cards' ? '创意提炼（Pi）' : task.kind === 'outsourced' ? '外包任务（WorkBuddy 优先，本机 Pi 兜底）' : task.assistant_id === 'workbench' ? '工作台助手（Pi）' : '独立 Pi');
 }
 // 外包任务最近一次是谁交付的：读最近一次运行的输出里的 producer 字段。
 function outsourcedDelivery(task) {
@@ -239,22 +298,79 @@ function message(text, tone = 'error') {
   $('#message').textContent = text || '';
   $('#message').dataset.tone = tone;
 }
-async function api(path, body) {
-  const response = await fetch(path, body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json','X-Article-Studio':'1'},body:JSON.stringify(body)});
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || '请求失败');
-  return result;
+async function api(path, body, timeoutMs = 0) {
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const options = body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json','X-Article-Studio':'1'},body:JSON.stringify(body)};
+    if (controller) options.signal = controller.signal;
+    const response = await fetch(path, options);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || '请求失败');
+    return result;
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('读取超时，请稍后重试');
+    throw error;
+  } finally { if (timer !== null) clearTimeout(timer); }
 }
 const safely = (fn, clear = true) => async (...args) => {
   if (clear) message('');
   try { return await fn(...args); } catch (error) { message(error.message || '请求失败'); }
 };
-function visibleTasks() {
+function needsAttention(task, external = false) {
+  return external ? ['overdue','missing','exited'].includes(task.status) : ['failed','timeout','partial'].includes(task.last_run?.status);
+}
+function taskMatches(task, external = false) {
   const query = $('#search').value.trim().toLowerCase(), status = $('#task-filter').value;
-  return state.tasks.filter(task => {
-    const searchable = [task.name,task.body,executor(task),modelName(task),project(task)].join(' ').toLowerCase();
-    return searchable.includes(query) && (status === 'all' || status === 'enabled' && task.enabled || status === 'paused' && !task.enabled || status === 'running' && task.running);
-  });
+  const running = external ? task.status === 'running' : Boolean(task.running);
+  const paused = !external && !task.enabled;
+  const summary = summaryFilter === 'running' ? running : summaryFilter === 'paused' ? paused : summaryFilter === 'attention' ? needsAttention(task,external) : true;
+  const filter = status === 'all' || status === 'enabled' && !external && task.enabled || status === 'paused' && paused || status === 'running' && running || status === 'attention' && needsAttention(task,external);
+  const text = external ? [task.name,task.owner,task.schedule,task.status_label] : [task.name,task.body,executor(task),modelName(task),project(task)];
+  return summary && filter && text.join(' ').toLowerCase().includes(query);
+}
+function taskOrder(a,b,external = false) {
+  const rank = task => (external ? task.status === 'running' : task.running) ? 0 : needsAttention(task,external) ? 1 : !external && !task.enabled ? 3 : 2;
+  return rank(a)-rank(b) || (external ? 0 : (dateOf(a.next_run)?.getTime() ?? Infinity)-(dateOf(b.next_run)?.getTime() ?? Infinity)) || String(a.name || '').localeCompare(String(b.name || ''),'zh-CN');
+}
+function visibleTasks() {
+  return taskScope === 'external' ? [] : state.tasks.filter(task => taskMatches(task)).sort((a,b)=>taskOrder(a,b));
+}
+function visibleExternal() {
+  return taskScope === 'builtin' ? [] : (Array.isArray(state.external?.tasks) ? state.external.tasks : []).filter(task => taskMatches(task,true)).sort((a,b)=>taskOrder(a,b,true));
+}
+function ago(value) {
+  const date = dateOf(value); if (!date) return '未知';
+  const seconds = Math.max(0,Math.floor((Date.now()-date.getTime())/1000));
+  return seconds < 60 ? '刚刚' : seconds < 3600 ? Math.floor(seconds/60)+' 分钟前' : seconds < 86400 ? Math.floor(seconds/3600)+' 小时前' : Math.floor(seconds/86400)+' 天前';
+}
+function nextWhen(task) {
+  if (!task.enabled) return '—';
+  const date = dateOf(task.next_run); if (!date) return task.running ? '运行后更新' : '待调度';
+  const tomorrow = new Date(Date.now()+86400000);
+  const day = d => d.toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'});
+  return day(date) === day(tomorrow) ? '明天 ' + date.toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}) : relative(task.next_run);
+}
+function stateBadge(task) {
+  const key = task.running ? 'running' : task.waiting_for_model ? 'waiting' : task.enabled ? 'enabled' : 'paused';
+  const text = {running:'运行中',waiting:'等待同模型',enabled:'已启用',paused:'已暂停'}[key];
+  return '<span class="task-state state-'+key+'"><i></i>'+text+'</span>';
+}
+function resultBadge(status, run) {
+  const c = run && runCompletion(run);
+  const label = c ? (c.type === 'failed' ? labels[status] || '失败' : {completed:'本轮完成',continuation:'续跑中',pending:'回执待确认'}[c.type]) : labels[status] || '未知';
+  return '<span class="result-badge result-'+esc(labels[status] ? status : 'unknown')+'"'+(c?' data-completion="'+c.type+'"':'')+' title="原始状态：'+esc(labels[status] || status)+'">'+esc(label)+'</span>';
+}
+function externalCheckText() {
+  return '检查时间 '+overviewWhen(state.external?.checked_at) + (state.external?.last_error ? Array.isArray(state.external?.tasks) ? ' · 外部心跳刷新失败，保留上次快照' : ' · 外部任务读取失败，点刷新重试' : '');
+}
+function renderStats() {
+  const external = Array.isArray(state.external?.tasks) ? state.external.tasks : [];
+  const values = {all:state.tasks.length+external.length,running:state.tasks.filter(t=>t.running).length+external.filter(t=>t.status==='running').length,paused:state.tasks.filter(t=>!t.enabled).length,attention:state.tasks.filter(t=>needsAttention(t)).length+external.filter(t=>needsAttention(t,true)).length};
+  if (state.external?.last_error && !Array.isArray(state.external?.tasks)) for (const key of ['all','running','attention']) values[key]='未知';
+  for (const [key,value] of Object.entries(values)) $('#stat-'+key).textContent = overviewFailure ? '未知' : value;
+  for (const button of document.querySelectorAll('[data-summary]')) button.setAttribute('aria-pressed',String(summaryFilter===button.dataset.summary));
+  $('#scope-builtin').textContent = overviewFailure ? '未知' : state.tasks.length; $('#scope-external').textContent = overviewFailure || state.external?.last_error && !Array.isArray(state.external?.tasks) ? '未知' : external.length;
 }
 function updateSelection() {
   const visible = visibleTasks(), count = visible.filter(task => selected.has(task.id)).length;
@@ -273,22 +389,36 @@ function renderTasks() {
   const openMenus = new Set([...$('#tasks').querySelectorAll('details[open]')].map(node => node.dataset.taskMenu));
   const active = document.activeElement;
   const focusId = active?.dataset?.selectTask, focusAction = active?.dataset?.action, focusTask = active?.dataset?.id;
-  const tasks = visibleTasks();
-  $('#task-count').textContent = tasks.length + ' / ' + state.tasks.length + ' 个任务';
-  $('#tasks').innerHTML = tasks.length ? tasks.map(task => {
-    const id = esc(task.id), last = task.last_run, model = modelName(task);
-    const next = task.running ? '当前正在运行' : task.waiting_for_model ? '等待同模型任务完成' : !task.enabled ? '已暂停' : task.next_run ? '下次 ' + relative(task.next_run) : '已到期';
-    return '<article class="task-row' + (batchMode ? ' has-selection' : '') + (selected.has(task.id) ? ' selected' : '') + '" data-task-id="' + id + '">' +
-      (batchMode ? '<label class="task-selection"><input type="checkbox" data-select-task="' + id + '" aria-label="选择 ' + esc(task.name) + '" ' + (selected.has(task.id) ? 'checked ' : '') + (batchBusy ? 'disabled' : '') + '></label>' : '') +
-      '<div class="task-info"><div class="task-title"><strong>' + esc(task.name) + '</strong>' + (task.running ? '<span class="pill state-pill" data-status="running">运行中</span>' : '') + '</div><div class="task-tags"><span class="pill">' + esc(executor(task)) + '</span>' + (model ? '<span class="pill model-pill" title="' + esc(model) + '">' + esc(model) + '</span>' : '') + '</div><div class="task-project">项目 · ' + esc(project(task)) + '</div></div>' +
-      '<div class="task-schedule"><strong>' + esc(frequency(task)) + '</strong><small title="' + esc(exactTime(task.next_run)) + '">' + esc(next) + '</small></div>' +
-      '<div class="task-last">' + (task.kind === 'outsourced' ? '<span class="pill">' + esc(outsourcedDelivery(task)) + '</span>' : '') + (last ? '<span class="pill state-pill" data-status="' + esc(labels[last.status] ? last.status : 'unknown') + '">最近 · ' + esc(labels[last.status] || last.status) + '</span><small title="' + esc(exactTime(last.started_at)) + '">' + esc(when(last.started_at)) + ' · 耗时 ' + esc(duration(last)) + '</small>' : '<span class="muted">尚无运行记录</span>') + '</div>' +
-      '<div class="task-actions"><button class="button" data-action="run" data-id="' + id + '" ' + (task.running || batchBusy ? 'disabled' : '') + '>立即运行</button><button class="button" data-action="' + (task.enabled ? 'pause' : 'resume') + '" data-id="' + id + '" ' + (batchBusy ? 'disabled' : '') + '>' + (task.enabled ? '暂停' : '启用') + '</button>' +
-      '<details class="task-more" data-task-menu="' + id + '"' + (openMenus.has(task.id) ? ' open' : '') + '><summary aria-label="' + esc(task.name) + '的更多操作">更多</summary><div class="task-menu"><button data-action="detail" data-id="' + id + '">任务详情</button>' + (task.kind === 'outsourced' ? '<button data-action="outsourced-prompt" data-id="' + id + '">复制 WorkBuddy 提示词</button>' : '') + '<button data-action="edit" data-id="' + id + '">编辑</button><button data-action="history" data-id="' + id + '">运行记录</button><button class="danger" data-action="delete" data-id="' + id + '" ' + (task.running || batchBusy ? 'disabled' : '') + '>删除任务</button></div></details></div></article>';
-  }).join('') : '<div class="empty">' + (state.tasks.length ? '没有符合当前搜索或筛选的任务。' : '暂无定时任务。添加后由工作台后台按计划执行。') + '</div>';
-  if (focusId) [...$('#tasks').querySelectorAll('[data-select-task]')].find(node => node.dataset.selectTask === focusId)?.focus({preventScroll:true});
-  if (focusAction) [...$('#tasks').querySelectorAll('[data-action]')].find(node => node.dataset.action === focusAction && node.dataset.id === focusTask)?.focus({preventScroll:true});
+  const tasks = visibleTasks(), external = visibleExternal();
+  const builtinRow = task => {
+    const id = esc(task.id), last = task.last_run, model = modelName(task), next = nextWhen(task);
+    const tags=task.kind==='source_events'?'<span class="origin-tag" title="微信 · '+esc(model)+'">微信</span><span class="event-tags" title="'+esc(eventNames(task.events)+' · '+model)+'">'+esc((task.events||[]).map(n=>({1:'存档',2:'链接',3:'商单',4:'跟进',5:'热点',6:'工具',7:'知识',8:'画像',9:'复核',10:'晨报'})[n]||'未知').join(' / '))+'</span>':null;
+    const disabled = batchBusy || Boolean(overviewFailure);
+    const menuButton = (action,text,disable = false) => '<button data-action="'+action+'" data-id="'+id+'" '+(disable || disabled ? 'disabled' : '')+'>'+text+'</button>';
+    return '<tr class="task-row'+(selected.has(task.id)?' selected':'')+'" data-task-id="'+id+'" data-overview-task="'+id+'" tabindex="0" aria-label="查看任务：'+esc(task.name)+'"><td class="task-info"><div class="task-name-line">'+
+      (batchMode ? '<label class="task-selection"><input type="checkbox" data-select-task="'+id+'" aria-label="选择 '+esc(task.name)+'" '+(selected.has(task.id)?'checked ':'')+(disabled?'disabled':'')+'></label>' : '')+
+      '<strong class="task-name" title="'+esc(task.name)+'">'+esc(task.name)+'</strong></div><div class="task-tags">'+(tags || '<span class="origin-tag">内置</span><span class="executor-tag" title="'+esc(executor(task))+'">'+esc(executor(task))+'</span>'+(model?'<span class="model-pill" title="'+esc(model)+'">'+esc(model)+'</span>':'')+(task.kind==='source_events'?'<span class="event-tags" title="'+esc(eventNames(task.events))+'">'+esc(eventNames(task.events))+'</span>':'')+(task.kind==='outsourced'?'<span class="delivery-tag">'+esc(outsourcedDelivery(task))+'</span>':''))+'</div></td>'+
+      '<td class="task-schedule" title="'+esc(frequency(task)+'（北京时间）')+'"><strong>'+esc(frequency(task))+'</strong><small class="inline-next" title="'+esc(exactTime(task.next_run))+'">下次 '+esc(next)+'</small></td>'+
+      '<td class="state-cell">'+stateBadge(task)+'</td><td class="task-last">'+(last?resultBadge(last.status,{...last,snapshot:last.snapshot || task})+'<span class="last-age" title="'+esc(exactTime(last.finished_at || last.started_at)+' · 耗时 '+duration(last))+'">'+esc(ago(last.finished_at || last.started_at))+'</span>':'<span class="muted">暂无记录</span>')+'</td>'+
+      '<td class="next-column next-cell" title="'+esc(exactTime(task.next_run))+'">'+esc(next)+'</td><td><div class="task-actions"><button class="button" data-action="run" data-id="'+id+'" '+(task.running || disabled?'disabled':'')+'>立即运行</button>'+
+      '<details class="task-more" data-task-menu="'+id+'"'+(openMenus.has(task.id)?' open':'')+'><summary aria-label="'+esc(task.name)+'的更多操作">⋯</summary><div class="task-menu">'+menuButton(task.enabled?'pause':'resume',task.enabled?'暂停':'启用')+menuButton('edit','编辑')+menuButton('history','查看记录')+menuButton('detail','任务详情')+(task.kind==='outsourced'?menuButton('outsourced-prompt','复制 WorkBuddy 提示词'):'')+menuButton('delete','删除任务',task.running)+'</div></details></div></td></tr>';
+  };
+  const externalRow = task => {
+    const style=['ok','waiting','overdue','missing','unconfirmed','running','exited','unknown'].includes(task.status)?task.status:'unknown';
+    return '<tr class="external-row" data-external-row="'+esc(task.id)+'" tabindex="0" aria-label="查看外部任务：'+esc(overviewText(task.name))+'"><td class="task-info"><div class="task-name-line"><strong class="task-name" title="'+esc(overviewText(task.name))+'">'+esc(overviewText(task.name))+'</strong></div><div class="task-tags"><span class="origin-tag">外部 · 只读</span><span class="executor-tag">'+esc(overviewText(task.owner))+'</span></div></td><td class="task-schedule" title="'+esc(overviewText(task.schedule))+'"><strong>'+esc(overviewText(task.schedule))+'</strong><small class="inline-next">下次 —</small></td><td class="state-cell"><span class="task-state status-'+style+'"><i></i>'+esc(overviewText(task.status_label))+'</span></td><td class="task-last"><span title="'+esc(overviewWhen(task.last_output_at)+'（北京时间） · '+overviewText(task.detail))+'">'+esc(ago(task.last_output_at))+'</span></td><td class="next-column next-cell">—</td><td aria-label="外部任务只读"></td></tr>';
+  };
+  const externalFailed = Boolean(state.external?.last_error) && !Array.isArray(state.external?.tasks);
+  const group = (external.length || externalFailed) && taskScope!=='builtin' ? '<tr class="external-group"><td colspan="6">外部任务 · 只读 <span>每 5 分钟检查产出 · '+esc(externalCheckText())+'</span></td></tr>' : '';
+  const externalError = externalFailed && taskScope!=='builtin' ? '<tr data-external-error><td colspan="6" class="table-empty">外部任务读取失败，点刷新重试 <button class="button" data-retry>重试</button></td></tr>' : '';
+  $('#overview-tasks').innerHTML = tasks.map(builtinRow).join('')+group+external.map(externalRow).join('')+externalError || '<tr><td colspan="6" class="table-empty">'+(state.tasks.length || state.external?.tasks?.length ? '没有符合当前搜索或筛选的任务。' : '暂无定时任务。添加后由工作台后台按计划执行。')+'</td></tr>';
+  $('#task-count').textContent = '显示 '+(tasks.length+external.length)+' 个';
+  $('#overview-count').textContent = `（内置 ${state.tasks.length} · 外部 ${externalFailed?'未知':(state.external?.tasks || []).length}）`;
+  $('#external-checked').textContent = externalCheckText();
+  renderStats();
+  if (focusId) [...$('#tasks').querySelectorAll('[data-select-task]')].find(node=>node.dataset.selectTask===focusId)?.focus({preventScroll:true});
+  if (focusAction) [...$('#tasks').querySelectorAll('[data-action]')].find(node=>node.dataset.action===focusAction&&node.dataset.id===focusTask)?.focus({preventScroll:true});
   updateSelection();
+  if (overviewFailure) renderOverviewFailure(overviewFailure);
 }
 function renderHealth() {
   const health = state.scheduler_health;
@@ -301,21 +431,58 @@ function renderHealth() {
   $('#health-error').textContent = health?.last_error || state.last_error || '';
   $('#health-error').hidden = !$('#health-error').textContent;
 }
+let overviewLoaded = false;
+// Overview shares the existing schedule snapshot; task management below keeps its own filters.
+const overviewText = value => typeof value === 'string' && value.trim() ? value : '未知';
+function overviewWhen(value) { return dateOf(value) ? when(value) : '未知'; }
+function renderOverview() { $('#overview-error')?.remove(); }
+function renderOverviewFailure(error) {
+  overviewFailure = error;
+  const text = '读取失败：' + excerpt(error.message || '网络异常',100) + '，点刷新重试';
+  let notice = $('#overview-error');
+  if (!notice) { notice=document.createElement('p');notice.id='overview-error';notice.className='status-error';notice.setAttribute('role','alert');$('#task-view').prepend(notice); }
+  notice.innerHTML = '<span>'+esc(text)+(overviewLoaded?'；以下为上次数据（保留上次快照）。':'')+'</span> <button class="button" data-retry>重试</button>';
+  $('#overview-count').textContent = '（内置 未知 · 外部 未知）';
+  renderStats();
+  if (!overviewLoaded) {
+    $('#overview-tasks').innerHTML='<tr><td colspan="6" class="table-empty">'+esc(text)+' <button class="button" data-retry>重试</button></td></tr>';
+    $('#external-checked').textContent='外部检查时间：未知';
+  } else $('#tasks').querySelectorAll('button').forEach(button=>{button.disabled=true;});
+}
+function recentHTML() {
+  return recentRuns.map(run=>`<p class="recent-row"><button class="recent-name" title="${esc(run.snapshot?.name || run.task_id || '未知任务')}" data-overview-run="${esc(run.id)}">${esc(run.snapshot?.name || run.task_id || '未知任务')}</button>${resultBadge(run.status,run)}<span title="${esc(exactTime(run.finished_at || run.started_at))}">${esc(ago(run.finished_at || run.started_at))}</span><small>${esc(duration(run))}</small></p>`).join('');
+}
+async function loadOverviewRuns(request) {
+  try {
+    const result=await api('/api/schedules/runs?page_size=10',undefined,8000);
+    if(request!==listingRequest)return;
+    recentRuns=result.runs.slice(0,5);
+    $('#overview-runs').innerHTML=recentHTML() || '<p class="muted">暂无运行记录</p>';
+  }catch(error){
+    if(request===listingRequest)$('#overview-runs').innerHTML='<p class="status-error">最近运行记录暂不可读：'+esc(error.message)+(recentRuns.length?'；以下为上次数据':'')+' <button class="button" data-retry>重试</button></p>'+recentHTML();
+  }
+}
 async function refresh() {
   const request = ++listingRequest;
+  const recent = loadOverviewRuns(request);
   let next;
-  try { next = await api('/api/schedules'); }
-  catch (error) { if (request === listingRequest) throw error; return; }
+  try { next = await api('/api/schedules', undefined, 8000); }
+  catch (error) {
+    if (request !== listingRequest) return;
+    renderOverviewFailure(error); await recent; throw error;
+  }
   if (request !== listingRequest) return;
   state = {...state,...next};
   for (const id of selected.keys()) if (!state.tasks.some(task => task.id === id)) selected.delete(id);
-  renderTasks(); renderHealth();
+  overviewLoaded = true; overviewFailure = null;
+  renderTasks(); renderHealth(); renderOverview(); renderSourceOverview();
   await loadQuarantine();
   if (!state.cluesLoaded) {
     try { state.clue_threads = (await api('/api/clues?view=all')).items || []; state.cluesLoaded = true; }
     catch (error) { message('线索清单读取失败：' + error.message); }
   }
   if (!$('#run-view').hidden) await loadRuns();
+  await recent;
 }
 // Radar batches the source holds out of the hourly replay: read-only list, manual re-queue.
 let quarantine = null, quarantineLoadedAt = 0;
@@ -355,8 +522,52 @@ async function retryQuarantine(ids, button) {
     await loadQuarantine(true);
   } finally { if (button?.isConnected) button.disabled = false; }
 }
+function eventNames(ids) {
+  const events=state.event_catalog?.events || [];
+  return (ids || []).map(id=>events.find(e=>e.id===id)?.name || '事件'+id).join('、');
+}
+function renderSourceEditor(task) {
+  const events=state.event_catalog?.events || [],groups=[...new Set(events.map(e=>e.group))];
+  const chosen=new Set(task?.events || [1,2,3,5,6]);
+  $('#source-event-list').innerHTML=groups.map(group=>'<div class="source-event-group"><h4>'+esc(group)+'</h4>'+events.filter(e=>e.group===group).map(e=>'<label class="source-event-choice'+(!e.available?' unavailable':'')+'"><input type="checkbox" name="source_event" value="'+e.id+'" '+((e.mandatory || chosen.has(e.id))&&e.available?'checked ':'')+(!e.available||e.mandatory?'disabled ':'')+'><span>'+e.id+' '+esc(e.name)+'<small>'+esc(e.description)+' · 建议'+esc(e.suggested_frequency)+'</small></span></label>').join('')+'</div>').join('') || '<p class="status-error">来源事件目录未加载，请关闭后刷新重试。</p>';
+  field('source').value=task?.source || 'wechat';
+  field('window_enabled').checked=!!task?.window;
+  field('window_start').value=task?.window?.start || '08:00';field('window_end').value=task?.window?.end || '24:00';
+}
+function renderSourceOverview() {
+  const c=state.event_coverage;
+  $('#source-coverage-summary').textContent=c?c.enabled_timers+' 个启用 · '+c.missing.length+' 项未覆盖':'事件目录暂不可用';
+  $('#source-coverage').textContent=c?('新定时器覆盖：'+(c.missing.length?c.missing.map(e=>e.name+'当前没人做').join('；'):'可用事件均有启用的定时器覆盖。')):(state.event_error || '刷新后重试。');
+  $('#source-dependencies').textContent=c?.morning_notice || '';
+}
+function sourceRunResults(run) {
+  if(run.status==='running' && !run.output)return '<p class="muted">所选事件执行中，最终回执将逐项列出结果。</p>';
+  try {
+    if(typeof run.output!=='string'||run.output.length>65536)throw new Error();
+    const d=JSON.parse(run.output);if(!Array.isArray(d.events)||d.events.length>13)throw new Error();
+    return (d.receipt_pending?'<p class="run-retry-summary">'+(d.source_receipt_final?'来源已结束，部分步骤回执未确认，请核对；不会自动重发。':'已请求停止，以下为已保存的阶段结果；最终回执将自动回填。')+'</p>':'')+'<div class="source-event-results">'+d.events.map(e=>'<div class="source-event-result"><strong>'+esc(e.name || eventNames([e.event]))+'</strong>'+(['skipped','queued','running'].includes(e.status)?'<span class="result-badge">'+({skipped:'跳过',queued:'尚未开始',running:'执行中'})[e.status]+'</span>':resultBadge(e.status))+'<small>'+esc(e.reason || (Number.isSafeInteger(e.processed)?'已处理 '+e.processed+' 条':''))+'</small><small>'+esc(Number.isSafeInteger(e.duration_ms)?e.duration_ms+' ms':'—')+'</small>'+((e.outputs?.count || 0)>0?'<button class="text-button" data-event-output="'+e.event+'" data-source-run="'+esc(run.id)+'">查看 '+esc(e.outputs.count)+' 项产出</button>':'')+'</div>').join('')+'</div>';
+  } catch { return '<p class="status-error">事件回执尚不可读，请查看运行详情。</p>'; }
+}
+async function sourcePresetAction(action) {
+  if(action!=='install' && !confirm(action==='new'?'启用四个新预设并暂停旧三项？当前运行继续。':'恢复切换前每个旧任务及预设的启用状态？'))return;
+  const profile=state.default_profile_id || state.models.find(m=>m.configured)?.profile_id;
+  const result=await api('/api/schedules/batch',{source_action:action,...(action==='install'?{profile_id:profile}:{})});
+  message(action==='install'?'四个预设已安装，全部停用；未执行新旧切换。':result.message || '已恢复原状态。','success');
+  await refresh();
+}
+document.addEventListener('click',safely(async event=>{
+  const button=event.target.closest('[data-event-output]');if(!button)return;
+  const offset=Number(button.dataset.sourceOffset || 0);
+  const result=await api('/api/schedules/run/'+encodeURIComponent(button.dataset.sourceRun)+'?event='+Number(button.dataset.eventOutput)+'&offset='+offset);
+  const host=$('#event-output-list');
+  host.innerHTML='<h3>事件产出 · 仅本机查看</h3><p>第 '+(offset+1)+'–'+(offset+(result.items || []).length)+' 项</p>'+(result.items || []).map(item=>'<article class="source-event-result"><strong>'+esc(state.event_catalog?.events?.find(e=>e.key===item.event_type)?.name || '事件产出')+'</strong><span>来源 '+esc(state.event_catalog?.sources?.find(s=>s.id===item.source)?.name || item.source)+' · '+esc(item.privacy==='private'?'私密':item.privacy==='group'?'群内':item.privacy)+'</span><time>'+esc(exactTime(item.time))+'</time>'+(item.title?'<strong class="source-output-summary">'+esc(item.title)+'</strong>':'')+(item.summary?'<span class="source-output-summary">'+esc(item.summary)+'</span>':'')+(item.review_required?'<small>与已有分类不同，保留为待核对候选</small>':'')+(item.location?.clue_id?'<a href="/clues.html?clue='+encodeURIComponent(item.location.clue_id)+'">查看线索</a>':'')+(item.location?.deal_id?'<a href="/deals.html?deal='+encodeURIComponent(item.location.deal_id)+'">查看台账</a>':'')+'<span>原始身份：'+esc((item.people||[]).join('、')||'未知')+'</span><span>提到的链接：'+esc((item.links||[]).join('、')||'无')+'</span><span>'+ (item.evidence||[]).map(ref=>'<a href="/knowledge.html?document='+encodeURIComponent(ref.document_id)+'&hash='+encodeURIComponent(ref.hash)+'" rel="noopener noreferrer">查看原文依据</a>').join(' · ')+'</span></article>').join('')+(offset>0?'<button class="button" data-event-output="'+Number(button.dataset.eventOutput)+'" data-source-run="'+esc(button.dataset.sourceRun)+'" data-source-offset="'+Math.max(0,offset-100)+'">上一页产出</button>':'')+(result.has_more?'<button class="button" data-event-output="'+Number(button.dataset.eventOutput)+'" data-source-run="'+esc(button.dataset.sourceRun)+'" data-source-offset="'+(offset+100)+'">下一页产出</button>':'');
+  if(!$('#run-detail').open)$('#run-detail').showModal();
+}));
+$('#source-presets').onclick=safely(()=>sourcePresetAction('install'));
+$('#source-switch-new').onclick=safely(()=>sourcePresetAction('new'));
+$('#source-switch-old').onclick=safely(()=>sourcePresetAction('old'));
 function options() {
-  const kind = field('kind').value, specialized = ['wechat_clues','github_clues','wechat_radar','deals_review','intake_cards'].includes(kind), pi = kind !== 'script';
+  const kind = field('kind').value, specialized = ['wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','source_events'].includes(kind), pi = kind !== 'script';
   const workbench = kind === 'pi' && field('assistant_id').value === 'workbench';
   if (specialized) {
     field('result_destination').value = 'runs'; field('allow_commands').checked = false;
@@ -365,6 +576,13 @@ function options() {
   field('result_destination').disabled = specialized;
   field('allow_commands').disabled = specialized;
   field('assistant_id').disabled = specialized || !pi;
+  $('#source-event-options').hidden = kind !== 'source_events';
+  field('allow_commands').closest('label').hidden=kind==='source_events';
+  field('window_start').disabled=!field('window_enabled').checked;field('window_end').disabled=!field('window_enabled').checked;
+  $('#body-label').hidden = kind === 'source_events';
+  field('body').readOnly = kind === 'source_events';
+  if(kind === 'source_events' && !field('body').value)field('body').value='按所选事件处理微信资料，结果只留本机。';
+  if(kind === 'source_events' && !editing && !scheduleTouched)field('timeout').value='1800';
   $('#pi-options').hidden = !pi;
   $('#assistant-select-label').hidden = specialized;
   $('#tool-group-options').hidden = !workbench;
@@ -386,6 +604,7 @@ function options() {
   $('#wechat-mode-label').hidden = kind !== 'wechat_clues';
   $('#wechat-review-label').hidden = kind !== 'wechat_clues' || field('wechat_mode').value !== 'incremental';
   $('#assistant-help').textContent = kind === 'wechat_radar' ? '选择模型，按起点之后的缓存持续分析热点、技术知识和本人画像。人数与群数由本机引用计算；原文可核对，不自动确认待办，不推送飞书。' : kind === 'github_clues' ? '先采集已配置的 GitHub 仓库，再用 Pi 增量分析；原文和更新历史保存在本机。仅写带引用的待核对线索。' : kind === 'deals_review' ? '每次先做进度检查（到期、待到账、停滞、待核对），再重扫微信来源，只生成待确认建议，不会自动改商单；新商单邀约只做冲突提醒，不自动拒绝。每周一 09:00 后第一次运行生成上周周报。结果只留在本机，不推送外部渠道。' : kind === 'outsourced' ? 'WorkBuddy 按时把结果写成约定 JSON 文件，工作台到点只验收并导入线索，不花本机 token；文件缺失或不合法时由本机 Pi 用同一份提示词补做。到点时间建议设在 WorkBuddy 之后 30～60 分钟。' : kind === 'intake_cards' ? '扫描新增的已入库回收项，提炼候选提示词卡。证据编号、原文窗口与指纹由服务预生成，模型只能选编号；手抄原文或编造来源会被丢弃并记录原因。全部是候选，你在提示词卡库点确认后才入库，不会自动提交生成。' : specialized ? '持续增量先完成本机采集与索引，再用所选模型分批分析；无每小时条数配额，按检查点续跑。只写带引用的待核对线索。' : workbench ? '每次单独执行所填任务，查询工具按勾选范围开放；记忆只读。本机命令仍需单独勾选授权。' : '每次独立 Pi 会话，不继承工作台工具；本机命令仍需单独勾选授权。';
+  if(kind==='source_events')$('#assistant-help').textContent='只处理勾选事件，基础步骤自动完成。私密资料沿用已登记微信任务的模型路由；结果不自动发布。';
   if (kind === 'deals_review' && !editing && !minutesTouched) field('minutes').value = '240';
   // 创意提炼默认每天一次；黄总改成按间隔执行后不再被覆盖。
   if (kind === 'intake_cards' && !editing && !scheduleTouched) {
@@ -401,6 +620,7 @@ function openEditor(task) {
   $('#form-error').textContent = ''; $('#editor-title').textContent = task ? '编辑定时任务' : '添加定时任务';
   const defaults = {name:'',body:'',kind:'pi',wechat_review:task?.wechat_review ?? false,wechat_mode:task?.wechat_mode || (task ? 'once' : 'incremental'),assistant_id:task ? 'isolated' : 'workbench',cwd:state.default_cwd || '',frequency:'interval',minutes:60,at:'08:00',timeout:300,enabled:false,allow_commands:false,result_destination:'runs',result_category:'other',clue_id:''};
   const values = {...defaults,...task,assistant_id:task ? task.assistant_id || 'isolated' : 'workbench'};
+  if (state.external?.last_error && !Array.isArray(state.external?.tasks)) for (const key of ['all','running','attention']) values[key]='未知';
   for (const [key,value] of Object.entries(values)) {
     if (key === 'tool_groups' || key === 'profile_id' || key === 'radar_since') continue;
     const element = field(key);
@@ -422,7 +642,7 @@ function openEditor(task) {
     field('clue_id').value = task.clue_id;
   }
   $('#weekdays').innerHTML = [...'一二三四五六日'].map((day,index) => '<label><input type="checkbox" value="' + index + '" ' + ((task?.weekdays || [0,1,2,3,4,5,6]).includes(index) ? 'checked' : '') + '>' + day + '</label>').join('');
-  options(); $('#editor').showModal();
+  renderSourceEditor(task); options(); $('#editor').showModal();
 }
 function metadata(target, pairs) {
   $(target).innerHTML = pairs.map(([label,value]) => '<dt>' + esc(label) + '</dt><dd>' + esc(value ?? '—') + '</dd>').join('');
@@ -433,17 +653,18 @@ function openTaskDetail(task) {
   $('#task-body').textContent = task.body; $('#task-detail').showModal();
 }
 function renderRuns(result) {
+  $('#runs-error')?.remove();
   const currentTask = state.tasks.find(task => task.id === filterTask);
   $('#run-filter-note').textContent = filterTask ? '任务 · ' + (currentTask?.name || '指定任务') : '全部任务的运行记录';
   $('#all-runs').hidden = !filterTask;
   $('#runs').innerHTML = runs.length ? runs.map(run => {
-    const snapshot = run.snapshot || {}, status = labels[run.status] || run.status, id = esc(run.id);
+    const snapshot = run.snapshot || {}, completion = runCompletion(run), status = completion ? (completion.type === 'failed' ? labels[run.status] || '失败' : {completed:'本轮完成',continuation:'续跑中',pending:'回执待确认'}[completion.type]) : labels[run.status] || run.status, id = esc(run.id);
     const model = snapshot.model_name || snapshot.model || '', badge = snapshot.executor_name || executor(snapshot);
-    return '<article class="run-row"><div class="task-info run-info"><div class="task-title"><strong>' + esc(snapshot.name || '未命名任务') + '</strong><span class="pill state-pill" data-status="' + esc(labels[run.status] ? run.status : 'unknown') + '">' + esc(status) + '</span></div><div class="task-tags"><span class="pill">' + esc(badge) + '</span>' + (model ? '<span class="pill model-pill">' + esc(model) + '</span>' : '') + '</div><p title="' + esc(exactTime(run.started_at)) + '">' + esc(when(run.started_at)) + ' · 耗时 ' + esc(duration(run)) + ' · ' + triggerLabel(run) + ' · 版本 ' + esc(snapshot.revision || '—') + (run.exit_code !== null && run.exit_code !== undefined ? ' · 退出码 ' + esc(run.exit_code) : '') + '</p>' +
-      runResultSummary(run) +
+    return '<article class="run-row"'+(completion?' data-completion="'+completion.type+'"':'')+'><div class="task-info run-info"><div class="task-title"><strong>' + esc(snapshot.name || '未命名任务') + '</strong><span class="pill state-pill" data-status="' + esc(labels[run.status] ? run.status : 'unknown') + '"'+(completion?' data-completion="'+completion.type+'"':'')+'>' + esc(status) + '</span></div><div class="task-tags"><span class="pill">' + esc(badge) + '</span>' + (model ? '<span class="pill model-pill">' + esc(model) + '</span>' : '') + '</div><p title="' + esc(exactTime(run.started_at)) + '">' + esc(when(run.started_at)) + ' · 耗时 ' + esc(duration(run)) + ' · ' + triggerLabel(run) + ' · 版本 ' + esc(snapshot.revision || '—') + (run.exit_code !== null && run.exit_code !== undefined ? ' · 退出码 ' + esc(run.exit_code) : '') + '</p>' +
+      completionSummary(run) + runResultSummary(run) +
       (run.publication_error ? '<p class="run-publication-error">线索写入失败：' + esc(run.publication_error) + '</p>' : '') +
       (run.clue_id ? '<a class="run-clue" href="/clues.html?clue=' + encodeURIComponent(run.clue_id) + '">查看结果线索 ↗</a>' : '') + '</div><div class="run-actions">' +
-      (run.status === 'succeeded' && !['wechat_clues','github_clues','wechat_radar'].includes(snapshot.kind) && !run.clue_id && typeof run.output === 'string' && run.output.trim() ? '<button class="button" data-publish="' + id + '">收集到线索中心</button>' : '') +
+      (run.status === 'succeeded' && !['wechat_clues','github_clues','wechat_radar','source_events'].includes(snapshot.kind) && !run.clue_id && typeof run.output === 'string' && run.output.trim() ? '<button class="button" data-publish="' + id + '">收集到线索中心</button>' : '') +
       (run.status === 'running' ? '<button class="button" data-cancel="' + id + '">停止</button>' : '') + '<button class="button" data-run="' + id + '">详情</button></div></article>';
   }).join('') : '<div class="empty">' + ($('#search').value.trim() || $('#run-status').value || filterTask ? '没有符合当前搜索或筛选的运行记录。' : '暂无运行记录。') + '</div>';
   $('#run-count').textContent = '共 ' + (result.total ?? runs.length) + ' 条记录';
@@ -456,12 +677,20 @@ async function loadRuns(page = runPage) {
   const parameters = new URLSearchParams({task_id:filterTask || '',q:$('#search').value.trim(),status:$('#run-status').value,page:String(page),page_size:'50'});
   let result;
   try { result = await api('/api/schedules/runs?' + parameters.toString()); }
-  catch (error) { if (request === runsRequest) throw error; return; }
+  catch (error) {
+    if(request!==runsRequest)return;
+    let notice=$('#runs-error');
+    if(!notice){notice=document.createElement('p');notice.id='runs-error';notice.className='status-error';notice.setAttribute('role','alert');$('#runs').before(notice);}
+    notice.innerHTML='运行记录读取失败：'+esc(error.message)+(runs.length?'；以下为上次数据':'')+' <button class="button" data-retry-runs>重试</button>';
+    if(!runs.length)$('#runs').innerHTML='<div class="empty">运行记录暂不可读，点重试重新读取。</div>';
+    throw error;
+  }
   if (request !== runsRequest) return;
   runs = result.runs || []; runPage = Number(result.page) || page;
   renderRuns(result);
 }
 function tab(showRuns) {
+  $('#task-controls').hidden = showRuns; $('#batch-mode').hidden = showRuns;
   $('#task-view').hidden = showRuns; $('#run-view').hidden = !showRuns;
   $('#task-tab').classList.toggle('primary',!showRuns); $('#run-tab').classList.toggle('primary',showRuns);
   $('#task-tab').setAttribute('aria-pressed',String(!showRuns)); $('#run-tab').setAttribute('aria-pressed',String(showRuns));
@@ -470,7 +699,9 @@ function tab(showRuns) {
 function openRun(run) {
   const snapshot = run.snapshot || {};
   metadata('#run-meta',[['任务',snapshot.name],['助手',snapshot.executor_name || executor(snapshot)],['模型',snapshot.model_name || snapshot.model || '—'],['状态',labels[run.status] || run.status],['开始时间',exactTime(run.started_at)],['结束时间',exactTime(run.finished_at)],['耗时',duration(run)],['工作目录',snapshot.cwd],['版本',snapshot.revision],['退出码',run.exit_code ?? '—']]);
-  $('#run-body').textContent = snapshot.body || '';
+  $('#event-output-list').textContent='';
+  $('#run-events').innerHTML = completionSummary(run) + (snapshot.kind==='source_events' ? sourceRunResults(run) : '');
+  $('#run-body').textContent = snapshot.kind==='source_events' ? eventNames(snapshot.events) : snapshot.body || '';
   $('#run-output').textContent = run.output || (run.status === 'running' ? '正在执行，完成后记录输出。' : '无输出');
   $('#run-detail').showModal();
 }
@@ -513,7 +744,7 @@ $('#select-all').onchange = event => { for (const task of visibleTasks()) if (ev
 $('#clear-selection').onclick = () => { selected.clear(); renderTasks(); };
 $('#batch-resume').onclick = safely(() => batch('resume'));
 $('#batch-pause').onclick = safely(() => batch('pause'));
-for (const name of ['kind','frequency','result_destination','assistant_id','wechat_mode']) field(name).onchange = options;
+for (const name of ['kind','frequency','result_destination','assistant_id','wechat_mode','window_enabled']) field(name).onchange = options;
 for (const name of ['frequency','at','timeout']) field(name).onchange = () => { scheduleTouched = true; options(); };
 field('minutes').onchange = () => { minutesTouched = true; };
 for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => button.closest('dialog').close();
@@ -527,6 +758,12 @@ form.onsubmit = async event => {
     for (const name of ['enabled','allow_commands']) payload[name] = field(name).checked;
     if (payload.kind === 'outsourced') {payload.slug = field('slug').value; payload.fallback = field('fallback').value;}
     if (payload.kind === 'wechat_radar') payload.radar_since = field('radar_since').value + ':00+08:00';
+    if (payload.kind === 'source_events') {
+      payload.source=field('source').value;
+      payload.events=[...$('#source-event-list').querySelectorAll('input:checked')].map(input=>Number(input.value));
+      payload.window=field('window_enabled').checked?{start:field('window_start').value,end:field('window_end').value,timezone:'Asia/Shanghai'}:null;
+      payload.allow_commands=false;payload.result_destination='runs';payload.clue_id='';
+    }
     if (payload.kind === 'wechat_clues') {payload.wechat_mode = field('wechat_mode').value; payload.wechat_review = payload.wechat_mode === 'incremental' && field('wechat_review').checked;}
     payload.weekdays = [...$('#weekdays').querySelectorAll('input:checked')].map(element => Number(element.value));
     payload.ends_at = field('ends_at').value ? field('ends_at').value + ':00+08:00' : null;
@@ -549,7 +786,14 @@ $('#tasks').onchange = event => {
 };
 $('#tasks').onclick = safely(async event => {
   const button = event.target.closest('[data-action]');
-  if (!button || button.disabled) return;
+  if (!button) {
+    if (event.target.closest('button,a,summary,details,input,label')) return;
+    const row = event.target.closest('[data-task-id],[data-external-row]');
+    if (row?.dataset.taskId) { const item=state.tasks.find(task=>task.id===row.dataset.taskId); if(item)openTaskDetail(item); }
+    else if(row?.dataset.externalRow) { const item=state.external?.tasks?.find(task=>String(task.id)===row.dataset.externalRow);if(item){$('#task-detail-title').textContent=overviewText(item.name);metadata('#task-meta',[['来源','外部 · 只读 · '+overviewText(item.owner)],['计划',overviewText(item.schedule)],['状态',overviewText(item.status_label)],['检查时间',overviewWhen(state.external.checked_at)]]);$('#task-body').textContent=overviewText(item.detail);$('#task-detail').showModal();} }
+    return;
+  }
+  if(button.disabled) return;
   const task = state.tasks.find(task => task.id === button.dataset.id); if (!task) return;
   const action = button.dataset.action;
   if (action === 'edit') return openEditor(task);
@@ -570,6 +814,10 @@ $('#tasks').onclick = safely(async event => {
   try { await api('/api/schedules/' + encodeURIComponent(task.id) + '/' + action,{}); await refresh(); }
   finally { if (button.isConnected) button.disabled = false; }
 });
+$('#overview-runs').onclick = safely(async event => {
+  const button = event.target.closest('[data-overview-run]');
+  if (button) openRun(await api('/api/schedules/run/' + encodeURIComponent(button.dataset.overviewRun)));
+});
 $('#runs').onclick = safely(async event => {
   const button = event.target.closest('button'); if (!button || button.disabled) return;
   if (button.dataset.run) {
@@ -587,6 +835,14 @@ $('#runs').onclick = safely(async event => {
     if (button.dataset.cancel) { await api('/api/schedules/' + encodeURIComponent(button.dataset.cancel) + '/cancel',{}); await loadRuns(); }
   } finally { if (button.isConnected) button.disabled = false; }
 });
+document.addEventListener('click',event=>{
+  if(event.target.closest('[data-retry]')) safely(refresh)();
+  if(event.target.closest('[data-retry-runs]')) safely(()=>loadRuns())();
+});
+$('#tasks').addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-task-id],[data-external-row]')){event.preventDefault();event.target.click();}});
+for(const button of document.querySelectorAll('[data-scope]'))button.onclick=()=>{taskScope=button.dataset.scope;for(const node of document.querySelectorAll('[data-scope]'))node.setAttribute('aria-pressed',String(node===button));renderTasks();};
+for(const button of document.querySelectorAll('[data-summary]'))button.onclick=()=>{summaryFilter=summaryFilter===button.dataset.summary?null:button.dataset.summary;tab(false);renderTasks();};
+$('#recent-all').onclick=safely(async()=>{tab(true);filterTask=null;await loadRuns(1);});
 $('#quarantine-refresh').onclick = safely(() => loadQuarantine(true));
 $('#quarantine-retry-all').onclick = safely(async () => retryQuarantine(
   (quarantine?.items || []).map(item => item.document_id).filter(Boolean), $('#quarantine-retry-all')));

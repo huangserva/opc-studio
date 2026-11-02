@@ -183,6 +183,8 @@ def main(ROOT, Store, Handler, assistant_module, content, wire_outsourced_clues)
     server.schedules.seed_heat_schedule(store.workspace)
     server.schedules.publisher = store.clues.from_run
     wire_outsourced_clues(server, store)
+    server.schedules.source_analyzer = store.wechat_source.analyze_events
+    server.schedules.source_receipt_reader = store.wechat_source.event_receipt
     server.schedules.wechat_analyzer = store.wechat_source.analyze_clues
     server.schedules.radar_analyzer = store.wechat_source.analyze_radar
     server.schedules.github_analyzer = store.github.analyze

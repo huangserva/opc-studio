@@ -46,17 +46,47 @@ TRASH_LIMIT = 50
 
 
 class Knowledge:
-    def __init__(self, store, sources=None):
+    def _adapter_state(self, store):
+        """Initialize per-instance ports only; never run DDL or reset source rows."""
         self.store = store
-        self.root = store.workspace / 'knowledge'
-        self.root.mkdir(mode=0o700, exist_ok=True)
+        self.root = Path(store.workspace) / 'knowledge'
         self.path = self.root / 'knowledge.db'
         self.sync_lock = threading.Lock()
         self.stop_event = threading.Event()
-        # 删掉正文后回调（可为空）。情报侧用它按文档精确清推荐来源行 ——
-        # 来源粒度是文档，而链接粒度是 URL，同一 URL 有多份文档时两者对不上。
-        # 默认 None：不接线就什么也不做，模块之间不互相依赖。
+        self._raw_meta = None
+        self._raw_meta_guard = threading.Lock()
         self.document_removed_hook = None
+        self.last_sync_error = None
+
+    @classmethod
+    def attach_existing(cls, store):
+        instance = cls.__new__(cls)
+        instance._adapter_state(store)
+        if not instance.path.is_file():
+            raise ValueError('已索引原文尚不可用')
+        return instance
+
+    @staticmethod
+    def sync_diagnostic(exc, stage='index'):
+        # Exception text can contain SQL values, source bodies or credentials.
+        allowed = {'ValueError','OSError','PermissionError','TimeoutError','AttributeError',
+                   'RuntimeError','OperationalError','IntegrityError','DatabaseError','JSONDecodeError'}
+        name = type(exc).__name__
+        return {'stage': stage if stage in ('index','index_wait','receipt') else 'index',
+                'exception_type': name if name in allowed else 'Exception',
+                'reason': {'index':'索引未完成，已有原文保留，可重试',
+                           'index_wait':'等待索引繁忙任务超时，已采集结果保留',
+                           'receipt':'索引结果已保留，完成回执写入失败，需核对'}.get(stage,'索引未完成，已有原文保留，可重试')}
+
+    def mark_sync_failed(self, source_id, diagnostic):
+        self.last_sync_error = dict(diagnostic)
+        with self.db() as c:
+            c.execute("UPDATE sources SET status='error',detail=? WHERE id=?",
+                      (diagnostic['reason']+'（'+diagnostic['exception_type']+'）',source_id))
+
+    def __init__(self, store, sources=None):
+        self._adapter_state(store)
+        self.root.mkdir(mode=0o700, exist_ok=True)
         home = Path.home()
         projects = home / 'Documents/Codex/2026-10-03/b-q/work/wechat-source'
         defaults = [
@@ -117,23 +147,22 @@ class Knowledge:
     def db(self):
         c = sqlite3.connect(self.path, timeout=30)
         c.row_factory = sqlite3.Row
+        committed = False
         try:
             with c:
                 yield c
+            committed = True
         finally:
+            changed = c.total_changes if committed else 0
             c.close()
+            # Invalidate only after an actual successful commit, never before a receipt.
+            if changed and self._raw_meta is not None:
+                self._raw_meta.committed()
 
-    def status(self):
-        with self.db() as c:
-            rows = c.execute('SELECT s.*,COUNT(d.id) count,MAX(d.modified) latest FROM sources s LEFT JOIN documents d ON d.source=s.id AND ' + NOT_TRASHED + ' GROUP BY s.id ORDER BY s.rowid').fetchall()
-            sources = [{**json.loads(r['config']), **{k: r[k] for k in ('status', 'detail', 'synced_at', 'count', 'latest')}} for r in rows]
-            dossiers = [dict(r) for r in c.execute('SELECT id,title,modified FROM dossiers ORDER BY modified DESC')]
-            # total 是「还能被检索到多少」，与左侧来源计数同一口径；已删除的正文只出现在已删除视图里。
-            total = c.execute('SELECT COUNT(*) FROM documents d WHERE ' + NOT_TRASHED).fetchone()[0]
-        for source in sources:
-            if source.get('id') == 'wechat' and source.get('backend') == 'collector':
-                source['capture'] = self.capture.status()
-        return {'sources': sources, 'dossiers': dossiers, 'total': total, 'syncing': self.sync_lock.locked()}
+    def status(self, *, cached=False):
+        from raw_materials_meta import model
+        cache = model(self)
+        return cache.read() if cached else cache.fresh()
 
     def _write(self, c, source, key, kind, title, body, url='', modified='', tags=(), provenance=None):
         body, title = str(body or ''), str(title or '')[:500]
@@ -151,6 +180,7 @@ class Knowledge:
         if not reserved and not self.sync_lock.acquire(blocking=False):
             raise ValueError('资料正在同步，请稍候')
         try:
+            self.last_sync_error = None
             with self.db() as c:
                 sources = [json.loads(r[0]) for r in c.execute('SELECT config FROM sources') if source_id is None or json.loads(r[0])['id'] == source_id]
             if not sources:
@@ -159,9 +189,9 @@ class Knowledge:
                 sid = source['id']
                 if source['kind'] == 'manual' or source.get('enabled') is False:
                     continue
-                with self.db() as c:
-                    c.execute("UPDATE sources SET status='syncing',detail='正在更新本机索引' WHERE id=?", (sid,))
                 try:
+                    with self.db() as c:
+                        c.execute("UPDATE sources SET status='syncing',detail='正在更新本机索引' WHERE id=?", (sid,))
                     with self.db() as c:
                         c.execute('CREATE TEMP TABLE seen(id TEXT PRIMARY KEY)')
                         detail, complete = self._import(c, source)
@@ -172,8 +202,7 @@ class Knowledge:
                         c.execute('UPDATE sources SET status=?,detail=?,synced_at=? WHERE id=?', (state, detail, now(), sid))
                 except Exception as exc:
                     # Failed imports roll back, preserving the last successful searchable copy.
-                    with self.db() as c:
-                        c.execute("UPDATE sources SET status='error',detail=? WHERE id=?", (str(exc)[:300], sid))
+                    self.mark_sync_failed(sid, self.sync_diagnostic(exc))
             return self.status()
         finally:
             self.sync_lock.release()
@@ -264,6 +293,10 @@ class Knowledge:
         return self.status()
 
     def start_watch(self):
+        from raw_materials_meta import model
+        cache = model(self)
+        cache.refresh()
+        cache.start()
         def watch():
             next_index = time.monotonic() + 600
             while not self.stop_event.wait(60):
@@ -406,7 +439,9 @@ class Knowledge:
 
     def search(self, query='', kind='', tag='', offset=0, source='', mode=''):
         query = str(query).strip()[:200]
-        offset = max(0, min(int(offset), 100000))
+        try: offset = int(offset)
+        except (ValueError, TypeError): raise ValueError('分页无效') from None
+        if not 0 <= offset <= 100000: raise ValueError('分页范围无效')
         terms = re.findall(r'[^\s]+', query)[:12]
         conditions, args = [], []
         join, order = '', 'd.modified DESC,d.id'
@@ -438,9 +473,19 @@ class Knowledge:
             conditions.append('EXISTS(SELECT 1 FROM json_each(d.tags) WHERE value=?)')
             args.append(tag)
         where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
-        with self.db() as c:
-            total = c.execute('SELECT COUNT(*) FROM documents d ' + join + where, args).fetchone()[0]
-            rows = c.execute('SELECT d.* FROM documents d ' + join + where + ' ORDER BY ' + order + ' LIMIT 30 OFFSET ?', [*args, offset]).fetchall()
+        from raw_materials_meta import default_material_snapshot, default_material_total
+        default_request = not query and kind in ('',None) and source in ('',None) and tag in ('',None) and mode in ('',None)
+        with self.db() as c, default_material_snapshot(c, default_request):
+            total = default_material_total(c) if default_request else c.execute('SELECT COUNT(*) FROM documents d ' + join + where, args).fetchone()[0]
+            if default_request:
+                from raw_materials_meta import default_material_rows, default_list_fallback
+                try:
+                    rows = default_material_rows(c, offset)
+                except Exception as exc:
+                    default_list_fallback('exception', type(exc).__name__)
+                    rows = c.execute('SELECT d.* FROM documents d ' + join + where + ' ORDER BY ' + order + ' LIMIT 30 OFFSET ?', [*args, offset]).fetchall()
+            else:
+                rows = c.execute('SELECT d.* FROM documents d ' + join + where + ' ORDER BY ' + order + ' LIMIT 30 OFFSET ?', [*args, offset]).fetchall()
         results = []
         for row in rows:
             item = dict(row)

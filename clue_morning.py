@@ -33,18 +33,28 @@ def collect(root, now):
         runs = db.execute("""SELECT id, output FROM runs
             WHERE status IN ('succeeded','partial')
               AND julianday(started_at) >= julianday(?) AND julianday(started_at) <= julianday(?)
-              AND json_extract(snapshot,'$.kind') IN ('wechat_clues','wechat_radar')
+              AND json_extract(snapshot,'$.kind') IN ('wechat_clues','wechat_radar','source_events')
             ORDER BY started_at,id""", (cutoff.isoformat(), now.isoformat())).fetchall()
         for run_id, output in runs:
             try:
                 result = json.loads(output)
                 clues = result.get('clues', [])
+                if result.get('source')=='wechat' and isinstance(result.get('events'),list):
+                    clues=list(dict.fromkeys(clues+[c for e in result['events'] for c in e.get('clues',[])]))
                 if not isinstance(clues, list) or any(not isinstance(c, str) or not c for c in clues):
                     raise ValueError()
             except (ValueError, TypeError, AttributeError):
                 raise ValueError('微信运行结果格式异常，未生成晨报') from None
             ids.update(clues)
             run_ids.append(run_id)
+    event_db=base/'source-events/events.db'
+    if event_db.is_file():
+        with read_db(event_db) as db:
+            for run_id,result in db.execute("SELECT run_id,result FROM steps WHERE state IN ('succeeded','partial') AND julianday(started_at)>=julianday(?) AND julianday(started_at)<=julianday(?)",(cutoff.isoformat(),now.isoformat())):
+                data=json.loads(result);found=data.get('clues',[])
+                if not isinstance(found,list) or any(not isinstance(c,str) or not c for c in found):raise ValueError('事件引用线索格式异常')
+                ids.update(found)
+                if found and run_id not in run_ids:run_ids.append(run_id)
     rows = []
     with read_db(base / 'clues/clues.db') as db:
         for clue_id in sorted(ids):
@@ -118,6 +128,7 @@ def generate(root, now=None, require_judgment=False):
     metadata = dict(date=day, generated_at=now.isoformat(), window_start=cutoff.isoformat(), window_end=now.isoformat(),
                     clue_count=len(rows), category_counts=counts, clue_ids=[r['id'] for r in rows], run_ids=run_ids,
                     markdown_sha256=hashlib.sha256(content).hexdigest(),
+                    input_sha256=hashlib.sha256(json.dumps(rows,ensure_ascii=False,sort_keys=True).encode()).hexdigest(),
                     judgment=dict(source='pending' if require_judgment and rows else 'rules', generated_at=now.isoformat()))
     folder = workspace(root) / 'clue-morning'
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)

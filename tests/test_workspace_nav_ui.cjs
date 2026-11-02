@@ -30,13 +30,13 @@ const EXPECT = [
   {id:'works',href:'/',text:'▤ 创作台'},
   {id:'publish',href:'/publish.html',text:'↗ 发布复盘'},
   {id:'deals',href:'/deals.html',text:'▣ 商单'},
+  {id:'schedules',href:'/schedules.html',text:'◴ 定时任务'},
   {id:'settings',href:'/settings.html',text:'⚙ 设置'},
   {id:'image',href:'/lab.html?kind=image',text:'▧ 图片生成'},
   {id:'video',href:'/lab.html?kind=video',text:'▷ 视频生成'},
   {id:'clues',href:'/clues.html',text:'⌁ 线索中心'},
   {id:'intel',href:'/intel.html',text:'☰ 情报采集'},
   {id:'github',href:'/github.html',text:'⑂ GitHub 来源'},
-  {id:'schedules',href:'/schedules.html',text:'◴ 定时任务'},
   {id:'feedback',href:'/feedback.html',text:'◈ 发布反馈'},
   {id:'x-official',href:'/x-official.html',text:'Ⅹ X 官方接口'},
   {id:'knowledge',href:'/knowledge.html',text:'▦ 知识库'},
@@ -84,12 +84,13 @@ function checkNav(nav, expectedSelected, note, expected = EXPECT) {
   } else assert.equal(selected.length, 0, note + '：不在导航中的页面不得高亮别页');
   assert.equal(nav.querySelectorAll('a[aria-current]').length, expectedSelected?1:0);
   if(expected===EXPECT) {
-    assert.deepEqual([...nav.children].filter(n=>n.tagName==='A').map(n=>n.dataset.navItem), ['today','library','works','publish','deals','settings']);
+    assert.deepEqual([...nav.children].filter(n=>n.tagName==='A').map(n=>n.dataset.navItem), ['today','library','works','publish','deals','schedules','settings']);
     const groups=[...nav.querySelectorAll('details')];
     assert.deepEqual(groups.map(n=>n.querySelector('summary').textContent), ['工具','旧版']);
     assert.deepEqual([...groups[0].querySelectorAll('a')].map(n=>n.dataset.navItem), ['image','video']);
-    assert.deepEqual([...groups[1].querySelectorAll('a')].map(n=>n.dataset.navItem), EXPECT.slice(8).map(n=>n.id));
-    if(expectedSelected && EXPECT.findIndex(n=>n.id===expectedSelected)>=6) assert.ok(selected[0].closest('details').open);
+    assert.deepEqual([...groups[1].querySelectorAll('a')].map(n=>n.dataset.navItem), EXPECT.slice(9).map(n=>n.id));
+    if(selected[0]?.closest('details')) assert.ok(selected[0].closest('details').open);
+    if(expectedSelected === 'schedules') assert.equal(selected[0].parentElement, nav);
     assert.equal(nav.querySelectorAll('a[href="/events.html"]').length,0);
   }
 }

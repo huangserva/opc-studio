@@ -1,0 +1,38 @@
+{
+  "status": "partial",
+  "data": {
+    "batches": 1,
+    "completion": {
+      "phase": "analyze",
+      "processed": 0,
+      "reason": "模型繁忙，本批未发送，下轮续跑",
+      "reason_code": "model_busy",
+      "remaining_count": null,
+      "remaining_scope": "起点之后未完成消息；已保存检查点保留",
+      "type": "continuation"
+    },
+    "dropped_items": {},
+    "error": "模型推理槽位繁忙，本批未发送",
+    "error_kind": "model_busy",
+    "error_stage": "analyze",
+    "error_trace": [
+      {
+        "file": "wechat_radar_pipeline.py",
+        "function": "analyze",
+        "line": 481
+      },
+      {
+        "file": "independent_cases.py",
+        "function": "busy",
+        "line": 70
+      }
+    ],
+    "exception_code": null,
+    "exception_type": "ValueError",
+    "format": {},
+    "has_more": true,
+    "processed": 0,
+    "quarantined": 0,
+    "since": "2026-10-06T00:00:00+08:00"
+  }
+}

@@ -2,7 +2,7 @@ import {grokNode as node, renderPostCard, renderPostDetail, originalUrl, actionB
 
 // 每个实例独立持有条目、反馈和请求序号；不读取任何页面全局状态。
 export function createListReader({list, reader, layout, divider, loadDetail, onAction, onAuthor, renderDetail = renderPostDetail, draftFromToday = false}) {
-  let items = [], selected = -1, detail = null, request = 0, queued = Promise.resolve(), destroyed = false;
+  let items = [], selected = -1, selectedId = null, detail = null, request = 0, queued = Promise.resolve(), destroyed = false;
   const drafts = new Map(), polling = new Map();
   async function draftRequest(id, method='GET', body) {
     const response = await fetch('/api/items/'+encodeURIComponent(id)+(method==='GET'?'/draft-status':'/draft'), {method,cache:'no-store',headers:method==='GET'?{}:{'Content-Type':'application/json','X-Article-Studio':'1'},...(body?{body:JSON.stringify(body)}:{})});
@@ -24,7 +24,8 @@ export function createListReader({list, reader, layout, divider, loadDetail, onA
   }
   const select = async (item, {focus = false} = {}) => {
     const serial = ++request;
-    selected = items.findIndex(p => p.id === item.id);
+    selectedId = item.id;
+    selected = items.findIndex(p => p.id === selectedId);
     for (const card of list.querySelectorAll('.item-card')) card.classList.toggle('selected', card.dataset.itemId === item.id);
     reader.replaceChildren(node('div','reader-loading','正在读取全文…')); layout.classList.add('reading');
     try {
@@ -89,8 +90,19 @@ export function createListReader({list, reader, layout, divider, loadDetail, onA
   divider?.addEventListener('keydown', event => {if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {event.preventDefault(); resize(divider.getBoundingClientRect().left + (event.key === 'ArrowLeft' ? -20 : 20));}});
   return {
     select,
-    setItems(next) {items = next; for(const item of next)if(item.status==='used')setTimeout(()=>restoreDraft(item),0); selected = -1; detail = null; ++request; layout.classList.remove('reading'); reader.replaceChildren(node('div','reader-empty','点左侧条目查看全文'));},
-    card(item) {const card=renderPostCard(item,{actions:item.channel==='interest',onSelect:select,onAction:act});if(drafts.has(item.id))setTimeout(()=>showDraft(item.id,drafts.get(item.id)),0);return card;},
+    setItems(next, {preserveSelection = false} = {}) {
+      items = next;
+      for(const item of next)if(item.status==='used')setTimeout(()=>restoreDraft(item),0);
+      if (preserveSelection) {
+        // Keep the reader DOM and pending detail request, even if its ID left this page.
+        // Track the ID separately: selected may be -1 until the item reappears.
+        selected = items.findIndex(item => item.id === selectedId);
+        return;
+      }
+      selected = -1; selectedId = null; detail = null; ++request;
+      layout.classList.remove('reading'); reader.replaceChildren(node('div','reader-empty','点左侧条目查看全文'));
+    },
+    card(item) {const card=renderPostCard(item,{actions:item.channel==='interest',onSelect:select,onAction:act});card.classList.toggle('selected',item.id===selectedId);if(drafts.has(item.id))setTimeout(()=>showDraft(item.id,drafts.get(item.id)),0);return card;},
     showAuthor(authorItems, author) {
       ++request;
       const back = node('button','','返回全文');back.onclick=()=>{if(detail)draw();};

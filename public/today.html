@@ -1,24 +1,33 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>今日 · 内容工作台</title><link rel="stylesheet" href="/today.css"></head>
-<body>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>今日 · 内容工作台</title><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/today.css"></head>
+<body class="today-workspace">
 <aside class="workspace-sidebar"><a class="brand" href="/today.html">内容工作台</a><nav id="workspace-nav" aria-label="工作台栏目"></nav></aside>
 <main class="today-main">
-<header class="today-status"><h1>今日</h1><span id="total"></span><div id="sources" aria-live="polite">正在读取各来源…</div><details id="clue-morning-panel"><summary id="clue-morning-summary">微信线索晨报 · 正在读取…</summary><pre id="clue-morning-content"></pre></details></header>
-<details id="filtered-panel"><summary id="filtered-summary">已过滤 0 条</summary><div id="filtered-counts"></div><p>内容不足的条目保留并排到后面；来源重合的帖子分别计入各来源。</p><ul id="filtered-items"></ul></details>
-<div class="channel-tabs" role="group" aria-label="内容通道"><button type="button" data-channel="hot" aria-pressed="true">发现</button><button type="button" data-channel="interest" aria-pressed="false">兴趣</button></div>
-<form id="filters" class="filters" role="search">
-<div class="range-controls"><button type="button" data-range="today" aria-pressed="true">今天</button><button type="button" data-range="48h" aria-pressed="false">48小时</button><button type="button" data-range="7d" aria-pressed="false">7天</button></div>
-<select id="tier" aria-label="热度"><option value="">全部热度</option><option>火爆</option><option value="top">该做的3条</option><option>爆款</option><option>起势</option><option>低粉爆款</option></select>
-<select id="source" aria-label="来源"><option value="">全部来源</option><option value="G">Grok Bot</option><option value="A">AIsa</option><option value="V">视频榜</option><option value="L">linux.do</option></select>
-<select id="topic" aria-label="方向"><option value="">全部方向</option></select>
-<input id="q" type="search" placeholder="搜索帖子、作者" aria-label="搜索帖子、作者"><button type="submit">搜索</button>
+<header class="today-status"><h1 class="page-title">今日</h1><span id="total"></span><button type="button" id="today-todo-toggle" aria-expanded="false" aria-controls="today-todo">今天该做的</button><button type="button" id="today-refresh">刷新</button></header>
+<div class="today-source-row" aria-label="来源状态"><div id="sources" aria-live="polite">正在读取各来源…</div><details id="clue-morning-panel"><summary id="clue-morning-summary">微信线索晨报 · 正在读取…</summary><pre id="clue-morning-content"></pre></details></div>
+<div class="today-content"><div class="today-stream"><section id="today-controls" class="today-controls" aria-label="筛选与排序">
+<button type="button" id="filter-summary" class="filter-summary" aria-expanded="false" hidden></button>
+<form id="filters" class="filters">
+<div class="filter-top">
+<div class="channel-tabs button-group" role="group" aria-label="内容通道"><button type="button" data-channel="hot" aria-pressed="true">发现</button><button type="button" data-channel="interest" aria-pressed="false">兴趣</button><button type="button" data-channel="official" aria-pressed="false">官方号</button></div>
+<div class="range-controls button-group" role="group" aria-label="时间范围"><button type="button" data-range="today" aria-pressed="true">今天</button><button type="button" data-range="48h" aria-pressed="false">48小时</button><button type="button" data-range="7d" aria-pressed="false">7天</button></div>
+<div class="button-group sort-controls" role="group" aria-label="排序"><button type="button" data-sort="" aria-pressed="true">推荐</button><button type="button" data-sort="heat" aria-pressed="false">最热</button><button type="button" data-sort="time" aria-pressed="false">最新</button></div>
+<input id="q" type="search" placeholder="搜索帖子、作者" aria-label="搜索帖子、作者">
+<button type="button" id="filter-collapse" aria-expanded="true">收起 ▴</button>
+</div>
+<input type="hidden" id="tier"><input type="hidden" id="sort"><input type="hidden" id="source"><input type="hidden" id="topic">
+<div class="filter-tag-row"><span class="filter-label">方向</span><div id="topic-buttons" class="button-group topic-buttons" role="group" aria-label="方向"></div><details id="topic-more"><summary>更多</summary><div id="topic-extra" class="filter-chip-list"></div></details></div>
+<div class="filter-tag-row platform-row"><span class="filter-label">平台</span><div id="platform-filters" role="group" aria-label="平台"></div><label class="hot-only"><input id="hot-only" type="checkbox">只看爆款</label><details id="more-filters"><summary>更多筛选</summary><div class="more-filter-body"><div><b>采集渠道</b><div id="collection-channel" class="filter-chip-list" role="group" aria-label="采集渠道"></div></div><div><b>来源热度标签</b><div id="tier-buttons" class="filter-chip-list" role="group" aria-label="来源热度标签"></div></div><div><b>原来源筛选</b><div class="filter-chip-list" id="source-buttons" role="group" aria-label="来源"><button type="button" data-source="">全部</button><button type="button" data-source="G">Grok</button><button type="button" data-source="A">AIsa X</button><button type="button" data-source="V">视频榜</button><button type="button" data-source="L">RSS</button></div></div><button type="button" id="relevance-sort" data-sort="relevance" hidden>按相关度</button></div></details></div>
 </form>
+</section>
 <div id="layout" class="list-reader">
 <section id="item-list" class="item-list" aria-label="今日条目" aria-busy="true"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></section>
+<details id="filtered-panel"><summary id="filtered-summary">已过滤 0 条</summary><div id="filtered-counts"></div><p>内容不足的条目保留并排到后面；来源重合的帖子分别计入各来源。</p><ul id="filtered-items"></ul></details>
 <div id="divider" class="divider" role="separator" aria-orientation="vertical" aria-label="调整左右分栏" tabindex="0"></div>
 <section id="reader" class="reader" aria-label="全文阅读器" tabindex="-1"><div class="reader-empty"><span>从今天值得学的内容开始</span><p>点左侧条目查看全文</p><small>J / K 上下切换 · O 打开原帖 · Enter 聚焦阅读器</small></div></section>
 </div>
+</div><aside id="today-todo" class="today-todo" aria-label="今天该做的"><header class="todo-heading"><h2>今天该做的</h2><button type="button" id="today-todo-close" aria-label="收起今天该做的">关闭</button></header><div id="today-todo-content"></div></aside></div>
 </main>
 <dialog id="source-error"><h2>来源异常详情</h2><pre></pre><button type="button">关闭</button></dialog>
 <script src="/workspace-nav.js"></script><script type="module" src="/today.js"></script>

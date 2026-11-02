@@ -38,8 +38,8 @@ def _read(path):
         return raw, info
 
 
-def _document():
-    path = grok.reports_dir() / 'interest-topics.md'
+def _document(directory=None):
+    path = (Path(directory) if directory is not None else grok.reports_dir()) / 'interest-topics.md'
     if path.parent.is_symlink():
         raise ValueError('兴趣目录不能是符号链接')
     try:
@@ -61,8 +61,8 @@ def _section(document):
     return lines, start, end, bullets
 
 
-def topics():
-    document, revision = _document()
+def topics(directory=None):
+    document, revision = _document(directory)
     lines, _, _, bullets = _section(document)
     return {'topics': [lines[i][2:].rstrip('\r\n') for i in bullets], 'revision': revision}
 
@@ -155,15 +155,19 @@ def _post(row, moment):
         return None, 1
     match = POST_URL.fullmatch(grok.text(row.get('url')))
     valid_url = bool(match and match.group(1) == identifier)
-    reasons = []
+    reasons, content_reasons = [], []
     for field, label in (('author_handle', '作者'), ('topic', '兴趣方向'), ('what_new', '新内容说明')):
         if not grok.text(row.get(field)).strip():
             reasons.append(label + '缺失')
     if not valid_url:
         reasons.append('原帖链接无效或与帖子 id 不一致')
     full = grok.text(row.get('full_text'))
-    if row.get('content_complete') is False or not full.strip():
-        reasons.append(grok.text(row.get('incomplete_reason')) or '来源未提供完整正文')
+    for field in ('content_complete', 'full_text', 'incomplete_reason'):
+        expected = bool if field == 'content_complete' else str
+        if field in row and not (field == 'incomplete_reason' and row[field] is None) and not isinstance(row[field], expected):
+            reasons.append(field + '字段类型无效')
+    if row.get('content_complete') is False or (isinstance(row.get('full_text', ''), str) and not full.strip()):
+        content_reasons.append(grok.text(row.get('incomplete_reason')) or '来源未提供完整正文')
     relevance = grok.number(row.get('relevance'))
     if relevance not in (0, 1, 2, 3):
         relevance = None
@@ -187,9 +191,10 @@ def _post(row, moment):
                 title=(grok.text(row.get('what_new')) or full or '待补充内容')[:120], what_new=grok.text(row.get('what_new')),
                 full_text=full, url=row['url'] if valid_url else '', metrics={k: grok.number(row.get(k)) for k in ('views', 'likes', 'bookmarks', 'retweets', 'replies')},
                 tier='兴趣', topic=grok.text(row.get('topic')), relevance=relevance, fit_score=None, doable=None, hot=False,
-                why=grok.text(row.get('why')), usable=usable, doable_resource='\n'.join((r['note'] + ' ' + (r['url'] or '')).strip() for r in usable),
+                why=_rich(row.get('why','')), usable=usable, doable_resource='\n'.join((r['note'] + ' ' + (r['url'] or '')).strip() for r in usable),
                 also_posted_by=also if isinstance(also, list) else [],
-                content_complete=not reasons, incomplete_reason='；'.join(reasons), incomplete_reasons=reasons,
+                content_complete=not (reasons or content_reasons), incomplete_reason='；'.join(reasons + content_reasons),
+                incomplete_reasons=reasons + content_reasons, content_notice_reasons=content_reasons,
                 rich_sources=[_rich({k: row[k] for k in ('article', 'thread', 'quoted', 'media') if k in row})],
                 status='new', feedback=None), int(bool(reasons)) + invalid_links
 
@@ -264,13 +269,16 @@ def snapshot(root, now=None):
         prepare_content(item)
         record = feedback.get('interest:' + item['id'], {})
         item.update(status=record.get('status', 'new'), feedback=record.get('feedback'))
+    incomplete_items = [dict(id=item['id'], title=item['title'], url=item['url'], reasons=item['content_notice_reasons'])
+                        for item in merged.values() if item['content_notice_reasons']]
     state = dict(updated_at=latest.isoformat() if latest else None, bad_files=bad_files, bad_entries=bad_entries,
+                 incomplete_entries=len(incomplete_items), incomplete_items=incomplete_items,
                  duplicates=duplicates, report_count=report_count,
                  error='；'.join(v for v in [f'{bad_files} 个异常文件，{bad_entries} 处条目或链接异常' if bad_files or bad_entries else None, feedback_error] if v) or None)
     return list(merged.values()), {'G': state}
 
 
-def page_view(root, query, now=None):
+def page_view(root, query, now=None, *, unpaged=False):
     get = lambda k, default='': query.get(k, [default])[0]
     if get('range', 'today') not in ('today', '48h', '7d'):
         raise ValueError('时间范围只能是 today、48h、7d')
@@ -289,7 +297,7 @@ def page_view(root, query, now=None):
     from today_view import SUMMARY, apply_gate
     filtered, filtering = apply_gate(filtered, channel='interest')
     filtered.sort(key=lambda p: (p['content_insufficient'], -grok.stamp(p['fetched_at']).timestamp(), p['id']))
-    return dict(channel='interest', items=[{k: p[k] for k in (*SUMMARY, 'channel', 'what_new', 'usable', 'relevance', 'incomplete_reasons')} for p in filtered[(page-1)*50:page*50]],
+    return dict(channel='interest', items=[{k: p[k] for k in (*SUMMARY, 'channel', 'what_new', 'usable', 'relevance', 'incomplete_reasons')} for p in (filtered if unpaged else filtered[(page-1)*50:page*50])],
                 total=len(filtered), page=page, page_size=50, top=[], top_message='', sources=states, filtering=filtering,
                 topics=sorted({p['topic'] for p in items if p['topic']}))
 
@@ -303,6 +311,132 @@ def topics_route(handler, payload=None):
         return handler.reply(400, {'error': str(exc)})
     except OSError:
         return handler.reply(500, {'error': '兴趣清单读写失败，请重试'})
+
+
+# 安装前离线预建；正常请求只读摘要模型，整池匹配在后台执行。
+def projection_path(root):
+    from interest_projection import path
+    return path(root)
+
+def prebuild_projections(root,now=None):
+    from interest_projection import publish
+    return {**publish(root,now),'entries':3}
+
+def cross_source_page(root,query,now=None):
+    if now is not None:
+        result=_cross_source_page(root,query,now);result.pop('_valid_until',None);return result
+    from interest_projection import page
+    return page(root,query)
+
+
+def _cross_source_page(root, query, now=None):
+    """读取全部输入的只读投影；去重、分页和筛选只在今日统一出口做一次。"""
+    import copy
+    from collections import Counter
+    import interest_sources as sources
+    import interest_match as matching
+    from today_view import prepare_content, _load_feedback
+    now = now or datetime.now(timezone.utc)
+    get = lambda k, default='': query.get(k, [default])[0]
+    if get('range','today') not in ('today','48h','7d'):
+        raise ValueError('时间范围只能是 today、48h、7d')
+    if int(get('page','1')) < 1:raise ValueError('页码至少为 1')
+    cutoff = now.astimezone(grok.BEIJING).replace(hour=0,minute=0,second=0,microsecond=0) if get('range','today')=='today' else now-timedelta(hours=48 if get('range')=='48h' else 168)
+    configured=topics()['topics'];directions=matching.compile_topics(configured);profile=matching.profile_key(configured)
+    data,cache=sources.candidates(root,now)
+    # 两条原有兴趣入口继续即时读，保留已有反馈/异常/逐条改报告的语义。
+    from wechat_tools_view import cards
+    current,current_states=snapshot(root,now)
+    try:tool_cards=cards(root,include_filtered=True)
+    except (OSError,ValueError,KeyError,TypeError,__import__('sqlite3').DatabaseError) as exc:
+        __import__('logging').getLogger(__name__).warning('interest_tools_read_unavailable kind=%s',type(exc).__name__)
+        tool_cards=[];current_states['W']=dict(updated_at=None,error='工具线索暂不可读，其他来源继续显示')
+    live=[]
+    for original in current+tool_cards:
+        original=copy.deepcopy(original)
+        original.update(canonical_key=original['id'],identity_state='k1' if original.get('clue_id') else 'pending_ingest',input_sources=['微信群工具' if original.get('kind')=='tool' else 'Grok 兴趣'],input_ids=[original['id']],source_topics=[original.get('topic','')],interest_original=True)
+        live.append(original)
+    try:sources.attach_k1(root,live)
+    except (OSError,ValueError,KeyError,__import__('sqlite3').DatabaseError) as exc:
+        __import__('logging').getLogger(__name__).warning('interest_k1_read_unavailable kind=%s',type(exc).__name__)
+        current_states['K1 身份']=dict(updated_at=None,error='线索身份暂不可读，按已有来源规范身份显示')
+    valid_until=min(now+timedelta(minutes=5),(now.astimezone(grok.BEIJING)+timedelta(days=1)).replace(hour=0,minute=0,second=0,microsecond=0))
+    window=timedelta(hours=48 if get('range')=='48h' else 168)
+    versions=[];matched_keys=set();groups={};channel_times={}
+    for original in [p for p in data['items'] if not p.get('interest_original')]+live:
+        moment=grok.stamp(original.get('fetched_at'))
+        if moment:
+            for event in (moment,moment+window):
+                if event>now:valid_until=min(valid_until,event)
+        # 原 Grok 兴趣入口沿用按抵达时间下界过滤的既有语义；新来源拒绝未来时间。
+        if not moment or moment<cutoff or (moment>now and not original.get('interest_original')):continue
+        from platform_registry import channel_key,CHANNELS
+        for flag in original.get('sources',[]):
+            key=channel_key(flag);label={'grok':'G','aisa':'V' if flag=='V' else 'A','wechat':'W','rss':'L'}.get(key,CHANNELS[key]['display_name'])
+            if label not in channel_times or moment>channel_times[label][0]:channel_times[label]=(moment,original['fetched_at'])
+        verdict=original.get('interest_matches',[]) if data.get('match_profile')==profile and not original.get('interest_original') else matching.classify(original,directions)
+        value=dict(original,interest_matches=[] if original.get('filtered') else verdict)
+        versions.append(value);groups.setdefault(value['canonical_key'],[]).append(value)
+        if value['interest_matches']:matched_keys.add(value['canonical_key'])
+    # 任一版本命中即保留这条线索的全部渠道，不能先丢掉未独立命中的版本。
+    selected=matching.deduplicate(p for p in versions if p['canonical_key'] in matched_keys)
+    for value in selected:prepare_content(value)
+    counts={};audit=[]
+    for key,members in groups.items():
+        visible=key in matched_keys
+        inputs=list(dict.fromkeys(s for value in members for s in value['input_sources']))
+        for source in inputs:
+            c=counts.setdefault(source,dict(total=0,visible=0,filtered=0,insufficient=0,ratio=0))
+            c['total']+=1;c['visible']+=int(visible);c['filtered']+=int(not visible);c['insufficient']+=int(all(p.get('content_insufficient',False) for p in members))
+        if not visible:
+            first=members[0];audit.append(dict(id=key,title=first['title'],url=first.get('url',''),sources=inputs,hidden=True,reason='所有已有版本均未命中当前兴趣方向，或来源已标记过滤'))
+    # 同步读取当前发现候选，复用其 gate / 官方号分流；不把旧缓存的官方名单当真。
+    from today_view import snapshot as discovery_snapshot,apply_gate
+    discoveries=set()
+    # 只有兴趣报告的隔离 workspace 不读取仓库全局发现 bundle；本地有发现候选才对账。
+    potential_hot=any(set(p['input_sources'])&{'Grok 日报','Grok 快报','Grok 周报','AIsa X','抖音视频榜','小红书灵感榜','linux.do'} for p in data['items'])
+    try:visible,_=apply_gate(discovery_snapshot(root,now)[0]) if potential_hot else ([],{})
+    except (OSError,ValueError,TypeError,KeyError) as exc:
+        __import__('logging').getLogger(__name__).warning('interest_discovery_comparison_unavailable kind=%s',type(exc).__name__)
+        visible=[]
+    discovery_candidates={}
+    for p in visible:
+        moment=grok.stamp(p.get('published_at'))
+        if moment:
+            for event in (moment,moment+window,moment+timedelta(hours=168)):
+                if event>now:valid_until=min(valid_until,event)
+        if not moment or not cutoff<=moment<=now:continue
+        try:key=sources.canonical(p,p.get('platform'))[0]
+        except ValueError:key=p['id']
+        discovery_candidates.setdefault(key,[]).append({k:p.get(k) for k in ('id','author','author_type','author_verification_type','metrics','followers','hot')})
+        if not (p.get('official') or {}).get('is_official') or p['official']['hot']:discoveries.add(key)
+    try:feedback=_load_feedback(root)
+    except ValueError:
+        feedback={};current_states['反馈']=dict(updated_at=None,error='反馈文件损坏，已保留原文件；浏览不受影响')
+    output=[]
+    for value in selected:
+        if get('author') and get('author').casefold() not in (value['author'].get('name','').casefold(),value['author'].get('handle','').casefold()):continue
+        if get('q').casefold() not in (value['title']+value['full_text']+str(value['author'])+' '.join(m['name'] for m in value['interest_matches'])).casefold():continue
+        value['topic']=value['interest_matches'][0]['name']
+        value['discovery_overlap']=value['canonical_key'] in discoveries
+        value['_discovery_candidates']=discovery_candidates.get(value['canonical_key'],[])
+        value['interest_rule_version']=matching.VERSION
+        value['interest_rank']=dict(direction=max(m['weight'] for m in value['interest_matches']),trust=max(sources.SOURCE_TRUST.get(s,1) for s in value['input_sources']))
+        record=feedback.get('interest:'+value['id'],{})
+        # 工具显式分拣状态保持现有只读模型；普通候选只叠本地反馈。
+        if record:value.update(status=record.get('status','new'),feedback=record.get('feedback'))
+        value.setdefault('official',None)
+        output.append(value)
+    # 先按采集自然日分组，再方向权重、来源可信度、时刻；新一天不会被旧日高权重淹没。
+    output=matching.balanced_sort(output,grok.BEIJING,grok.stamp)
+    for c in counts.values():c['ratio']=c['filtered']/c['total'] if c['total'] else 0
+    states=copy.deepcopy(current_states)
+    for key,(_,updated) in channel_times.items():states[key]={**states.get(key,dict(error=None)), 'updated_at':updated}
+    states['跨来源索引']=dict(updated_at=cache['built_at'],error=cache['error'] or ('全来源索引正在首次建立，数量暂不完整' if cache['partial'] else '正在后台重建，暂显示上次完整索引' if cache['refreshing'] else '部分输入暂不可读：'+ '、'.join(data['errors']) if data.get('errors') else None))
+    return dict(_valid_until=valid_until,channel='interest',items=output,total=len(output),page=1,page_size=50,top=[],top_message='',sources=states,
+                filtering=dict(by_source=counts,items=audit,total=len(audit),policy='按当前兴趣方向匹配；任一版本命中即保留整条线索和全部渠道。来源分别按参与的规范线索计数；官方号保留在兴趣栏。'),
+                configured_topics=configured,_official_hints=__import__('official_accounts').interest_hints(),interest_cache=cache,daily_counts=dict(Counter(grok.stamp(p['fetched_at']).astimezone(grok.BEIJING).date().isoformat() for p in output)),
+                sort_policy='采集日倒序 · 各方向按设置顺序加权轮流展示 · 来源可信度与时间优先；内容不足后排')
 
 
 def save_feedback(root, payload):
@@ -324,23 +458,25 @@ def save_feedback(root, payload):
             record['feedback'] = None
         record.update(channel='interest', updated_at=datetime.now(timezone.utc).isoformat())
         # 复用 Grok 写入器的锁、损坏检测和原子替换，保留爆款通道已有反馈。
-        with grok._feedback_lock(root):
-            entries = grok._load_feedback(root)
-            tweet_id = identifier.removeprefix('x:')
-            if record['feedback'] is None and record['status'] == 'new':
-                if entries.get(tweet_id, {}).get('channel') == 'interest':
-                    entries.pop(tweet_id, None)
-            else:
-                entries[tweet_id] = dict(tweet_id=tweet_id, channel='interest',
-                    verdict='not_worth' if record['feedback'] == 'inaccurate' else 'worth',
-                    updated_at=record['updated_at'], post=item)
-            raw = (json.dumps(entries, ensure_ascii=False, indent=2, allow_nan=False) + '\n').encode()
-            grok._atomic_write(grok.reports_dir() / 'feedback/studio-feedback.json', raw)
-            grok._atomic_write(grok.feedback_path(root), raw)
+        if any(source.startswith('Grok ') for source in item.get('input_sources',['Grok 兴趣'])):
+            with grok._feedback_lock(root):
+                entries = grok._load_feedback(root)
+                tweet_id = identifier.removeprefix('x:')
+                if record['feedback'] is None and record['status'] == 'new':
+                    if entries.get(tweet_id, {}).get('channel') == 'interest':
+                        entries.pop(tweet_id, None)
+                else:
+                    entries[tweet_id] = dict(tweet_id=tweet_id, channel='interest',
+                        verdict='not_worth' if record['feedback'] == 'inaccurate' else 'worth',
+                        updated_at=record['updated_at'], post=item)
+                raw = (json.dumps(entries, ensure_ascii=False, indent=2, allow_nan=False) + '\n').encode()
+                grok._atomic_write(grok.reports_dir() / 'feedback/studio-feedback.json', raw)
+                grok._atomic_write(grok.feedback_path(root), raw)
         if action == 'keep':
             from items_store import ItemsStore
             store = ItemsStore(root)
-            store.upsert({**item, **record, 'why_viral': item['why'], 'analysis': {'channel': 'interest', 'relevance': item['relevance'], 'usable': item['usable']}})
+            stored=store.upsert({**item, **record, 'why_viral': item['why'], 'analysis': {'channel':'interest','relevance':item['relevance'],'usable':item['usable'],'canonical_key':item.get('canonical_key',identifier),'clue_id':item.get('clue_id'),'input_sources':item.get('input_sources',[]),'interest_matches':item.get('interest_matches',[])},'legacy_refs':item.get('legacy_refs',[])+([{'store':'clue','id':item['clue_id']}] if item.get('clue_id') else [])})
+            record['material_id']=stored['id']
         records[key] = record
         grok._atomic_write(feedback_path(root), (json.dumps(records, ensure_ascii=False, indent=2) + '\n').encode())
         from today_view import accumulate_inaccurate

@@ -167,5 +167,170 @@ class GrokBotTests(unittest.TestCase):
                 api.radar_view(self.workspace, hours, NOW)
 
 
+    def test_items_reports_all_kinds_and_empty(self):
+        for kind in api.KINDS:
+            with self.subTest(kind=kind):
+                self.write(kind + '/items.json', [self.row('7')], key='items')
+        result = api.load_reports()
+        self.assertEqual(result['report_count'], 3)
+        self.assertEqual(result['bad_files'], 0)
+        self.assertEqual([p['id'] for p in result['posts']], ['7'])
+        self.assertEqual(len(result['posts'][0]['sources']), 3)
+        self.write('daily/empty.json', [], key='items')
+        self.assertEqual(api.load_reports()['report_count'], 4)
+
+    def test_multi_key_same_ids_do_not_duplicate_or_change_precedence(self):
+        path = self.write(rows=[self.row('1', views=11)])
+        data = json.loads(path.read_text())
+        data.update(entries=[self.row('1', views=22), self.row('2')],
+                    items=[self.row('1', views=33), dict(self.row('1'), id=1),
+                           {'url': 'https://x.com/test/status/2'}, self.row('3')])
+        path.write_text(json.dumps(data))
+        result = api.load_reports()
+        self.assertEqual((result['report_count'], result['bad_files'], result['skipped_entries']), (1, 0, 0))
+        posts = {p['id']: p for p in result['posts']}
+        self.assertEqual(set(posts), {'1', '2', '3'})
+        self.assertEqual(posts['1']['views'], 11)
+        self.assertTrue(all(len(p['sources']) == 1 for p in posts.values()))
+
+    def test_bad_items_reject_even_with_valid_posts(self):
+        path = self.write()
+        for invalid in ('text', {}, 1, None, True):
+            for other_keys in ({}, {'posts': [self.row()]}, {'entries': []}):
+                with self.subTest(items=invalid, keys=list(other_keys)):
+                    path.write_text(json.dumps(dict(other_keys, items=invalid)))
+                    result = api.load_reports()
+                    self.assertEqual((result['bad_files'], result['report_count'], result['posts']), (1, 0, []))
+        path.write_text('{"notes":"missing all post keys"}')
+        self.assertEqual(api.load_reports()['bad_files'], 1)
+        self.write(rows=[self.row('8'), {}, None], key='items')
+        self.assertEqual(api.load_reports()['skipped_entries'], 2)
+
+    def test_today_todo_missing_empty_and_notes(self):
+        day = '2026-11-02'
+        self.write('daily/2026-11-01.json')
+        self.assertIsNone(api.load_today_todo(day))
+        self.assertEqual(api.load_today_todo(day, with_notes=True), {'items': None, 'notes': None})
+        path = self.write('daily/' + day + '.json', [], key='items')
+        data = {'items': [], 'today_todo': [], 'notes': '今天没有：没有同时达到适配度和可执行门槛的帖子。'}
+        path.write_text(json.dumps(data, ensure_ascii=False))
+        before = path.read_bytes(), path.stat().st_mtime_ns
+        self.assertEqual(api.load_today_todo(day), [])
+        self.assertEqual(api.load_today_todo(day, with_notes=True), {'items': [], 'notes': data['notes']})
+        self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+
+    def test_today_todo_original_order_and_all_fields(self):
+        rows = [dict(self.row(id), handle='原作者', label='起势', fit_score=95-i,
+                     doable=8+i, my_angle='我的角度', why='为什么', future_field={'nested':[i]})
+                for i, id in enumerate(('9', '2', '7'))]
+        path = self.write('daily/2026-11-02.json', rows, key='items')
+        path.write_text(json.dumps({'items': rows, 'today_todo': rows, 'notes': ['原始 notes']}, ensure_ascii=False))
+        self.assertEqual(api.load_today_todo('2026-11-02', self.reports), rows)
+        self.assertEqual(api.load_today_todo('2026-11-02', self.reports, with_notes=True), {'items': rows, 'notes': ['原始 notes']})
+        self.assertEqual([row['id'] for row in api.load_today_todo('2026-11-02')], ['9', '2', '7'])
+
+    def test_today_todo_bad_data_does_not_become_missing_or_empty(self):
+        path = self.write('daily/2026-11-02.json')
+        for data in ({}, [], {'today_todo':None}, {'today_todo':{}}, {'today_todo':'bad'}, {'today_todo':[None]}):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                path.write_text(json.dumps(data))
+                api.load_today_todo('2026-11-02')
+        path.write_text('{"today_todo":[')
+        with self.assertRaises(ValueError):
+            api.load_today_todo('2026-11-02')
+        path.write_text('{"today_todo":[]}')
+        self.assertEqual(api.load_today_todo('2026-11-02', with_notes=True), {'items': [], 'notes': None})
+
+    def test_today_todo_strict_date_and_symlink_protection(self):
+        for day in ('../2026-11-02', '2026-2-01', '2026-02-30', '2026-11-02T00:00:00Z', None):
+            with self.subTest(day=day), self.assertRaises(ValueError):
+                api.load_today_todo(day)
+        path = self.write('daily/2026-11-02.json')
+        target = self.base / 'outside-todo.json'
+        target.write_text('{"today_todo":[]}')
+        path.unlink()
+        path.symlink_to(target)
+        with self.assertRaises(OSError):
+            api.load_today_todo('2026-11-02')
+        path.unlink()
+        path.parent.rmdir()
+        path.parent.symlink_to(self.base, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            api.load_today_todo('2026-11-02')
+
+
+    def test_auxiliary_prefixes_skip_without_parsing_and_count(self):
+        self.write()
+        prefixes = ('knowledge_payloads', 'knowledge_post_results', '_post_results')
+        count = 0
+        for kind in ('daily', 'alerts'):
+            for prefix in prefixes:
+                path = self.reports / kind / (prefix + '_x.json')
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('not valid JSON')
+                count += 1
+                result = api.load_reports()
+                self.assertEqual(result['skipped_aux_files'], count)
+                self.assertEqual(result['ignored_files'], count)
+                self.assertEqual((result['bad_files'], result['report_count']), (0, 1))
+                self.assertEqual([p['id'] for p in result['posts']], ['1'])
+        # A parseable auxiliary payload cannot introduce posts or latest timestamps.
+        self.write('alerts/knowledge_payloads_valid.json', [self.row('99')], when='2099-01-01T00:00:00Z')
+        result = api.load_reports()
+        self.assertEqual(result['skipped_aux_files'], 7)
+        self.assertEqual(result['latest_report']['file'], 'daily/a.json')
+        self.assertEqual([p['id'] for p in result['posts']], ['1'])
+        (self.reports / 'alerts/knowledge_payloads_valid.json').unlink()
+        self.assertEqual(api.load_reports()['skipped_aux_files'], 6)
+
+    def test_actual_bad_reports_and_middle_prefix_still_bad(self):
+        self.write(rows=[self.row()])
+        names = ('daily/2026-11-02.json', 'alerts/2026-11-02-1200.json',
+                 'daily/random.json', 'daily/2026-11-02-knowledge.json',
+                 'alerts/before_knowledge_payloads_x.json', 'daily/before_post_results_x.json')
+        for name in names:
+            path = self.reports / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('broken JSON')
+        (self.reports / 'daily/knowledge_payloads_x.json').write_text('broken auxiliary')
+        (self.reports / 'daily/knowledge_payloads_x.txt').write_text('not JSON')
+        result = api.load_reports()
+        self.assertEqual(result['bad_files'], len(names))
+        self.assertEqual(result['skipped_aux_files'], 1)
+        self.assertEqual(result['ignored_files'], 2)
+        self.assertEqual(result['report_count'], 1)
+        for name in names:
+            (self.reports / name).write_text('{"notes":"missing all post keys"}')
+        self.assertEqual(api.load_reports()['bad_files'], len(names))
+
+    def test_weekly_with_post_keys_remains_a_post_report(self):
+        for i, key in enumerate(('posts', 'entries', 'items'), 1):
+            self.write('weekly/' + key + '.json', [self.row(str(i))], key=key)
+        result = api.load_reports()
+        self.assertEqual({p['id'] for p in result['posts']}, {'1', '2', '3'})
+        self.assertEqual((result['report_count'], result['bad_files'], result['skipped_aux_files']), (3, 0, 0))
+        path = self.reports / 'weekly/items.json'
+        for invalid in ('bad', {}, None):
+            with self.subTest(items=invalid):
+                path.write_text(json.dumps({'items': invalid}))
+                result = api.load_reports()
+                self.assertEqual((result['report_count'], result['bad_files'], result['skipped_aux_files']), (2, 1, 0))
+
+    def test_weekly_without_post_keys_counts_as_auxiliary(self):
+        self.write()
+        folder = self.reports / 'weekly'
+        folder.mkdir()
+        (folder / '2026-W44.json').write_text('{"summary":"周报","notes":"无帖子键"}')
+        result = api.load_reports()
+        self.assertEqual((result['report_count'], result['bad_files'], result['skipped_aux_files']), (1, 0, 1))
+        (folder / 'another.json').write_text('{}')
+        self.assertEqual(api.load_reports()['skipped_aux_files'], 2)
+        # Unparseable JSON and non-object data are still bad: no valid summary schema.
+        (folder / 'broken.json').write_text('{')
+        (folder / 'array.json').write_text('[]')
+        result = api.load_reports()
+        self.assertEqual((result['bad_files'], result['skipped_aux_files']), (2, 2))
+
+
 if __name__ == '__main__':
     unittest.main()

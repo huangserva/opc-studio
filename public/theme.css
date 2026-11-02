@@ -1,0 +1,118 @@
+/* 第一期主题：变量是全站唯一调色入口；专属页面的细节留第二期。 */
+:root {
+  --c-accent:#e86739;
+  --c-ink:#222220;
+  --c-muted:#686863;
+  --c-faint:#8f8f87;
+  --c-bg:#f4f5e8;
+  --c-surface:#fafbf3;
+  --c-sage:#c5d5b7;
+  --c-note:#f6ead9;
+  --c-warn:#f5d24a;
+  --c-alert:#ffdcdc;
+  --c-line:#222220;
+  --c-line-soft:rgba(34,34,32,.15);
+  --c-paper:#fff;
+  --c-overlay:rgba(34,34,32,.38);
+  --font-body:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  --font-title:"Songti SC","Noto Serif SC","STSong",serif;
+  --radius-card:4px;
+  --radius-control:2px;
+  --radius-round:50%;
+  --shadow:none;
+  --blue:var(--c-ink);
+  --accent:var(--c-ink);
+  --line:var(--c-line);
+  --muted:var(--c-muted);
+}
+html:root {font-family:var(--font-body);color:var(--c-ink);background:var(--c-bg)}
+html body {color:var(--c-ink);background:var(--c-bg);font-family:var(--font-body)}
+html body :is(.sidebar,.workspace-sidebar,.settings-sidebar) {background:var(--c-bg);border-color:var(--c-line)}
+html body :is(.main,.today-main) {background:var(--c-bg)}
+html body :is(.brand,.breadcrumb,.breadcrumb b,.breadcrumb span) {color:var(--c-ink)}
+html body .page-title {font-family:var(--font-title);font-size:30px;font-weight:600;color:var(--c-ink);letter-spacing:0}
+html body :is(.eyebrow,.nav-title) {color:var(--c-muted);font-size:12px;letter-spacing:.08em}
+html body :is(.topbar,.today-status,.theme-header) {background:var(--c-accent);color:var(--c-ink);border-color:var(--c-line)}
+html body .theme-header {padding:16px;border:1px solid var(--c-line);border-radius:var(--radius-control)}
+html body :is(.topbar,.today-status,.theme-header) :is(p,small,a,#total,.channel-updated-label) {color:var(--c-ink)}
+html body :is(button,.button,input,select,textarea) {border-radius:var(--radius-control);box-shadow:var(--shadow)}
+html body :is(.topbar,.today-status,.theme-header) :is(button,.button) {background:var(--c-accent);border:1px solid var(--c-line);color:var(--c-ink)}
+html body :is(button,.button)[aria-pressed=true],html body #workspace-nav a:is(.selected,[aria-current=page]) {background:var(--c-sage);color:var(--c-ink);border:1px solid var(--c-line)}
+html body #workspace-nav a {color:var(--c-ink);border:1px solid transparent;border-radius:var(--radius-control)}
+html body #workspace-nav a:hover {background:var(--c-note);border-color:var(--c-line)}
+html body #workspace-nav>details>summary {color:var(--c-muted);font-size:12px;letter-spacing:.08em;border-radius:var(--radius-control)}
+html body :is(.settings-sidebar+main,main:has(>.theme-header)) {color:var(--c-ink)}
+html body :is(.settings-sidebar+main,main:has(>.theme-header))>section {background:var(--c-surface);border-color:var(--c-line);border-radius:var(--radius-card);box-shadow:var(--shadow)}
+html body .settings-sidebar+main :is(p,small,th,.run) {color:var(--c-muted)}
+html body .settings-sidebar+main :is(button,select,input,.card) {color:var(--c-ink);border-color:var(--c-line);background:var(--c-surface)}
+html body input[type=checkbox] {accent-color:var(--c-ink);border-radius:var(--radius-control)}
+html body :is(.status-block,#sources .status-block) {display:inline-flex;align-items:center;flex-shrink:0;gap:4px;padding:4px 7px;border:1px solid var(--c-line);border-radius:var(--radius-control);font-size:12px;line-height:1.5;color:var(--c-ink);white-space:nowrap;background:var(--c-bg)}
+html body :is(.status-block.status-running,#sources .status-running) {background:var(--c-accent)}
+html body :is(.status-block.status-warning,#sources .status-warning) {background:var(--c-warn)}
+html body :is(.status-block.status-failed,#sources .status-failed) {background:var(--c-alert)}
+html body :is(.status-block.status-complete,#sources .status-complete) {background:var(--c-sage)}
+html body #sources .source-update.status-complete::after {content:' · 正常'}
+html body #sources .source-update.status-idle::after {content:' · 待更新'}
+
+/* 专属页面的骨架选择器可能更具体；仅覆盖外壳，不改变各页布局。 */
+html body .topbar.topbar.topbar {background:var(--c-accent);color:var(--c-ink);border-color:var(--c-line)}
+html body .sidebar .brand,html body .workspace-sidebar .brand {color:var(--c-ink)}
+html body :is(.history-card,.collection-tile,.dl-deal,.dl-analysis,.dl-stats button,.task-card,.schedule-card,.cd-card,.kb-card,.ev-card,.fb-card,.itl-add-col,.itl-run) {border-color:var(--c-line);border-radius:var(--radius-card);box-shadow:var(--shadow);background:var(--c-surface);color:var(--c-ink)}
+html body .dl-stats button.selected {background:var(--c-sage);border-color:var(--c-line)}
+
+html body .theme-header.theme-header :is(button,.button) {background:var(--c-accent);color:var(--c-ink);border-color:var(--c-line)}
+
+/* 复用旧页的卡片与任务状态节点；保留全部文案与状态判定。 */
+html body :is(.dl-focus-tab,.dl-stage-card,.dl-stat,.dl-analysis-box,.dl-deal-card,.dl-board-column,.dl-candidate-banner,.task-row,.run-row,.stat-card,.recent-panel) {background:var(--c-surface);border-color:var(--c-line);border-radius:var(--radius-card);box-shadow:var(--shadow)}
+html body #dl-focus .dl-focus-tab :is(span,b,small) {color:var(--c-ink)}
+html body #dl-focus .dl-focus-tab.selected,html body .dl-stage-card.selected {background:var(--c-sage);border-color:var(--c-line)}
+html body .dl-candidate-banner {background:var(--c-note)}
+html body .state-pill {color:var(--c-ink);border:1px solid var(--c-line);border-radius:var(--radius-control);font-size:12px;background:var(--c-bg)}
+html body .state-pill[data-status=running] {background:var(--c-accent);color:var(--c-ink)}
+html body .state-pill[data-status=succeeded] {background:var(--c-sage);color:var(--c-ink)}
+html body .state-pill:is([data-status=failed],[data-status=timeout]) {background:var(--c-alert);color:var(--c-ink)}
+html body .state-pill[data-status=partial] {background:var(--c-warn);color:var(--c-ink)}
+
+html body :is(.article-card,.history-card,.collection-tile).selected {background:var(--c-sage);border-color:var(--c-line)}
+html body :is(.article-card,.history-card,.collection-tile).selected :is(small,p,footer) {color:var(--c-ink)}
+html body .item-card.selected :is(.item-card-meta,.item-card-foot,.interest-overlap,.collection-channels,.item-kind,.tool-source,.item-relative-time,.interest-matches) {color:var(--c-ink)}
+
+html body .main.main {background:var(--c-bg)}
+
+/* R1：素材库条目标题独立于导航分组；选中和普通卡片均保持可读。 */
+html body .library-title {font-size:23px;line-height:1.4;font-weight:600;color:var(--c-ink);letter-spacing:normal}
+html body :is(.library-meta,.library-snippet,.library-origin,.library-empty),html body #tab-hint {color:var(--c-muted)}
+html body .item-card.selected :is(.library-meta,.library-snippet,.library-origin) {color:var(--c-ink)}
+
+html body :is(input,textarea)::placeholder {color:var(--c-muted);opacity:1}
+html body .today-main footer {color:var(--c-muted)}
+/* R1 实际节点审计：以下旧页灰字受共享米底影响，统一为可读前景。 */
+html body #studio-navigation-panel :is(.cd-side-note,.cl-side-note,.in-side-note,.ev-sidebar-note,.lab-sidebar-note,.lab-sidebar-note strong) {color:var(--c-muted)}
+html body :is(#cd-views,#cl-views,#in-views) button,
+html body #ev-view-nav button :is(span,small),html body #kb-source-nav button small {color:var(--c-muted)}
+html body :is(.cl-heading>div>p,.cl-filter-row label,#cl-analysis-status,.cl-disclosure-label,#cl-count) {color:var(--c-muted)}
+html body :is(.schedule-heading p,.dl-stage-details>summary,.dl-finance>summary,.dl-month-field,#dl-finance-month,.dl-more-filters>summary,.dl-check,#dl-count,#dl-scope-note) {color:var(--c-muted)}
+html body .dl-deal-card :is(small,p,button),html body .dl-candidate-banner small,
+html body .dl-analysis-box :is(time,.dl-analysis-note) {color:var(--c-ink)}
+html body :is(.ev-heading>div>p,.ev-total,#ev-view-title,#ev-result-count,.ev-view-help,.ev-empty p,.ev-empty-icon) {color:var(--c-muted)}
+html body .ev-card :is(p,.ev-card-foot span) {color:var(--c-ink)}
+html body :is(#xf-overview-toggle,#xf-status,#xf-read-options>summary,#xf-read-options>p,#xf-read-options>label) {color:var(--c-muted)}
+html body :is(.itl-note,.itl-muted,.itl-paths label,.itl-filter,#itl-status,#itl-count) {color:var(--c-muted)}
+html body :is(.kb-heading>div>p,.kb-total,#kb-result-count,.kb-results-head>span) {color:var(--c-muted)}
+html body :is(.lab-top-title,.vr-sub) {color:var(--c-ink)}
+html body .lab-heading .lab-eyebrow {color:var(--c-muted)!important}
+html body #lab-subtitle {color:var(--c-muted)}
+html body #lab-batch-manage:disabled {opacity:1;color:var(--c-muted);background:var(--c-surface)}
+html body .review-notice {color:var(--c-muted)}
+html body .schedule-stats .stat-card>span,html body .recent-row>span:last-child {color:var(--c-muted)}
+html body .radar-banner .page-title {color:var(--c-paper)}
+html body :is(.vr-foot,.vr-foot strong,.vr-foot code,.vr-dim,.vr-rank) {color:var(--c-muted)}
+/* 旧专属选择器优先级更高的节点，显式按上下文覆盖。 */
+html body #dl-timeline-list .dl-deal-foot .dl-open,
+html body #dl-timeline-list .dl-unknown-board>summary {color:var(--c-ink)}
+html body .dl-toolbar #dl-count {color:var(--c-muted)}
+html body #xf-overview-toggle {color:var(--c-muted)!important}
+html body #xf-status:not(.error) {color:var(--c-muted)}
+html body #in-platforms button {color:var(--c-muted)}
+html body #overview-runs .recent-row>span:not(.state-pill) {color:var(--c-muted)}
+html body .vr-head .vr-sub {color:var(--c-ink)}

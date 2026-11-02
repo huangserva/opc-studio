@@ -54,4 +54,23 @@ class GenerationLabTests(unittest.TestCase):
   self.assertEqual(graph['8']['inputs']['steps'],25);self.assertEqual(graph['8']['inputs']['cfg'],3.1)
   for changes in [{'steps':0},{'steps':61},{'steps':1.5},{'steps':True},{'cfg':float('nan')},{'cfg':float('inf')},{'cfg':21},{'cfg':True}]:
    with self.subTest(changes=changes),self.assertRaises(ValueError):build({'model':'krea2','prompt':'lake',**changes},'bad')
+ def test_concat_lab_videos(self):
+  with tempfile.TemporaryDirectory() as root:
+   store=Store(root);gen=Generation(store)
+   job1_id, job2_id = 'job11111111111111111111111111111111', 'job22222222222222222222222222222222'
+   for jid in (job1_id, job2_id):
+    dir_path = gen.folder / jid
+    dir_path.mkdir(parents=True, exist_ok=True)
+    (dir_path / 'result.mp4').write_bytes(b'fake_video_bytes')
+    jdata = {'id': jid, 'model': 'h3', 'model_name': 'H3 MiniMax', 'kind': 'video', 'status': 'done', 'asset_file': 'result.mp4', 'prompt': 'act'}
+    (dir_path / 'job.json').write_text(json.dumps(jdata))
+    gen.jobs[jid] = jdata
+   with patch('subprocess.run') as mock_run:
+    merged = gen.concat_lab_videos({'job_ids': [job1_id, job2_id], 'title': '微短剧全剧'})
+    self.assertGreaterEqual(mock_run.call_count, 1)
+    self.assertEqual(merged['kind'], 'video')
+    self.assertEqual(merged['status'], 'done')
+    self.assertEqual(merged['prompt'], '微短剧全剧')
+    self.assertIn(merged['id'], gen.jobs)
+    self.assertEqual(merged['asset_url'], '/generation-assets/' + merged['id'])
 if __name__=='__main__':unittest.main()

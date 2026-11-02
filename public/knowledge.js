@@ -24,7 +24,8 @@
     const cadence=s.enabled===false?'新消息采集已暂停':s.capture_enabled?'每小时采集已开启':'手动采集';
     const clock=last.captured_at?'最近成功采集：'+stamp(last.captured_at):'最近成功采集：尚无完成回执';
     const index=last.index_status&&last.index_status!=='ready'?'；采集库已更新，索引仍待核对':'';
-    return `${cadence} · ${detail}\n${clock}${index}`;
+    const freshness=state.health?.state==='unknown'?'采集健康未知\n':state.health?.state==='last_known'?`最近已知状态（${stamp(state.health.as_of)}）\n`:'';
+    return `${freshness}${cadence} · ${detail}\n${clock}${index}`;
   }
   function scope(s) {
     if(s.document_kind==='external')return ['来源：人工收藏的他人文章','保留原作者、原始链接、收集渠道与收藏理由','仅链接收藏不代表已导入全文；收藏不会发布或改写原文'];
@@ -95,19 +96,44 @@
     $('#kb-source-config').querySelectorAll('[data-sync-source]').forEach(b=>b.onclick=()=>operation(b,async()=>{await api('/api/knowledge/sync',{source:b.dataset.syncSource});await status();message('正在更新所选来源。');}));
     $('#kb-source-config').querySelectorAll('[data-capture-source]').forEach(b=>b.onclick=()=>operation(b,async()=>{await api('/api/knowledge/wechat/capture',{});await status();message('正在采集本机新消息，完成后更新索引。');}));
   }
+  function renderSourceStatus() {
+    const d={sources:state.sources};
+    $('#kb-source-status').innerHTML=d.sources.map(s=>`<div class="kb-source-card" data-status="${esc(s.status)}"><strong>${esc(s.name)}</strong><span>${statuses[s.status]||esc(s.status)} · ${s.count.toLocaleString()} 份</span><p>${esc(s.detail||'点击同步资料，建立可检索索引')}</p>${s.capture?`<pre>${esc(captureInfo(s))}</pre>`:''}<p>更新索引：${esc(stamp(s.synced_at))}</p></div>`).join('');
+  }
+  let healthRequest=0;
+  async function refreshHealth() {
+    const request=++healthRequest;
+    const health=await api('/api/knowledge/health');
+    if(request!==healthRequest)return;
+    if(!health?.capture||typeof health.capture!=='object'){
+      state.health={state:state.sources.some(s=>s.capture)?'last_known':'unknown',as_of:state.health?.as_of};
+      renderSourceStatus();return;
+    }
+    state.health=health;
+    const source=state.sources.find(s=>s.id==='wechat'&&s.backend==='collector');
+    if(source)source.capture=health.capture;
+    renderSourceStatus();sourceConfig(state.sources,state.syncing);
+  }
   async function status() {
     const d=await api('/api/knowledge');
     state.sources=d.sources;
+    // Late source names update only their labels, preserving rows, picks and open readers.
+    for(const card of $('#kb-results').querySelectorAll('.kb-result[data-document]')){
+      const item=state.items.find(d=>d.id===card.dataset.document),label=card.querySelector(':scope > .kb-origin');
+      if(item&&label)label.textContent='来源：'+sourceName(item.source)+(item.provenance?.version?' · '+item.provenance.version:'');
+    }
     state.syncing=d.syncing;
-    $('#kb-total').textContent=`${d.total.toLocaleString()} 份资料 · 本机索引`;
+    state.health={state:d.health_state,as_of:d.health_as_of};
+    $('#kb-total').textContent=`${d.total.toLocaleString()} 份资料 · 本机索引${d.counts_as_of?' · 截至 '+stamp(d.counts_as_of):''}`;
     $('#kb-sync').disabled=d.syncing;
     $('#kb-sync').textContent=d.syncing?'正在同步…':'同步资料';
     $('#kb-source-nav').innerHTML=`<button data-source="" data-kind=""><span>▥ 所有资料</span><small>${d.total.toLocaleString()}</small></button>`+d.sources.map(s=>`<button data-source="${esc(s.id)}" data-kind="${esc(s.document_kind||(s.kind==='manual'?'notes':s.kind==='gmail_cache'?'mail':s.kind))}"><span>${esc(s.name)}</span><small>${s.count.toLocaleString()}</small></button>`).join('');
-    $('#kb-source-status').innerHTML=d.sources.map(s=>`<div class="kb-source-card" data-status="${esc(s.status)}"><strong>${esc(s.name)}</strong><span>${statuses[s.status]||esc(s.status)} · ${s.count.toLocaleString()} 份</span><p>${esc(s.detail||'点击同步资料，建立可检索索引')}</p>${s.capture?`<pre>${esc(captureInfo(s))}</pre>`:''}<p>更新索引：${esc(stamp(s.synced_at))}</p></div>`).join('');
+    renderSourceStatus();
     sourceConfig(d.sources,d.syncing);
     $('#kb-dossiers').innerHTML=d.dossiers.length?d.dossiers.map(x=>`<button data-dossier="${esc(x.id)}"><span>▦ ${esc(x.title)}</span></button>`).join(''):'<p class="empty">围绕一个主题挑选资料，<br>保存后可在这里继续创作。</p>';
     $('#kb-source-nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{clearReceipt();state.source=b.dataset.source;state.kind=b.dataset.kind;state.tag='';$('#kb-kind').value=state.kind;search().catch(e=>message(e.message));});
     $('#kb-dossiers').querySelectorAll('button').forEach(b=>b.onclick=()=>openDossier(b.dataset.dossier).catch(e=>message(e.message)));
+    refreshHealth().catch(()=>{state.health={state:'unknown'};renderSourceStatus();});
     return d;
   }
   async function search(more=false) {
@@ -669,9 +695,13 @@
   setInterval(async()=>{if(polling)return;polling=true;try{const before=state.syncing||state.sources.some(s=>s.capture?.busy);await status();const after=state.syncing||state.sources.some(s=>s.capture?.busy);if(before&&!after){await search();notice('更新结束，检索结果已刷新；采集与索引状态见上方。');}}catch(e){problem(e.message);}finally{polling=false;}},2500);
   renderPicks();
   async function boot(){
-    const d=await status();await search();
     const q=queryContext();
+    if(q.source)state.source=q.source;
+    const metadata=status().catch(e=>{problem(e.message);return {sources:[],status_failed:true};});
+    await search();
+    const d=await metadata;
     const selected=d.sources.find(s=>s.id===q.source);
+    if(!selected&&state.source){state.source='';await search();}
     if(selected){state.source=selected.id;state.kind=selected.document_kind||(selected.kind==='manual'?'notes':selected.kind==='gmail_cache'?'mail':selected.kind);$('#kb-kind').value=state.kind;await search();}
     if(q.intake!==null&&q.intake!=='')await intakeHandoff(q);
     if(q.document){
@@ -681,6 +711,7 @@
         try{await preview(q.document,citation);}catch(e){markDocumentUnreadable(e.message);}
       }
     }
+    if(d.status_failed)return;
     if(d.sources.some(s=>s.status==='pending'))await api('/api/knowledge/sync',{});else await api('/api/knowledge/sync',{source:'articles'});
   }
   boot().catch(e=>message(e.message));

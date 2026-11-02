@@ -89,9 +89,9 @@ body.studio-panels .panel-control {
   height: 28px;
   padding: 5px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius:var(--radius-card);
   background: transparent;
-  color: #8c98af;
+  color: var(--c-muted);
   line-height: 1;
   cursor: pointer;
 }
@@ -106,17 +106,17 @@ body.studio-panels .panel-control svg {
   stroke-linejoin: round;
 }
 body.studio-panels .panel-control:hover {
-  background: #f0f3ff;
-  border-color: #dfe6fb;
-  color: #4263eb;
+  background: var(--c-surface);
+  border-color: var(--c-line);
+  color: var(--c-ink);
 }
 body.studio-panels .panel-control:focus-visible {
-  outline: 2px solid #4263eb;
+  outline: 2px solid var(--c-line);
   outline-offset: 2px;
 }
 body.studio-panels .panel-control[aria-pressed="true"] {
-  color: #4263eb;
-  background: #edf1ff;
+  color: var(--c-ink);
+  background: var(--c-bg);
 }
 
 body.studio-panels .panel-rail {
@@ -126,13 +126,13 @@ body.studio-panels .panel-rail {
   gap: 12px;
   height: 100%;
   padding: 20px 10px;
-  background: #fff;
-  border-right: 1px solid #e7eaf0;
-  color: #8b98b2;
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-line);
+  color: var(--c-muted);
   overflow: auto;
 }
 body.studio-panels [data-panel-rail="assistant"] {
-  border-left: 1px solid #e0e6f1;
+  border-left: 1px solid var(--c-line);
   border-right: 0;
 }
 body.studio-panels .panel-rail-label {
@@ -180,7 +180,7 @@ body.studio-panels .history {
   height: auto;
   width: min(282px, calc(100vw - 48px));
   z-index: 35;
-  box-shadow: -10px 0 35px #273e7010;
+  box-shadow:var(--shadow);
 }
 body.studio-panels.history-open .history { display: block; }
 body.studio-panels[data-content-collapsed="true"] .history { display: none !important; }
@@ -208,7 +208,7 @@ body.studio-panels[data-content-collapsed="true"] .history { display: none !impo
     width: min(280px, calc(100vw - 48px));
     height: 100%;
     z-index: 45;
-    box-shadow: 12px 0 40px #263d7120;
+    box-shadow:var(--shadow);
   }
   body.studio-panels .sidebar .brand { display: flex; }
   body.studio-panels .sidebar .library { max-height: 35vh; }
@@ -221,7 +221,7 @@ body.studio-panels[data-content-collapsed="true"] .history { display: none !impo
     width: min(var(--assistant-width, 440px), calc(100vw - 48px));
     height: 100%;
     z-index: 40;
-    box-shadow: -12px 0 40px #22334d15;
+    box-shadow:var(--shadow);
   }
   body.studio-panels[data-has-assistant="true"][data-content-collapsed="true"][data-assistant-collapsed="false"] {
     --assistant-track: minmax(0, 1fr);
@@ -230,7 +230,7 @@ body.studio-panels[data-content-collapsed="true"] .history { display: none !impo
     position: relative;
     inset: auto;
     width: 100%;
-    box-shadow: none;
+    box-shadow:var(--shadow);
   }
   body.studio-panels[data-navigation-collapsed="false"][data-content-collapsed="true"][data-assistant-collapsed="true"],
   body.studio-panels[data-has-assistant="false"][data-navigation-collapsed="false"][data-content-collapsed="true"] {
@@ -241,7 +241,7 @@ body.studio-panels[data-content-collapsed="true"] .history { display: none !impo
     position: relative;
     inset: auto;
     width: 100%;
-    box-shadow: none;
+    box-shadow:var(--shadow);
   }
   body.studio-panels .topbar { min-height: 58px; padding: 10px 12px; }
   body.studio-panels .top-actions { gap: 5px; }
@@ -270,7 +270,7 @@ body.studio-panels[data-maximized="assistant"] [data-studio-panel="assistant"] {
   height: 100dvh;
   max-width: none;
   z-index: 80;
-  box-shadow: none;
+  box-shadow:var(--shadow);
   border: 0;
 }
 body.studio-panels[data-maximized="assistant"] #assistant-panel {
@@ -296,4 +296,24 @@ body.studio-panels[data-maximized="navigation"] .sidebar .brand { display: flex;
 @media print {
   body.studio-panels .panel-controls,
   body.studio-panels .panel-rail { display: none !important; }
+}
+
+/* Schedule-style pages inside panels scroll beneath their fixed toolbar. */
+body.studio-panels.schedules-workspace {
+  display: grid;
+  height: 100dvh;
+  overflow: hidden;
+}
+body.studio-panels.schedules-workspace .main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+body.studio-panels.schedules-workspace .topbar { flex-shrink: 0; }
+body.studio-panels.schedules-workspace .schedule-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }

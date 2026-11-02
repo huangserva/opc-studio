@@ -19,7 +19,12 @@ def get_route(handler, parts):
     if parts.path == '/api/schedules/health':
         return self.reply(200, self.server.schedules.health())
     if len(segments)==4 and segments[:3]==['api','schedules','run']:
-        return self.reply(200,self.server.schedules.get_run(segments[3]))
+        run=self.server.schedules.get_run(segments[3])
+        if 'event' in query:
+            if set(query)-{'event','offset'} or any(len(v)!=1 for v in query.values()):raise ValueError('事件输出参数无效')
+            if run['snapshot'].get('kind')!='source_events':raise ValueError('此运行不是来源事件任务')
+            return self.reply(200,store.wechat_source.event_outputs(segments[3],int(query['event'][0]),int(query.get('offset',['0'])[0])))
+        return self.reply(200,run)
     if len(segments)==4 and segments[:2]==['api','schedules'] and segments[3]=='outsourced_prompt':
         # 只读：按任务定义拼一份可直接粘给 WorkBuddy 的提示词（impl-outsourced-tasks 新增的唯一路由）。
         return self.reply(200,self.server.schedules.outsourced_prompt(segments[2]))
@@ -68,6 +73,10 @@ def post_route(handler, segments, payload):
     if segments == ['api', 'schedules', 'save']:
         return self.reply(200, self.server.schedules.save(payload))
     if segments == ['api', 'schedules', 'batch']:
+        if isinstance(payload,dict) and 'source_action' in payload:
+            from source_orchestra import presets
+            options=dict(payload);options['action']=options.pop('source_action')
+            return self.reply(200,presets(self.server.schedules,options))
         return self.reply(200, self.server.schedules.batch(payload))
     if len(segments) == 4 and segments[:2] == ['api', 'schedules']:
         if segments[3] == 'publish':

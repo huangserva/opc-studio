@@ -17,19 +17,16 @@ TZ = ZoneInfo('Asia/Shanghai')
 EVIDENCE_BATCH = 6      # deals whose WeChat evidence is re-scanned in one run
 CLUE_BATCH = 5          # new invitation clues compared in one run
 STALL_DAYS = 14
-DUE_WINDOW_DAYS = 7
+DUE_WINDOW_DAYS = 3
+PAYMENT_WAIT_DAYS = 30
 MODEL_RESERVE = 25      # keep room to persist the receipt before the run limit
 MAX_ITEMS = 20          # findings kept per kind for the deals page
 CONFLICT_KEEP_DAYS = 120
 DEAL_PROPOSAL_FIELDS = ('stage', 'deadline', 'signed_on', 'completed_on', 'notes', 'price_note',
                         'quote', 'currency', 'needs_review')
 TERMINAL_STAGES = ('settled', 'closed', 'cancelled')
-FOLLOWING_STAGES = ('contact', 'negotiating', 'signed', 'writing', 'in_progress', 'draft',
-                    'review', 'ready', 'published', 'payment_pending')
-STAGE_LABELS = {'contact': '初步接洽', 'negotiating': '洽谈报价', 'signed': '合作敲定', 'writing': '待写',
-                'in_progress': '撰写中', 'draft': '初稿完成', 'review': '审核 / 修改', 'ready': '待发布',
-                'published': '已发布', 'payment_pending': '待结账', 'settled': '已结清',
-                'unknown': '进度待核对', 'closed': '已结案', 'cancelled': '未合作 / 已取消'}
+from deals_store import STAGES as STAGE_LABELS, canonical_stage, stage_state
+FOLLOWING_STAGES = tuple(k for k in STAGE_LABELS if k not in TERMINAL_STAGES+('unknown',))
 WEEK = re.compile(r'^(\d{4})-W(\d{2})$')
 
 
@@ -162,21 +159,18 @@ class DealsReview:
                                                          f'{deadline} · {stage}', (due - today).days))
             delivered = max([x['published_on'] for x in d['publications']
                              if not x.get('voided_at') and x['published_on']]
-                            + ([d['completed_on']] if d['completed_on'] else []), default='')
-            if delivered and open_deal and d['cash']['status'] != 'settled':
+                            + [x['date'] for x in d.get('date_events',[]) if x['kind']=='published_on'], default='')
+            if delivered and open_deal and d['cash']['status'] not in ('settled','reported_paid'):
                 waiting = (today - date.fromisoformat(delivered)).days
-                if waiting >= 0:
+                if waiting >= PAYMENT_WAIT_DAYS:
                     result['awaiting_payment'].append(
                         self._item(d, '已交付未到账', f'交付 {delivered} · 收款状态未结清', waiting))
             if d['stage'] in FOLLOWING_STAGES:
-                reference = max([x for x in (d.get('last_business_at'), d.get('updated_at')) if x], default='')
-                moment = as_moment(reference)
-                if moment:
-                    stale = (datetime.now(timezone.utc) - moment).days
-                    if stale > STALL_DAYS:
-                        result['stalled'].append(
-                            self._item(d, f'{stale} 天没有进展',
-                                       f"{STAGE_LABELS.get(d['stage'], d['stage'])} · 最近业务时间 {reference[:10]}", stale))
+                state=stage_state(d,today)
+                stale=state['days']
+                if stale is not None and stale > STALL_DAYS:
+                    result['stalled'].append(self._item(d, f'{stale} 天停留在当前阶段',
+                        f"{STAGE_LABELS.get(d['stage'],d['stage'])} · 业务进入日期 {state['entered_on']}",stale))
         result['counts'] = {key: len(result[key]) for key in
                             ('overdue', 'due_soon', 'awaiting_payment', 'stalled')}
         result['counts']['needs_review'] = result['needs_review']
@@ -292,7 +286,7 @@ class DealsReview:
                   '原清单“已付”不代表实际到账。\n'
                   '只提出需要黄总确认的修改建议，不能声称已保存、已收款、已发布。依据不足就返回 {"proposals":[]}。\n'
                   'field_changes 只允许这些字段：stage、deadline、signed_on、completed_on、notes、price_note、quote、currency、needs_review。'
-                  'stage 必须是这些英文键之一：contact、negotiating、signed、writing、in_progress、draft、review、ready、'
+                  'stage 必须是这些英文键之一：contact、negotiating、preparing、signed、writing、in_progress、draft、review、ready、'
                   'published、payment_pending、settled、unknown、closed、cancelled；日期用 YYYY-MM-DD，且只能来自来源里明确写出的日期；'
                   'quote 只填来源里明确写出的合同价，并把原话放进 price_note。不要提出登记到账，'
                   '不要用等待打款替代审核状态或交稿截止（等待打款用 stage=payment_pending）。\n'
@@ -605,6 +599,15 @@ class DealsReview:
                     evidence=evidence, conflicts=conflicts, report=report,
                     has_more=bool(evidence['has_more'] or conflicts['has_more']), errors=errors,
                     summary=self.describe(progress, evidence, conflicts, report))
+        current_failed = bool(errors) or cancel.is_set() or time.monotonic() >= deadline
+        data['completion'] = {
+            'type': 'failed' if current_failed else 'continuation' if data['has_more'] else 'completed',
+            'phase': 'deal_review', 'processed': evidence['checked'],
+            'remaining_count': evidence['deferred'] + conflicts['deferred'],
+            'remaining_scope': '待复查商单 ' + str(evidence['deferred']) + ' 笔；待核对邀约 ' + str(conflicts['deferred']) + ' 条',
+            'rotation_limit': EVIDENCE_BATCH, 'current_error_count': len(errors),
+            'reason_code': 'current_failure' if current_failed else 'rotation' if data['has_more'] else 'complete',
+            'reason': '本轮有失败或停止；已完成结果保留' if current_failed else '每轮最多 6 笔轮转，剩余下轮继续' if data['has_more'] else '本轮范围已完成'}
         if cancel.is_set():
             return 'cancelled', None, json.dumps(data, ensure_ascii=False)
         if time.monotonic() >= deadline:
@@ -637,7 +640,10 @@ class DealsReview:
         grouped = {}
         for row in findings:
             grouped.setdefault(row['kind'], []).append(row)
-        return dict(run_id=run_id, generated_at=self.state('last_run_at'),
+        progress=self.progress_check()
+        grouped={kind:[{**x,'detail':x['label']+' · '+x['detail']} for x in progress[kind]] for kind in ('overdue','due_soon','awaiting_payment','stalled') if progress[kind]}
+        if progress['needs_review']:grouped['needs_review']=[dict(detail=f"待核对 {progress['needs_review']} 个")]
+        return dict(run_id=run_id or 'local-rules', generated_at=self.state('last_run_at'),
                     last_clue_scan_at=self.state('last_clue_scan_at'),
                     findings=grouped, conflicts=conflicts,
                     proposals=self.store.deals.pending_proposals(), reports=reports)

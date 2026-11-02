@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import fcntl
 import json
+import logging
 import os
 from pathlib import Path
 import signal
@@ -39,6 +40,7 @@ class WechatCapture:
         self.process = None
         self.closed = threading.Event()
         self.retry_after = 0
+        self.finish_error = None
 
     def _plan(self):
         plan = read_private(self.root / 'config.json')
@@ -107,7 +109,7 @@ class WechatCapture:
         collector commit, and an index refresh that completed after that capture.
         Anything unconfirmed stays needs_review for a human.
         """
-        if self.process is not None or state.get('messages_imported') is not True:
+        if state.get('error_stage') in ('receipt', 'receipt_read_failed', 'receipt_write_failed', 'receipt_confirmation') or self.process is not None or state.get('messages_imported') is not True:
             return None
         finished = state.get('finished_at')
         if not isinstance(finished, str):
@@ -134,16 +136,33 @@ class WechatCapture:
             return {'available': False, 'status': 'unavailable', 'detail': '尚未配置本机新消息采集；仍可更新已有快照索引'}
         try:
             folder, state = self._latest()
+            if self.finish_error and folder and self.finish_error.get('capture_id') == folder.name:
+                state = dict(state, **{k:v for k,v in self.finish_error.items() if k != 'capture_id'})
             recovered = None
             if state.get('status') == 'running' and self.process is None:
                 # Do not infer success/termination from an abandoned state file.
                 state = dict(state, status='needs_review', detail='上一采集尚未确认结束；请核对任务，旧索引保留')
+            if state.get('status') == 'done' and state.get('index_status') != 'ready':
+                # A worker's collector-done receipt is not proof that this round was indexed.
+                # A source timestamp alone can refer to a different refresh; require this round's ready receipt.
+                success_path = self.root / 'last-success.json'
+                success = read_private(success_path) if success_path.exists() else {}
+                same_round = (isinstance(success, dict) and isinstance(state.get('finished_at'), str) and success.get('index_status') == 'ready' and
+                              all(success.get(k) == state.get(k) for k in ('finished_at', 'captured_at', 'collector_messages') if k in state))
+                recovered = self._recovered(state) if same_round else None
+                if recovered is not None:
+                    state = recovered
+                else:
+                    state = dict(state, status='needs_review', error_stage='receipt_confirmation',
+                                 detail='采集已返回，但本轮索引成功尚未确认；回执待核对，旧索引保留',
+                                 error_reason='缺少本轮索引成功回执，需核对')
             if state.get('status') in ('needs_review', 'commit_unknown'):
                 recovered = self._recovered(state)
                 if recovered is not None:
                     state = recovered
             result = {k: state.get(k) for k in ('status', 'phase', 'started_at', 'finished_at', 'detail',
-                'messages_imported', 'new_messages', 'collector_messages', 'index_status', 'error_kind') if k in state}
+                'messages_imported', 'new_messages', 'collector_messages', 'index_status', 'error_kind',
+                'error_stage', 'exception_type', 'error_reason') if k in state}
             if recovered is not None:
                 result['recovered'] = True
             if folder and state.get('status') == 'error' and (folder / 'diagnostic.json').exists():
@@ -188,6 +207,7 @@ class WechatCapture:
         fd = None
         try:
             fd = self._acquire_file_lock()
+            self.finish_error = None
             identifier = uuid.uuid4().hex
             folder = self.root / identifier
             folder.mkdir(mode=0o700)
@@ -212,40 +232,65 @@ class WechatCapture:
             raise
 
     def _finish(self, folder, child, fd):
+        stage = 'receipt'
+        state = {}
         try:
-            child.wait()  # Worker deadline covers copying, decrypting and staging.
+            child.wait()
+            stage = 'receipt_read_failed'
             state = read_private(folder / 'state.json')
+            stage = 'receipt_write_failed'
             if state.get('status') == 'running':
                 state.update(status='needs_review', detail='采集进程已退出，但完成回执缺失；旧索引保留')
             if state.get('messages_imported') is True:
-                # The collector was acquired independently of the index. Wait
-                # for an in-flight mail/index operation instead of losing it.
+                stage = 'receipt_write_failed'
                 state['index_status'] = 'pending'
                 write_private(folder / 'state.json', state)
+                stage = 'index_wait'
                 until = time.monotonic() + 120
                 acquired = False
                 while not self.closed.is_set() and time.monotonic() < until:
                     if self.knowledge.sync_lock.acquire(timeout=.5):
                         acquired = True
                         break
-                if acquired:
-                    self.knowledge.sync('wechat', reserved=True)
-                    with self.knowledge.db() as c:
-                        row = c.execute("SELECT status,synced_at FROM sources WHERE id='wechat'").fetchone()
-                    state['index_status'] = row['status']
-                    state['indexed_at'] = row['synced_at']
+                if not acquired:
+                    raise TimeoutError('index wait')
+                stage = 'index'
+                self.knowledge.sync('wechat', reserved=True)
+                with self.knowledge.db() as c:
+                    row = c.execute("SELECT status,synced_at FROM sources WHERE id='wechat'").fetchone()
+                state['index_status'] = row['status'] if row else 'error'
+                state['indexed_at'] = row['synced_at'] if row else None
+                if not row or row['status'] != 'ready':
+                    raise RuntimeError('index not ready')
+                stage = 'receipt'
                 success = {k: state[k] for k in ('captured_at', 'finished_at', 'new_messages', 'collector_messages',
                     'max_msg_time', 'index_status', 'indexed_at') if k in state}
                 write_private(self.root / 'last-success.json', success)
             write_private(folder / 'state.json', state)
-        except BaseException:
-            # No private traceback or key material is returned to HTTP callers.
-            try:
-                state = read_private(folder / 'state.json')
-                state.update(status='needs_review', detail='采集回执或索引需要核对；旧资料保留')
-                write_private(folder / 'state.json', state)
-            except (OSError, ValueError):
-                pass
+        except BaseException as exc:
+            diagnostic = (getattr(self.knowledge, 'last_sync_error', None) if stage == 'index' else None)
+            if stage in ('receipt_read_failed', 'receipt_write_failed'):
+                diagnostic = {**self.knowledge.sync_diagnostic(exc, 'receipt'), 'stage': stage,
+                              'reason': ('采集完成回执读取失败' if stage == 'receipt_read_failed' else '索引前回执写入失败') +
+                                        '，索引尚未执行，需核对；已采集结果与旧索引保留'}
+            else:
+                diagnostic = diagnostic or self.knowledge.sync_diagnostic(exc, stage)
+            # Only failure metadata is logged; never traceback/exception text.
+            logging.getLogger(__name__).warning('微信索引收尾失败 stage=%s exception_type=%s',
+                                               diagnostic['stage'], diagnostic['exception_type'])
+            state.update(status='error' if stage in ('index', 'index_wait') else 'needs_review',
+                         detail=diagnostic['reason'], error_kind='capture_finalize',
+                         error_stage=diagnostic['stage'], exception_type=diagnostic['exception_type'],
+                         error_reason=diagnostic['reason'])
+            if stage in ('index', 'index_wait'):
+                state['index_status'] = 'error'
+                # A new round must not overwrite the source while its prior sync owns the lock.
+                if stage == 'index':
+                    try:self.knowledge.mark_sync_failed('wechat', diagnostic)
+                    except BaseException:pass  # The structured in-memory receipt remains available.
+            self.finish_error = {'capture_id': folder.name, **state}
+            try:write_private(folder / 'state.json', state)
+            except BaseException:pass  # Read API still exposes finish_error for this capture only.
         finally:
             os.close(fd)
             self.process = None

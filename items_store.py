@@ -11,12 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit, unquote
 
+from platform_registry import identity, annotate_items
+
 LOG = logging.getLogger(__name__)
 SHORT_SEARCH_SECONDS = 0.25
 SHORT_SEARCH_ROWS = 8192
-JSON_FIELDS = {'sources':'sources_json', 'legacy_refs':'legacy_refs', 'attachments':'attachments_json', 'tags':'tags_json', 'metrics':'metrics_json', 'thread':'thread_json', 'quoted':'quoted_json', 'media':'media_json', 'rich_sources':'rich_sources_json', 'analysis':'analysis_json'}
+JSON_FIELDS = {'channels':'channels_json', 'sources':'sources_json', 'legacy_refs':'legacy_refs', 'attachments':'attachments_json', 'tags':'tags_json', 'metrics':'metrics_json', 'thread':'thread_json', 'quoted':'quoted_json', 'media':'media_json', 'rich_sources':'rich_sources_json', 'analysis':'analysis_json'}
 TEXT_FIELDS = ('kind','source','author_handle','author_name','url','published_at','fetched_at','title','full_text','article_text','incomplete_reason','tier','topic','doable_resource','why_viral','my_angle','outline','status','feedback','used_work_id','parent_id','trashed_at','note','created_at','updated_at')
-SUMMARY = 'id,kind,source,sources_json,author_handle,author_name,published_at,title,content_complete,tier,topic,status,feedback,tags_json,parent_id,trashed_at,note,created_at,updated_at'
+SUMMARY = 'platform,channels_json,fetched_at,id,kind,source,sources_json,author_handle,author_name,published_at,title,content_complete,tier,topic,status,feedback,tags_json,parent_id,trashed_at,note,created_at,updated_at'
 
 
 def now():
@@ -127,7 +129,7 @@ class ItemsStore:
         # IF NOT EXISTS also makes concurrent first requests safe.
         columns = ','.join(f"{k} TEXT NOT NULL DEFAULT ''" for k in TEXT_FIELDS)
         jsons = ','.join(f"{k} TEXT NOT NULL DEFAULT '{'{}' if k in ('metrics_json','quoted_json','analysis_json') else '[]'}'" for k in JSON_FIELDS.values())
-        c.executescript(f'''CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY,{columns},{jsons},author_followers INTEGER,fit_score INTEGER,doable INTEGER,content_complete INTEGER NOT NULL DEFAULT 1);
+        c.executescript(f'''CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY,platform TEXT NOT NULL DEFAULT 'web',identity_backup_json TEXT NOT NULL DEFAULT '{{}}',{columns},{jsons},author_followers INTEGER,fit_score INTEGER,doable INTEGER,content_complete INTEGER NOT NULL DEFAULT 1);
         CREATE INDEX IF NOT EXISTS items_list ON items(trashed_at,updated_at DESC,id);
         CREATE INDEX IF NOT EXISTS items_kind ON items(kind,trashed_at);
         CREATE INDEX IF NOT EXISTS items_status ON items(status,trashed_at);
@@ -202,6 +204,9 @@ class ItemsStore:
                     if key in ('sources','legacy_refs','tags','attachments') and prior:
                         value=union(decoded(prior[column],[]),value)
                     values[column]=encode(value)
+            provenance = {**item, 'id':identifier, 'sources':decoded(values.get('sources_json','[]'),[]), 'source':values.get('source','')}
+            annotate_items(self.workspace, [provenance])
+            values.update(platform=provenance['platform'], channels_json=encode(provenance['channels']))
             values['url']=canonical_url(values.get('url',''))
             # Identical replay is a true no-op, including updated_at, for migration hashes.
             if prior and all(prior[k]==v for k,v in values.items()):
@@ -222,18 +227,24 @@ class ItemsStore:
         for key,column in JSON_FIELDS.items():
             if column in item:item[key]=decoded(item.pop(column),{} if key in ('metrics','quoted','analysis') else [])
         item['author']={k:item.get(v) for k,v in [('handle','author_handle'),('name','author_name'),('followers','author_followers')]}
+        for key in ('why_viral','pattern','my_angle','outline','doable_resource'):
+            value=item.get(key)
+            if isinstance(value,str) and value.lstrip().startswith(('[','{')):
+                parsed=decoded(value,None)
+                if isinstance(parsed,(dict,list)):item[key]=parsed
         item['why']=item.get('why_viral','')
         item['content_complete']=bool(item.get('content_complete',True))
         if not item.get('rich_sources'):
             item['rich_sources']=[{k:item[k] for k in ('thread','quoted','media') if item.get(k)}]
             if item.get('article_text'):item['rich_sources'].append({'article':item['article_text']})
+        item.update(identity(item))
         return item
 
     def detail(self, identifier):
         with self.db() as c:
             row=c.execute('SELECT * FROM items WHERE id=?',(identifier,)).fetchone()
         if row is None: raise ValueError('素材不存在')
-        return self._decode(row)
+        return annotate_items(self.workspace, [self._decode(row)])[0]
 
     def listing(self, query=None):
         q=parameters(query,{'q','source','kind','tag','status','trashed','page'})
@@ -259,7 +270,7 @@ class ItemsStore:
             rows=c.execute('SELECT '+','.join('i.'+s for s in SUMMARY.split(','))+' FROM items i WHERE '+clause+' ORDER BY i.updated_at DESC,i.id LIMIT 50 OFFSET ?',args+[(page-1)*50]).fetchall()
             sources=[r[0] for r in c.execute('SELECT DISTINCT source FROM item_sources ORDER BY source')]
             tags=[r[0] for r in c.execute('SELECT DISTINCT tag FROM item_tags ORDER BY tag')]
-        return dict(items=[self._decode(r) for r in rows],total=total,page=page,page_size=50,sources=sources,tags=tags)
+        return dict(items=annotate_items(self.workspace,[self._decode(r) for r in rows]),total=total,page=page,page_size=50,sources=sources,tags=tags)
 
     def mark_used(self, identifier, slug):
         """关联本期创建的作品，兼容旧 /use 动作。used_work_id 已在二期 schema。"""

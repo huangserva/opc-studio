@@ -14,9 +14,27 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 
-STAGES = {'contact':'初步接洽','negotiating':'洽谈报价','signed':'合作敲定','writing':'待写','in_progress':'撰写中','draft':'初稿完成','review':'审核 / 修改','ready':'待发布','published':'已发布','payment_pending':'待结账','settled':'已结清','unknown':'进度待核对','closed':'已结案','cancelled':'未合作 / 已取消'}
-# Keep the existing writing key as 待写; old records must not become 撰写中.
-STAGE_GROUPS = {'洽谈合作':('contact','negotiating','signed'),'创作交付':('writing','in_progress','draft','review'),'发布结账':('ready','published','payment_pending','settled'),'其他进度':('unknown','closed','cancelled')}
+STAGES = {'contact':'建联','negotiating':'在谈','preparing':'做资料','writing':'待写','draft':'完成初稿','published':'已发布','closed':'结案','unknown':'进度待核对','cancelled':'已取消',
+          'signed':'做资料（原合作敲定）','in_progress':'待写（撰写中）','review':'完成初稿（审核修改）','ready':'已发布（原待发布，待核对）','payment_pending':'已发布（待收款）','settled':'结案（原已结清）'}
+MAIN_STAGES = ('contact','negotiating','preparing','writing','draft','published','closed')
+STAGE_ALIASES = {'signed':'preparing','in_progress':'writing','review':'draft','ready':'published','payment_pending':'published','settled':'closed'}
+STAGE_GROUPS = {'生命周期':MAIN_STAGES,'其他状态':('unknown','cancelled'),'旧阶段（兼容）':tuple(STAGE_ALIASES)}
+DATE_FIELDS = {'contacted_on':'建联日','signed_on':'签约日','deadline':'交稿截止','completed_on':'完成日','published_on':'发布日','paid_on':'到账日'}
+
+def canonical_stage(stage):
+    return STAGE_ALIASES.get(stage,stage)
+
+def beijing_today():
+    return datetime.now(ZoneInfo('Asia/Shanghai')).date()
+
+def stage_state(d, today=None):
+    current=canonical_stage(d['stage'])
+    history=d.get('stage_history',[])
+    entry=next((h for h in reversed(history) if canonical_stage(h['stage'])==current),None)
+    entered=entry.get('entered_on','') if entry else ''
+    return dict(stage=current,entered_on=entered,days=((today or beijing_today())-date.fromisoformat(entered)).days if entered else None,
+                source=entry.get('source','') if entry else '')
+
 DELIVERY_STAGES = {'pending':'待写','draft':'初稿完成','review':'客户审核','approved':'已确认','published':'已发布'}
 CURRENCIES = ('CNY','USD')
 
@@ -93,7 +111,11 @@ class Deals:
         row=c.execute('SELECT data FROM deals WHERE id=?',(identity(ident),)).fetchone()
         if not row:raise ValueError('商单不存在')
         return json.loads(row[0])
-    def _write(self,c,d,action):
+    def _write(self,c,d,action,entered_on=None,source='人工修改'):
+        previous=c.execute('SELECT data FROM deals WHERE id=?',(d['id'],)).fetchone()
+        old_stage=json.loads(previous[0])['stage'] if previous else None
+        if old_stage!=d['stage']:
+            d.setdefault('stage_history',[]).append(dict(stage=d['stage'],entered_on=beijing_today().isoformat() if entered_on is None else day(entered_on,'阶段业务日期'),recorded_at=now(),source=source))
         d['revision']+=1;d['updated_at']=now()
         value=json.dumps(d,ensure_ascii=False)
         c.execute('INSERT OR REPLACE INTO deals VALUES(?,?,?)',(d['id'],d['revision'],value))
@@ -121,7 +143,7 @@ class Deals:
         if 'stage' in p:
             if not isinstance(p['stage'],str) or p['stage'] not in STAGES:raise ValueError('商单进度无效')
             out['stage']=p['stage']
-        for k in ('signed_on','completed_on','deadline'):
+        for k in ('contacted_on','signed_on','completed_on','deadline'):
             if k in p:out[k]=day(p[k],k)
         for k in ('quote_confirmed','settled','needs_review','archived'):
             if k in p:out[k]=boolean(p[k],k)
@@ -140,22 +162,35 @@ class Deals:
     def _new(self,p):
         d=dict(id=uuid.uuid4().hex,revision=0,created_at=now(),updated_at=now(),title='',customer='',contact='',agreement='',notes='',price_note='',
             stage='contact',quote=None,currency=None,quote_confirmed=False,settled=False,needs_review=True,archived=False,
-            signed_on='',completed_on='',deadline='',expected_deliverables=None,original_group='',original_text='',reported_payment='unknown',
+            contacted_on='',signed_on='',completed_on='',deadline='',stage_history=[],date_events=[],expected_deliverables=None,original_group='',original_text='',reported_payment='unknown',
             deliverables=[],receipts=[],publications=[],sources=[])
         d.update(self._clean(p));self._valid(d)
         if not d['title'] or not d['customer']:raise ValueError('请填写商单名称与客户')
         return d
     def save(self,p):
-        allowed=('id','revision','request_key','title','customer','contact','agreement','notes','price_note','stage','quote','currency','quote_confirmed','settled','needs_review','archived','signed_on','completed_on','deadline','expected_deliverables')
+        allowed=('id','revision','request_key','title','customer','contact','agreement','notes','price_note','stage','quote','currency','quote_confirmed','settled','needs_review','archived','contacted_on','signed_on','completed_on','deadline','stage_entered_on','expected_deliverables')
         fields(p,allowed)
+        if 'stage_entered_on' in p:
+            day(p['stage_entered_on'],'阶段业务日期')
+            if p['stage_entered_on'] and p['stage_entered_on']>beijing_today().isoformat():raise ValueError('进入阶段的日期不能在未来')
+            if 'stage' not in p:raise ValueError('阶段业务日期需与阶段一起保存')
         with self.lock,self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             key,digest,old=self._once(c,p,'save')
             if old:return self.detail(old['id'])
             if p.get('id'):
-                d=self._edit(c,p['id'],p);d.update(self._clean(p));self._valid(d)
+                d=self._edit(c,p['id'],p)
+                clean=self._clean(p)
+                for field in DATE_FIELDS:
+                    if field in clean and clean[field]!=d.get(field):d.get('date_sources',{}).pop(field,None)
+                if 'stage_entered_on' in p and clean.get('stage')==d['stage']:
+                    history=d.setdefault('stage_history',[])
+                    entry=next((h for h in reversed(history) if canonical_stage(h['stage'])==canonical_stage(d['stage'])),None)
+                    if entry:entry.update(entered_on=p['stage_entered_on'],recorded_at=now(),source='黄总更新阶段业务日期')
+                    else:history.append(dict(stage=d['stage'],entered_on=p['stage_entered_on'],recorded_at=now(),source='黄总更新阶段业务日期'))
+                d.update(clean);self._valid(d)
             else:d=self._new(p)
-            self._write(c,d,'修改商单' if p.get('id') else '新建商单');self._remember(c,key,digest,d)
+            self._write(c,d,'修改商单' if p.get('id') else '新建商单',entered_on=p.get('stage_entered_on'));self._remember(c,key,digest,d)
         return self.detail(d['id'])
     def cash(self,d):
         totals={k:Decimal(0) for k in CURRENCIES}
@@ -167,7 +202,7 @@ class Deals:
         if d['settled']:status='settled';outstanding=Decimal(0) if d['quote_confirmed'] else None
         elif outstanding==0 and not mixed and d['quote_confirmed']:status='settled'
         elif any_cash:status='partial'
-        elif d['reported_payment']=='client_paid':status='reported_paid';outstanding=None
+        elif d['reported_payment'] in ('client_paid','paid'):status='reported_paid';outstanding=None
         else:status='unpaid'
         return dict(status=status,totals={k:format(v,'.2f') for k,v in totals.items()},outstanding=format(outstanding,'.2f') if outstanding is not None else None,mixed_currency=mixed)
     def detail(self,ident):
@@ -177,12 +212,15 @@ class Deals:
             scan=c.execute('SELECT data FROM evidence_scans WHERE deal_id=?',(ident,)).fetchone()
             d['evidence_scan']=json.loads(scan[0]) if scan else None
         d['cash']=self.cash(d)
+        d['lifecycle']=stage_state(d)
+        d.setdefault('stage_history',[]);d.setdefault('date_events',[]);d.setdefault('contacted_on','')
         for p in d['publications']:
             p['feedback']=None
             if p.get('delivery_id') and not p.get('voided_at'):
                 try:p['feedback']=next(iter(self.store.feedback.listing(slug=p['slug'],delivery_id=p['delivery_id'],limit=1)['snapshots']),None)
                 except (OSError,ValueError,KeyError):p['feedback_unavailable']=True
-        from deals_evidence import timeline
+        from deals_evidence import timeline,business_dates
+        d['business_dates']=business_dates(d)
         d['timeline']=timeline(d)
         return d
 
@@ -204,7 +242,7 @@ class Deals:
         """Stored WeChat candidates for one deal; read-only, used to spot newly matched evidence."""
         with self.db() as c:
             return [json.loads(r[0]) for r in c.execute('SELECT data FROM evidence WHERE deal_id=?',(identity(ident),))]
-    def pending_proposals(self,limit=50):
+    def pending_proposals(self,limit=200):
         """Proposals waiting for the user's confirmation; nothing here has touched the ledger."""
         if type(limit) is not int or not 1<=limit<=200:raise ValueError('建议数量无效')
         with self.db() as c:
@@ -240,14 +278,167 @@ class Deals:
             self._write(c,d,'核对微信来源 · '+{'confirmed':'关联确认','rejected':'排除关联','candidate':'恢复待核对'}[p['state']]);self._remember(c,key,digest,d)
         return self.detail(ident)
 
+    def stage_date(self,ident,p):
+        fields(p,('revision','request_key','stage','entered_on'))
+        stage=p.get('stage')
+        if stage not in MAIN_STAGES+('unknown','cancelled'):raise ValueError('生命周期阶段无效')
+        entered=day(p.get('entered_on',''),'阶段业务日期')
+        if entered and entered>beijing_today().isoformat():raise ValueError('进入阶段的日期不能在未来')
+        with self.lock,self.db() as c:
+            c.execute('BEGIN IMMEDIATE');key,digest,old=self._once(c,p,ident+'/stage-date')
+            if old:return self.detail(old['id'])
+            d=self._edit(c,ident,p)
+            history=d.setdefault('stage_history',[])
+            entry=next((h for h in reversed(history) if canonical_stage(h['stage'])==stage),None)
+            if entry:entry.update(entered_on=entered,recorded_at=now(),source='黄总补充业务日期')
+            else:history.append(dict(stage=stage,entered_on=entered,recorded_at=now(),source='黄总补充业务日期'))
+            if stage=='contact':
+                d['contacted_on']=entered;d.get('date_sources',{}).pop('contacted_on',None)
+            self._write(c,d,'补充阶段日期 · '+STAGES[stage]);self._remember(c,key,digest,d)
+        return self.detail(ident)
+
+    def migrate_owner_paid(self,expected_count=11):
+        """One atomic, idempotent migration. Caller owns production approval and backup."""
+        source='黄总手记清单 2026-11-01';changed=[]
+        with self.lock,self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            rows=[json.loads(r[0]) for r in c.execute('SELECT data FROM deals')]
+            targets=[d for d in rows if d.get('original_group')=='已付']
+            if len(targets)!=expected_count:raise DealConflict('原清单已付数量变化，请重新核对迁移范围')
+            for d in targets:
+                if d.get('owner_paid_migration')==source:continue
+                if d['stage']!='unknown':raise DealConflict('已付商单进度已变化，请人工核对：'+d['title'])
+                before={k:copy.deepcopy(d[k]) for k in ('stage','reported_payment','quote','currency','receipts','publications')}
+                d.update(stage='published',reported_payment='paid',payment_source=source,owner_paid_migration=source)
+                self._write(c,d,'手记清单归位 · 已发布 / 手记已付',entered_on='',source=source)
+                changed.append(dict(id=d['id'],title=d['title'],before=before,after={k:copy.deepcopy(d[k]) for k in before}))
+        return changed
+
+    def migrate_owner_contact_bundle(self,bundle):
+        """Approved 4000 CNY order plus reviewed, unconfirmed contact evidence.
+
+        The caller supplies the versioned migration manifest, never model output.
+        Everything is atomic; the import marker and proposal IDs survive reruns.
+        """
+        source='黄总手记清单 + 黄总 2026-11-01 确认'
+        key='llm-eval-contact-bundle';title='大模型评测'
+        if bundle.get('version')!=1 or len(bundle.get('proposals',[]))!=7:raise ValueError('联系人迁移清单格式无效')
+        documents={e['document_id']:e for e in bundle['evidence']}
+        digest=hashlib.sha256(json.dumps(bundle,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        with self.lock,self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            old=[json.loads(r[0]) for r in c.execute('SELECT data FROM deals') if json.loads(r[0])['title']=='AI for Math']
+            if len(old)!=1:raise DealConflict('AI for Math 旧单必须唯一，拒绝猜测归属')
+            marker=c.execute('SELECT digest,result FROM requests WHERE key=?',(key,)).fetchone()
+            if marker:
+                saved=json.loads(marker['result'])
+                if marker['digest']!=digest:raise DealConflict('已执行的联系人迁移清单变化，请人工核对')
+                new=self._read(c,saved['id']);created=False
+            else:
+                if any(json.loads(r[0])['title']==title for r in c.execute('SELECT data FROM deals')):raise DealConflict('已有同名评测商单，请人工核对，避免重复新建')
+                new=self._new(dict(title=title,customer='AI for Math / 超衍智能',contact='王梦珂Mengke',stage='unknown',quote='4000',currency='CNY',quote_confirmed=True,expected_deliverables=1,
+                    price_note='4000rmb；黄总手记原文及 2026-11-01 确认',notes=source+'；仅确认这是独立新商单及4000 CNY金额；进度与日期等待逐条确认。'))
+                new.update(original_group='待写',original_text='大模型评测 4000rmb 1单 AI for Math同一家',owner_confirmation_source=source)
+                self._write(c,new,'黄总确认新建 · 大模型评测 4000 CNY',entered_on='',source=source)
+                c.execute('INSERT INTO requests VALUES(?,?,?)',(key,digest,json.dumps(dict(id=new['id']),ensure_ascii=False)));created=True
+            targets={'old':old[0],'new':new};added=[];evidence_added=0
+            for item in bundle['proposals']:
+                target=item['target'];field=item['field'];value=item['value'];entered=item.get('entered_on','')
+                if target not in targets or field not in DATE_FIELDS and field!='stage':raise ValueError('联系人候选字段无效')
+                if field=='stage':
+                    if value not in MAIN_STAGES:raise ValueError('联系人候选阶段无效')
+                    day(entered,'阶段业务日期')
+                    if entered and entered>beijing_today().isoformat():raise ValueError('候选阶段日期不能在未来')
+                else:
+                    if not day(value,'候选业务日期'):raise ValueError('候选业务日期不能为空')
+                d=targets[target];e=copy.deepcopy(documents[item['document_id']]);e['state']='candidate'
+                evidence_added+=c.execute('INSERT OR IGNORE INTO evidence VALUES(?,?,?)',(d['id'],e['id'],json.dumps(e,ensure_ascii=False))).rowcount
+                pid=hashlib.sha256(json.dumps([d['id'],field,value,e['id']],ensure_ascii=False).encode()).hexdigest()[:32]
+                q=dict(id=pid,deal_id=d['id'],revision=d['revision'],title=d['title'],operation='lifecycle',changes={field:value},before={field:self._lifecycle_value(d,field)},reason=item['reason'],
+                    evidence=dict(id=e['id'],excerpt=e['text'][:600],at=e['at'],conversation=e['title'].split(' · ')[0],sender=e.get('provenance',{}).get('sender',''),url=e['url']),
+                    certainty='联系人上下文候选，归属/实际发生日及进度待黄总逐条确认',stage_entered_on=entered,created_at=now(),source='联系人线索上下文核对 · 黄总 2026-11-01',saved=False)
+                if c.execute('INSERT OR IGNORE INTO proposals VALUES(?,?,?,NULL)',(pid,d['id'],json.dumps(q,ensure_ascii=False))).rowcount:added.append(q)
+        return dict(new_deal_id=new['id'],created=created,evidence_added=evidence_added,proposals_added=len(added),proposals=added,source=source)
+
+    def generate_lifecycle_proposals(self,ident):
+        from deals_evidence import lifecycle_candidates
+        d=self.detail(ident);created=[]
+        candidates=lifecycle_candidates(d)
+        with self.lock,self.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            self._edit(c,ident,{'revision':d['revision']})
+            for item in candidates:
+                field=item['field'];value=item['value'];e=item['evidence']
+                pid=hashlib.sha256(json.dumps([ident,field,value,e['id']],ensure_ascii=False).encode()).hexdigest()[:32]
+                proposal=dict(id=pid,deal_id=ident,revision=d['revision'],title=d['title'],operation='lifecycle',
+                    changes={field:value},before={field:self._lifecycle_value(d,field)},reason=item['reason'],
+                    evidence=e,certainty=item['certainty'],stage_entered_on=item.get('entered_on',''),created_at=now(),source='微信证据规则提取',saved=False)
+                n=c.execute('INSERT OR IGNORE INTO proposals VALUES(?,?,?,NULL)',(pid,ident,json.dumps(proposal,ensure_ascii=False))).rowcount
+                if n:created.append(proposal)
+        return dict(created=len(created),candidates=created,model_calls=0,notice='仅提取微信证据候选，未确认不写入；未找到不等于没有发生')
+
+    @staticmethod
+    def _lifecycle_value(d,field):
+        if field in ('published_on','paid_on'):
+            values=[x['date'] for x in d.get('date_events',[]) if x['kind']==field]
+            group,key=('publications','published_on') if field=='published_on' else ('receipts','paid_on')
+            values += [x[key] for x in d[group] if not x.get('voided_at') and x.get(key)]
+            return sorted(set(values))
+        return d.get(field,'')
+
+    def resolve_lifecycle(self,p):
+        fields(p,('proposal_id','decision','value','entered_on'))
+        pid=identity(p.get('proposal_id'));decision=p.get('decision')
+        if decision not in ('confirmed','rejected'):raise ValueError('请选择确认或驳回')
+        with self.lock,self.db() as c:
+            c.execute('BEGIN IMMEDIATE');row=c.execute('SELECT data,result FROM proposals WHERE id=?',(pid,)).fetchone()
+            if not row:raise ValueError('建议不存在')
+            q=json.loads(row['data'])
+            if q.get('operation')!='lifecycle':raise ValueError('不是生命周期建议')
+            if row['result']:
+                result=json.loads(row['result'])
+                if result.get('decision')!=decision:raise DealConflict('建议已处理，不能重复改变决定')
+                return self.detail(q['deal_id'])
+            d=self._read(c,q['deal_id']);field=next(iter(q['changes']));value=p.get('value',q['changes'][field]);source='微信证据经黄总确认 · '+pid
+            if decision=='confirmed':
+                evidence=c.execute('SELECT data FROM evidence WHERE deal_id=? AND id=?',(d['id'],q['evidence']['id'])).fetchone()
+                if not evidence or json.loads(evidence[0]).get('state')=='rejected':raise DealConflict('此建议的微信来源已排除或不存在，请重新核对')
+                current=self._lifecycle_value(d,field)
+                if field in ('published_on','paid_on'):
+                    if value in current:raise DealConflict('该业务日期已有记录，请核对后驳回重复建议')
+                    if not set(q['before'][field]).issubset(current):raise DealConflict('原业务日期已有删除或变化，请重新核对建议')
+                elif current!=q['before'][field]:raise DealConflict('该字段已有变化，请重新核对建议')
+                if field=='stage':
+                    if value not in MAIN_STAGES+('unknown','cancelled'):raise ValueError('商单阶段无效')
+                    entered=day(p.get('entered_on',q.get('stage_entered_on','')),'阶段业务日期')
+                    if entered and entered>beijing_today().isoformat():raise ValueError('进入阶段的日期不能在未来')
+                    d['stage']=value
+                else:
+                    value=day(value,'业务日期')
+                    if not value:raise ValueError('确认前请填写日期')
+                    if field in ('published_on','paid_on'):
+                        d.setdefault('date_events',[]).append(dict(kind=field,date=value,recorded_at=now(),source=source,evidence=q['evidence']))
+                    else:
+                        d[field]=value
+                        d.setdefault('date_sources',{})[field]=dict(source=source,evidence=q['evidence'])
+                self._valid(d)
+                self._write(c,d,'确认微信日期/进度建议 · '+(STAGES.get(value,value) if field=='stage' else DATE_FIELDS[field])+' · '+pid,entered_on=entered if field=='stage' else None,source=source)
+            else:self._write(c,d,'驳回微信日期/进度建议 · '+field)
+            c.execute('UPDATE proposals SET result=? WHERE id=?',(json.dumps(dict(id=d['id'],decision=decision,value=value,at=now()),ensure_ascii=False),pid))
+        return self.detail(q['deal_id'])
+
     def apply_proposal(self,p):
         fields(p,('proposal_id',));pid=identity(p.get('proposal_id'))
         with self.lock,self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             row=c.execute('SELECT data,result FROM proposals WHERE id=?',(pid,)).fetchone()
             if not row:raise ValueError('AI修改建议不存在，请重新提出')
-            if row['result']:return self.detail(json.loads(row['result'])['id'])
+            if row['result']:
+                result=json.loads(row['result'])
+                if result.get('decision')=='rejected':raise ValueError('该建议已驳回')
+                return self.detail(result['id'])
             proposal=json.loads(row['data'])
+            if proposal['operation']=='lifecycle':raise ValueError('生命周期建议请逐条核对后确认')
             prior=c.execute('SELECT result FROM requests WHERE key=?',('proposal_'+pid,)).fetchone()
             if prior:
                 c.execute('UPDATE proposals SET result=? WHERE id=?',(prior[0],pid));return self.detail(json.loads(prior[0])['id'])
@@ -274,7 +465,7 @@ class Deals:
                     versions=sorted([p.name for p in (folder/'versions').iterdir() if re.fullmatch(r'v\d{4,}',p.name)],reverse=True)
                     works.append(dict(slug=folder.name,title=manifest['title'],version=rev['id'],versions=versions))
                 except (OSError,ValueError,KeyError):continue
-        return dict(stages=STAGES,stage_groups=STAGE_GROUPS,delivery_stages=DELIVERY_STAGES,currencies=CURRENCIES,works=works,bindings=self.store.feedback.bindings()['bindings'])
+        return dict(stages=STAGES,stage_groups=STAGE_GROUPS,main_stages=MAIN_STAGES,stage_aliases=STAGE_ALIASES,date_fields=DATE_FIELDS,delivery_stages=DELIVERY_STAGES,currencies=CURRENCIES,works=works,bindings=self.store.feedback.bindings()['bindings'])
     def listing(self,month='',q='',stage='',payment='',archived=False):
         month=month or datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m')
         if not re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])',month):raise ValueError('统计月份无效')
@@ -288,6 +479,9 @@ class Deals:
         result=[];stage_counts={k:0 for k in STAGES}
         for d in all_deals:
             cash=self.cash(d)
+            d['lifecycle']=stage_state(d)
+            from deals_evidence import business_dates
+            d['business_dates']=business_dates(d)
             if not d['archived']:stage_counts[d['stage']]+=1
             if not d['archived'] and d['stage']!='cancelled' and d['quote'] is not None and d['currency']:
                 s['recorded_quote'][d['currency']]+=Decimal(d['quote']);s['recorded_quote_count']+=1
@@ -467,7 +661,7 @@ class Deals:
             if old:return json.loads(old[0])
             ids=[]
             for d in prepared:
-                self._write(c,d,'导入配置清单（待核对，无到账推断）');ids.append(d['id'])
+                self._write(c,d,'导入配置清单（待核对，无到账推断）',entered_on='',source='原始清单（业务日期缺失）');ids.append(d['id'])
             result=dict(key=key,configured=True,imported=True,created_at=now(),ids=ids,count=len(ids),unassigned=unassigned,source_url=source_url)
             c.execute('INSERT INTO imports VALUES(?,?)',(key,json.dumps(result,ensure_ascii=False)))
         return result

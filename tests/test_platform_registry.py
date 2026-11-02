@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from platform_registry import PLATFORMS, derive_platform
 
@@ -20,8 +21,9 @@ class PlatformRegistryTests(unittest.TestCase):
         for key, entry in PLATFORMS.items():
             self.assertEqual(entry['key'], key)
             self.assertTrue(entry['display_name'])
-            self.assertIsNone(entry['icon'])
-            self.assertIsNone(entry['color'])
+            self.assertRegex(entry['icon'], r'^/icons/platforms/[a-z0-9-]+\.svg$')
+            self.assertTrue((Path(__file__).resolve().parents[1] / 'public' / entry['icon'].lstrip('/')).is_file())
+            self.assertRegex(entry['color'], r'^#[0-9A-Fa-f]{6}$')
 
 
 if __name__ == '__main__':

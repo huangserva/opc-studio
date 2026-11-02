@@ -3,7 +3,7 @@ import json
 import math
 from math import gcd
 
-from .native_h3 import build_native_h3
+from .native_h3 import build_native_h3, build_aicg3d_sequence_h3
 
 REFERENCE_MODES = ['r2v', 'ir2v', 'flr2v']
 ALL_MODES = ['t2v', 'i2v', 'fl2v', *REFERENCE_MODES]
@@ -41,6 +41,8 @@ H3_LORAS = [{'id': key, 'name': name, 'file': filename} for key, name, filename 
     ('realism', '写实人物', 'h3-realism-people-t2v-i2v-r2v.safetensors'),
     ('hm', 'HMNSFW AIO V2', 'HMNSFW_AIO_V2.safetensors'),
     ('naughty', 'NaughtyTimes', 'SexGod-NaughtyTimes-lora-MINIMAXH3.safetensors'),
+    ('orb360', 'ORB 360 环绕运镜', 'minimax_h3_orb360_step1500.safetensors'),
+    ('cardspin', 'ORB 360 卡片旋转', 'minimax_h3_orb360_cardspin_v2_step50.safetensors'),
 ]]
 REFERENCE_LIMITS = {'images': 9, 'videos': 3, 'audios': 3, 'total': 12}
 
@@ -121,11 +123,42 @@ def h3_capability_matrix():
     return rows
 
 
-def validate_frames(model, value):
+import re
+
+
+def parse_segments_from_prompt(text):
+    if not text:
+        return []
+    regex = re.compile(r'(?:【第\s*(\d+)\s*段(?:[｜\|]\s*([\d.]+)\s*秒?)?】|第\s*(\d+)\s*段)', re.I)
+    matches = list(regex.finditer(text))
+    if not matches:
+        return []
+    segments = []
+    for i, m in enumerate(matches):
+        num = int(m.group(1) or m.group(3) or (i + 1))
+        sec = float(m.group(2)) if m.group(2) else 5.0
+        start_idx = m.end()
+        end_idx = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start_idx:end_idx].strip()
+        fc = max(39, int(round(sec * 24)))
+        if 115 <= fc <= 130:
+            fc = 124
+        segments.append({
+            'index': num,
+            'seconds': sec,
+            'frameCount': fc,
+            'prompt': body
+        })
+    return segments
+
+
+def validate_frames(model, value, has_segments=False):
     """Strict H3 duration; the same rule the media API enforces."""
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError('视频帧数须为整数（不接受小数、字符串或布尔值）')
     if value in (56, 124):
+        return value
+    if has_segments and 39 <= value <= 2880:
         return value
     if not H3_FRAMES_MIN <= value <= H3_FRAMES_MAX or value % H3_FRAMES_STEP != H3_FRAMES_MIN % H3_FRAMES_STEP:
         raise ValueError(f'视频帧数须为 {H3_FRAMES_MIN}–{H3_FRAMES_MAX} 且满足 17k+5'
@@ -249,6 +282,11 @@ def apply_video(graph, payload, settings, prompt, frames):
         raise ValueError('视频帧数须为整数')
     if any(key in payload for key in ('steps', 'cfg', 'negative_prompt', 'ref_image_size')):
         raise ValueError('H3 采样参数由加速方案确定，不接受独立步数、CFG、负面提示词或参考图尺寸参数')
+    ref_img_size = payload.get('video_ref_image_size')
+    if ref_img_size is not None:
+        if not isinstance(ref_img_size, str) or ref_img_size not in ('match', '1k', '1.5k', '2k', 'original'):
+            raise ValueError('参考图编码尺寸须为 match、1k、1.5k、2k 或 original')
+        settings['video_ref_image_size'] = ref_img_size
     cp = option(H3_CHECKPOINTS, payload.get('video_checkpoint', 'fl2va' if mode == 'fl2v' else 'singularity'), 'H3 权重')
     accel = option(H3_ACCELERATORS, payload.get('video_accelerator', 'fl8' if mode == 'fl2v' else 'ref8'), '加速 LoRA')
     if mode not in cp['modes'] or mode not in accel['modes']:
@@ -279,6 +317,13 @@ def apply_video(graph, payload, settings, prompt, frames):
     settings.update(workflow=mode, workflow_name=wf['name'], video_checkpoint=cp['id'], checkpoint_file=cp['file'],
                     video_accelerator=accel['id'], accelerator_file=accel['file'], video_loras=saved, references=ids, steps=accel['steps'])
     settings.update(sampling)
+    segments = payload.get('segments')
+    if not segments and prompt and '【第1段' in prompt:
+        segments = parse_segments_from_prompt(prompt)
+    if segments and len(segments) > 1:
+        build_aicg3d_sequence_h3(graph, payload.get('_references', {}), ids, settings, prompt, segments, link)
+        return
+
     if mode in REFERENCE_MODES or sampling['video_sampling'] == 'dual':
         build_native_h3(graph, payload.get('_references', {}), ids, settings, prompt, frames, link)
         return
@@ -294,3 +339,4 @@ def apply_video(graph, payload, settings, prompt, frames):
         timeline.update(timelineMode='fl2v', shots=[{'startImage': refs['first'], 'endImage': refs['last'], 'durationSec': frames / 24, 'prompt': prompt}])
     graph['5']['inputs'].update(model=link, task_type=wf['task'], steps=accel['steps'], timeline_data=json.dumps(timeline if mode != 't2v' else {}, ensure_ascii=False))
     settings.update(engine='director', reference_labels=[], reference_video_usage=[])
+

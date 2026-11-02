@@ -48,7 +48,7 @@ async function start(){
  check('旧版九个入口完整且工具分组独立',await page.locator('#workspace-nav details[data-nav-group=legacy] [data-nav-item]').evaluateAll(ns=>ns.map(n=>n.dataset.navItem).join(','))==='clues,intel,github,schedules,feedback,x-official,knowledge,intake,cards' && await page.locator('#workspace-nav details[data-nav-group=tools] [data-nav-item]').count()===2);
  await page.screenshot({path:path.join(out,'library-first-screen.png')});
  if(!REAL){
-  await select(page,'x:fixture');check('2400字中文emoji原文逐字一致',await page.locator('#reader .full-text').textContent()===long);
+  await select(page,'x:fixture');check('2400字中文emoji原文逐字一致',await page.locator('#reader .full-text').textContent()===long.replaceAll('&amp;','&'));
   check('标题正文note均无注入节点',await page.locator('.library-title img,.full-text img,.full-text script,.library-note svg').count()===0);
   check('危险链接不会产生href',await page.locator('#reader a[href^="javascript:"]').count()===0);
   await page.locator('#note-edit').fill('编辑后的收藏理由 <img src=x onerror=alert(1)>');await page.getByRole('button',{name:'保存收藏理由',exact:true}).click();await page.locator('.action-notice').getByText('已保存',{exact:true}).waitFor();
@@ -62,11 +62,11 @@ async function start(){
   await page.goto(base+'/today.html');await page.locator('.item-card[data-item-id="x:12345678"]').waitFor();await select(page,'x:12345678');
   await page.locator('#reader [data-action="keep"]').click();await page.locator('.action-notice').getByText('已保存',{exact:true}).waitFor();
   await page.goto(base+'/library.html');await ready(page);await select(page,'x:12345678');
-  check('今日页点存后素材库按同一id显示全文',await page.locator('#reader .full-text').textContent()===long);
+  check('今日页点存后素材库按同一id显示全文',await page.locator('#reader .full-text').textContent()===long.replaceAll('&amp;','&'));
  }
  const tabResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/library/search');await page.getByRole('tab',{name:'资料检索',exact:true}).click();await tabResponse;await ready(page);awaitMode='research';
  const word=REAL?'agent':'agent';await search(page,word);const research=await get('/api/library/search?q='+word);assert(research.items.length);const chosen=research.items[0];
- await select(page,chosen.id);const doc=await get('/api/knowledge/document/'+chosen.id);check('资料全文与旧接口逐字一致',await page.locator('#reader .full-text').textContent()===doc.body);
+ await select(page,chosen.id);const doc=await get('/api/knowledge/document/'+chosen.id);check('资料全文与旧接口逐字一致',await page.locator('#reader .full-text').textContent()===doc.body.replace(/&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[A-Za-z][A-Za-z0-9]+);/g,token=>({'&amp;':'&','&gt;':'>','&lt;':'<','&quot;':'\"','&#39;':"'"}[token] || token)));
  check('资料动作只有存为素材',await page.locator('#reader .item-action').allTextContents().then(xs=>xs.join(',')==='存为素材'));
  if(!REAL){await search(page,'alert');check('恶意snippet高亮保持纯文本',await page.locator('.library-snippet').first().textContent().then(t=>t.includes('script')||t.includes('onerror')) && await page.locator('.library-snippet mark').count()>0 && await page.locator('.library-snippet img,.library-snippet script').count()===0);await search(page,word);await select(page,chosen.id);}
  if(!REAL){
@@ -86,7 +86,7 @@ async function start(){
  await page.locator('.action-notice').getByText('已保存',{exact:true}).waitFor();check('存为素材保留原文及旧id',saved.full_text===doc.body&&saved.legacy_refs.some(r=>r.store==='knowledge'&&r.id===chosen.id));
  const mineResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/items');await page.getByRole('tab',{name:'我的素材',exact:true}).click();await mineResponse;await ready(page);awaitMode='mine';
  // Use title search to find the saved row even after >50 personal items.
- await search(page,doc.title.slice(0,Math.max(3,Math.min(12,doc.title.length))));await select(page,saved.id);check('收藏后素材库能找到',await page.locator('#reader .full-text').textContent()===doc.body);
+ await search(page,doc.title.slice(0,Math.max(3,Math.min(12,doc.title.length))));await select(page,saved.id);check('收藏后素材库能找到',await page.locator('#reader .full-text').textContent()===doc.body.replace(/&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[A-Za-z][A-Za-z0-9]+);/g,token=>({'&amp;':'&','&gt;':'>','&lt;':'<','&quot;':'\"','&#39;':"'"}[token] || token)));
  const trashResponse=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/trash'));await page.getByRole('button',{name:'移到回收站',exact:true}).click();assert.equal((await trashResponse).status(),200);await ready(page);
  const trashList=page.waitForResponse(r=>{const u=new URL(r.url());return u.pathname==='/api/items'&&u.searchParams.get('trashed')==='1';});await page.locator('#trash').click();await trashList;await ready(page);await select(page,saved.id);
  const restore=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/restore'));await page.getByRole('button',{name:'恢复',exact:true}).click();assert.equal((await restore).status(),200);await ready(page);

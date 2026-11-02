@@ -40,6 +40,15 @@ def post_route(handler, segments, payload):
             if segments==['api','deals']:return self.reply(201,deals.save(payload))
             if segments==['api','deals','from-clue']:return self.reply(201,deals.from_clue(payload))
             if segments==['api','deals','apply-proposal']:return self.reply(200,deals.apply_proposal(payload))
+            if segments==['api','deals','resolve-lifecycle']:return self.reply(200,deals.resolve_lifecycle(payload))
+            if segments==['api','deals','lifecycle-suggest']:
+                if payload!={}:raise ValueError('提取建议参数无效')
+                results=[deals.generate_lifecycle_proposals(d['id']) for d in deals.listing()['deals'] if d['stage']!='cancelled']
+                return self.reply(200,dict(created=sum(x['created'] for x in results),model_calls=0))
+            if len(segments)==4 and segments[3]=='stage-date':return self.reply(200,deals.stage_date(segments[2],payload))
+            if len(segments)==4 and segments[3]=='lifecycle-suggest':
+                if payload!={}:raise ValueError('提取建议参数无效')
+                return self.reply(200,deals.generate_lifecycle_proposals(segments[2]))
             if len(segments)==4 and segments[3]=='scan-wechat':
                 from deals_store import fields
                 fields(payload,('query',));return self.reply(200,deals.scan_evidence(segments[2],payload.get('query','')))

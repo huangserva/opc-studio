@@ -87,8 +87,8 @@ def build(payload, job_id):
         raise ValueError('请选择已接入的生图或视频模型')
     lora_parameters(payload)
     prompt = str(payload.get('prompt', '')).strip()
-    if not prompt or len(prompt) > 8000:
-        raise ValueError('生成描述须为 1–8000 字')
+    if not prompt or len(prompt) > 24000:
+        raise ValueError('生成描述须为 1–24000 字')
     size = validate_size(model,payload.get('size', model['sizes'][0]))
     width, height = map(int, size.split('x'))
     seed = payload.get('seed')
@@ -120,7 +120,16 @@ def build(payload, job_id):
         graph['8']['inputs'].update(steps=settings['steps'],cfg=settings['cfg'])
         graph['10']['inputs']['filename_prefix'] = prefix
     else:
-        frames = validate_frames(model, payload.get('frames', 56))
+        segments = payload.get('segments')
+        if not segments and prompt and '【第1段' in prompt:
+            from .video_options import parse_segments_from_prompt
+            segments = parse_segments_from_prompt(prompt)
+        if segments and len(segments) > 1:
+            total_frames = sum(int(s.get('frameCount') or round(float(s.get('seconds', 5.0)) * 24)) for s in segments)
+            frames = total_frames
+            payload['segments'] = segments
+        else:
+            frames = validate_frames(model, payload.get('frames', 56))
         graph['5']['inputs'].update(task_type='t2v — 文生视频(Text to Video)', global_prompt=prompt,
                                   width=width, height=height, total_frames=frames, seed=seed, timeline_data='{}')
         graph['7']['inputs']['filename_prefix'] = prefix

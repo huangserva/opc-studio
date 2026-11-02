@@ -101,12 +101,14 @@ class DealsReviewTests(unittest.TestCase):
     def test_progress_rules_report_due_dates_waiting_cash_and_staleness(self):
         today = date.today()
         overdue = self.deal(title='已过截止', deadline=(today - timedelta(days=3)).isoformat())
-        soon = self.deal(title='下周到期', deadline=(today + timedelta(days=5)).isoformat())
+        soon = self.deal(title='三天内到期', deadline=(today + timedelta(days=3)).isoformat())
         far = self.deal(title='还早', deadline=(today + timedelta(days=40)).isoformat())
-        paid = self.deal(title='已交付未到账', stage='published', completed_on=(today - timedelta(days=9)).isoformat())
+        paid = self.deal(title='已交付未到账', stage='published', stage_entered_on=(today - timedelta(days=31)).isoformat())
+        with self.deals.db() as c:
+            row=json.loads(c.execute('SELECT data FROM deals WHERE id=?',(paid['id'],)).fetchone()[0]);row['date_events']=[dict(kind='published_on',date=(today-timedelta(days=31)).isoformat(),source='测试业务日期')];c.execute('UPDATE deals SET data=? WHERE id=?',(json.dumps(row),paid['id']))
         settled = self.deal(title='已结清', stage='settled', settled=True, completed_on='2026-01-01')
         stalled = self.deal(title='停滞的单', stage='draft')
-        self.backdate(stalled, 30)
+        self.deals.stage_date(stalled['id'],dict(revision=stalled['revision'],request_key=uuid.uuid4().hex,stage='draft',entered_on=(today-timedelta(days=30)).isoformat()))
         self.deal(title='待核对一', stage='unknown')
         self.deal(title='待核对二', stage='writing', needs_review=True)
         result = self.review.progress_check()
@@ -114,8 +116,8 @@ class DealsReviewTests(unittest.TestCase):
         self.assertEqual(result['overdue'][0]['days'], 3)
         self.assertEqual([x['deal_id'] for x in result['due_soon']], [soon['id']])
         self.assertEqual([x['deal_id'] for x in result['awaiting_payment']], [paid['id']])
-        self.assertEqual(result['awaiting_payment'][0]['days'], 9)
-        self.assertEqual([x['deal_id'] for x in result['stalled']], [stalled['id']])
+        self.assertEqual(result['awaiting_payment'][0]['days'], 31)
+        self.assertEqual(set(x['deal_id'] for x in result['stalled']), {stalled['id'],paid['id']})
         self.assertGreaterEqual(result['stalled'][0]['days'], 30)
         self.assertNotIn(far['id'], [x['deal_id'] for x in result['overdue'] + result['due_soon']])
         self.assertNotIn(settled['id'], [x['deal_id'] for x in result['awaiting_payment']])
@@ -489,7 +491,7 @@ class DealsReviewHTTPTests(unittest.TestCase):
     def test_review_summary_and_report_routes_are_read_only_and_validated(self):
         code, body = self.get('/api/deals/review')
         self.assertEqual(code, 200)
-        self.assertEqual(body['run_id'], '')
+        self.assertEqual(body['run_id'], 'local-rules')
         self.assertEqual(body['findings'], {})
         self.assertEqual(body['proposals'], [])
         for path in ('/api/deals/review/report', '/api/deals/review/report?week=nope',

@@ -81,7 +81,8 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual([c['id'] for c in self.h3['checkpoints']], ['singularity', 'ref2va', 'fl2va', 'hybrid'])
         self.assertEqual([a['id'] for a in self.h3['accelerators']], ['ref8', 'fl8', 'ref4', 'fl4', 'none'])
         self.assertEqual([w['id'] for w in self.h3['workflows']], ['t2v', 'i2v', 'fl2v', 'r2v', 'ir2v', 'flr2v'])
-        self.assertEqual([lo['id'] for lo in self.h3['video_loras']], ['motion', 'realism', 'hm', 'naughty'])
+        self.assertEqual([lo['id'] for lo in self.h3['video_loras']],
+                         ['motion', 'realism', 'hm', 'naughty', 'orb360', 'cardspin'])
 
     def test_labels_state_the_exact_reduced_ratio(self):
         self.assertEqual(self.h3['size_labels']['768x448'], '12:7 · 768x448')

@@ -101,6 +101,9 @@ class Clues:
     def _row(self,db,thread_id):
         row=db.execute('SELECT * FROM threads WHERE id=?',(identity(thread_id,'线索编号'),)).fetchone()
         if not row:raise ValueError('线索不存在')
+        return self._loaded_row(row)
+
+    def _loaded_row(self,row):
         data=json.loads(row['data']);data.setdefault('heat','');data.setdefault('heat_source','');data['tags_source']='manual' if isinstance(data.get('tags'),list) else 'suggested';data['tags']=tech_tags(data)
         return {**data,**{k:row[k] for k in ('id','revision','seen_revision','created_at','updated_at')},'unread':row['revision']>row['seen_revision']}
 
@@ -342,7 +345,8 @@ class Clues:
             db.execute('UPDATE threads SET seen_revision=MAX(seen_revision,?) WHERE id=?',(revision,thread_id))
         return {'ok':True}
 
-    def listing(self,query='',category='',view='all',source='',year='',offset=0,limit=30,tag='',sort='updated',period='',priority='',heat=''):
+    def listing(self,query='',category='',view='all',source='',year='',offset=0,limit=30,tag='',sort='updated',period='',priority='',heat='',phase='all'):
+        if phase not in ('all','rows','facets'):raise ValueError('线索读取阶段无效')
         query=text(query,'检索词',200).casefold();source=text(source,'来源',200)
         if tag and tag not in TECH_TAGS:raise ValueError('技术标签无效')
         if sort not in ('updated','source_desc','source_asc','priority'):raise ValueError('排序无效')
@@ -382,44 +386,68 @@ class Clues:
                     # 3d / 7d / 30d 沿用原有的滚动切点（此刻往前推 N 天），不改口径
                     where.append(f'julianday({source_time})>=julianday(?)');args.append((stamp-timedelta(days=int(period[:-1]))).isoformat())
             common=' AND '.join(where)
-            counts={c:db.execute("SELECT COUNT(*) FROM threads t WHERE "+common+" AND EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)",[*args,c]).fetchone()[0] for c in CATEGORIES}
+            counts={c:db.execute("SELECT COUNT(*) FROM threads t WHERE "+common+" AND EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)",[*args,c]).fetchone()[0] for c in CATEGORIES} if phase!='rows' else {}
             if category:where.append("EXISTS(SELECT 1 FROM json_each(t.data,'$.categories') WHERE value=?)");args.append(category)
             if view=='tracking':where.append("json_extract(t.data,'$.tracking')=1")
             if view=='discussion':where.append("json_extract(t.data,'$.kind')='discussion'")
             if view=='unread':where.append('t.revision>t.seen_revision')
             if view!='all':where.append("json_extract(t.data,'$.status')!='archived'")
             facets=' AND '.join(where)
-            tag_counts={r['tag']:r['n'] for r in db.execute('SELECT j.value tag,COUNT(*) n FROM threads t,json_each(tech_tags(t.data)) j WHERE '+facets+' GROUP BY j.value',args)}
-            heat_counts={h:db.execute("SELECT COUNT(*) FROM threads t WHERE "+facets+" AND json_extract(t.data,'$.heat')=?",[*args,h]).fetchone()[0] for h in ('rising','peak','fading')}
+            tag_counts={r['tag']:r['n'] for r in db.execute('SELECT j.value tag,COUNT(*) n FROM threads t,json_each(tech_tags(t.data)) j WHERE '+facets+' GROUP BY j.value',args)} if phase!='rows' else {}
+            heat_counts={h:db.execute("SELECT COUNT(*) FROM threads t WHERE "+facets+" AND json_extract(t.data,'$.heat')=?",[*args,h]).fetchone()[0] for h in ('rising','peak','fading')} if phase!='rows' else {}
             if heat:where.append("json_extract(t.data,'$.heat')=?");args.append(heat)
             if tag:where.append('EXISTS(SELECT 1 FROM json_each(tech_tags(t.data)) WHERE value=?)');args.append(tag)
             clause=' AND '.join(where)
             total=db.execute('SELECT COUNT(*) FROM threads t WHERE '+clause,args).fetchone()[0]
             chronological=f'(julianday({source_time}) IS NULL),julianday({source_time}) '+('ASC' if sort=='source_asc' else 'DESC')+',t.updated_at DESC,t.id'
             ordering={'updated':'t.updated_at DESC,t.id','source_desc':chronological,'source_asc':chronological,'priority':"CASE WHEN json_extract(t.data,'$.priority')='important' THEN 0 ELSE 1 END,"+chronological}[sort]
-            rows=db.execute('SELECT t.id FROM threads t WHERE '+clause+' ORDER BY '+ordering+' LIMIT ? OFFSET ?',[*args,limit,offset]).fetchall()
+            rows=db.execute('SELECT t.id FROM threads t WHERE '+clause+' ORDER BY '+ordering+' LIMIT ? OFFSET ?',[*args,limit,offset]).fetchall() if phase!='facets' else []
             items=[]
+            # A row response must not release/reacquire the GIL for ninety tiny
+            # SQLite calls while an unrelated JSON/statistics thread is busy.
+            # Keep the legacy all/facets path and its result order untouched.
+            loaded=latest=shared=None
+            if phase=='rows' and rows:
+                ids=[identity(row['id'],'线索编号') for row in rows]
+                slots=','.join('?' for _ in ids)
+                loaded={r['id']:r for r in db.execute('SELECT * FROM threads WHERE id IN ('+slots+')',ids)}
+                latest={r['thread_id']:r for r in db.execute(
+                    'SELECT thread_id,data,clock,created_at FROM entries WHERE rowid IN ('
+                    'SELECT MAX(rowid) FROM entries WHERE thread_id IN ('+slots+
+                    ") AND entry_type='evidence' GROUP BY thread_id)",ids)}
+                shared={key:[] for key in ids}
+                # Match the per-thread legacy index traversal, including first
+                # occurrence order of DISTINCT sources (not alphabetical order).
+                for r in db.execute("SELECT DISTINCT x.thread_id,json_extract(e.value,'$.source') source "
+                                    "FROM entries x INDEXED BY entries_thread,json_each(x.data,'$.evidence') e "
+                                    'WHERE x.thread_id IN ('+slots+')',ids):
+                    shared[r['thread_id']].append(r['source'])
             for row in rows:
-                item=self._row(db,row['id'])
-                entry=db.execute("SELECT data,clock,created_at FROM entries WHERE thread_id=? AND entry_type='evidence' ORDER BY rowid DESC LIMIT 1",(row['id'],)).fetchone()
+                item=self._loaded_row(loaded[row['id']]) if loaded is not None else self._row(db,row['id'])
+                entry=latest.get(row['id']) if latest is not None else db.execute("SELECT data,clock,created_at FROM entries WHERE thread_id=? AND entry_type='evidence' ORDER BY rowid DESC LIMIT 1",(row['id'],)).fetchone()
                 item['source_time']=entry['clock'] if entry else ''
                 data=json.loads(entry['data']) if entry else {}
                 item['source_time_label']=data.get('clock_label','')
                 item['source_platforms']=list(dict.fromkeys(e.get('provenance',{}).get('platform') for e in data.get('evidence',[]) if e.get('kind')=='aisa'))
-                item['latest_note']=json.loads(entry['data'])['note'] if entry else ''
-                sources=db.execute("SELECT DISTINCT json_extract(e.value,'$.source') source FROM entries x,json_each(x.data,'$.evidence') e WHERE x.thread_id=?",(row['id'],)).fetchall()
-                item['sources']=[r['source'] for r in sources];items.append(item)
+                item['latest_note']=data['note'] if entry else ''
+                if shared is not None:item['sources']=shared[row['id']]
+                else:
+                    sources=db.execute("SELECT DISTINCT json_extract(e.value,'$.source') source FROM entries x,json_each(x.data,'$.evidence') e WHERE x.thread_id=?",(row['id'],)).fetchall()
+                    item['sources']=[r['source'] for r in sources]
+                items.append(item)
             timeline=[]
             if view=='year':
                 timewhere=[clause,"x.thread_id=t.id","x.entry_type='evidence'"];timeargs=list(args)
                 if year:timewhere.append('x.year=?');timeargs.append(year)
                 if source:timewhere.append("EXISTS(SELECT 1 FROM json_each(x.data,'$.evidence') e WHERE json_extract(e.value,'$.source')=?)");timeargs.append(source)
                 timeline_total=db.execute('SELECT COUNT(*) FROM entries x,threads t WHERE '+' AND '.join(timewhere),timeargs).fetchone()[0]
-                records=db.execute('SELECT x.*,t.data thread FROM entries x,threads t WHERE '+' AND '.join(timewhere)+" ORDER BY (x.clock=''),x.clock DESC,x.created_at DESC,x.id LIMIT ? OFFSET ?",[*timeargs,limit,offset]).fetchall()
+                records=db.execute('SELECT x.*,t.data thread FROM entries x,threads t WHERE '+' AND '.join(timewhere)+" ORDER BY (x.clock=''),x.clock DESC,x.created_at DESC,x.id LIMIT ? OFFSET ?",[*timeargs,limit,offset]).fetchall() if phase!='facets' else []
                 timeline=[{**dict(r),'data':json.loads(r['data']),'thread':json.loads(r['thread'])} for r in records];total=timeline_total
-            years=[r[0] for r in db.execute("SELECT DISTINCT year FROM entries WHERE entry_type='evidence' ORDER BY year DESC")]
-            sources=[r[0] for r in db.execute("SELECT DISTINCT json_extract(e.value,'$.source') FROM entries x,json_each(x.data,'$.evidence') e ORDER BY 1")]
-        return {'items':items,'timeline':timeline,'total':total,'next_offset':offset+limit if offset+limit<total else None,'categories':CATEGORIES,'counts':counts,'years':years,'sources':sources,'view':view,'heat_counts':heat_counts,'heat_names':{'rising':'上升中','peak':'见顶','fading':'退烧'},'tag_names':TECH_TAGS,'tag_counts':tag_counts,'sort':'source_desc' if view=='year' else sort}
+            years=[r[0] for r in db.execute("SELECT DISTINCT year FROM entries WHERE entry_type='evidence' ORDER BY year DESC")] if phase!='rows' else []
+            sources=[r[0] for r in db.execute("SELECT DISTINCT json_extract(e.value,'$.source') FROM entries x,json_each(x.data,'$.evidence') e ORDER BY 1")] if phase!='rows' else []
+        result={'items':items,'timeline':timeline,'total':total,'next_offset':offset+limit if offset+limit<total else None,'categories':CATEGORIES,'counts':counts,'years':years,'sources':sources,'view':view,'heat_counts':heat_counts,'heat_names':{'rising':'上升中','peak':'见顶','fading':'退烧'},'tag_names':TECH_TAGS,'tag_counts':tag_counts,'sort':'source_desc' if view=='year' else sort}
+        if phase=='rows':result['facets_pending']=True
+        return result
 
     @serialized
     def import_event(self,event_id):

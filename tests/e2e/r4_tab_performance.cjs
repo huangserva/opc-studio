@@ -1,0 +1,16 @@
+'use strict';
+const fs=require('fs'),path=require('path'),os=require('os'),assert=require('assert/strict');
+const {chromium}=require(path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));
+const [base,out]=process.argv.slice(2);if(!/^http:\/\/127\.0\.0\.1:\d+$/.test(base))throw Error('只读本地页面');fs.mkdirSync(out,{recursive:true});let ctx;const samples=[],network=[],errors=[];
+(async()=>{try{ctx=await chromium.launchPersistentContext(fs.mkdtempSync(path.join(out,'profile-')),{headless:true,channel:'chrome',viewport:{width:1440,height:1000}});
+await ctx.route('**/*',r=>{const request=r.request(),u=new URL(request.url());return u.origin===base&&request.method()==='GET'?r.continue():r.abort()});
+const p=await ctx.newPage();p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{const u=new URL(r.url());network.push({event:'request',at:performance.now(),path:u.pathname,queryKeys:[...u.searchParams.keys()]})});p.on('response',r=>{const u=new URL(r.url());network.push({event:'response',at:performance.now(),path:u.pathname,status:r.status()})});
+await p.goto(base+'/today.html?range=48h');await p.locator('#item-list[aria-busy="false"]').waitFor();await p.locator('[data-range="48h"]').click();await p.locator('#item-list[aria-busy="false"]').waitFor();
+await p.evaluate(()=>{window.__tabSamples=[];let pending=null;document.addEventListener('click',e=>{const b=e.target.closest('[data-channel]');if(b)pending={channel:b.dataset.channel,start:performance.now()};},true);new MutationObserver(()=>{const l=document.getElementById('item-list');if(pending&&l.getAttribute('aria-busy')==='false'){window.__tabSamples.push({...pending,ready:performance.now(),cards:l.querySelectorAll('.item-card').length,text:l.querySelector('.top-message')?.textContent});pending=null;}}).observe(document.getElementById('item-list'),{attributes:true,childList:true,subtree:true});});
+for(let i=0;i<5;i++)for(const target of ['interest','official']){
+await p.locator('[data-channel="hot"]').click();await p.locator('#item-list[aria-busy="false"]').waitFor();const previous=await p.evaluate(()=>window.__tabSamples.length);const networkStart=network.length;
+await p.locator('[data-channel="'+target+'"]').click();await p.waitForFunction(n=>window.__tabSamples.length>n,previous);const result=await p.evaluate(()=>window.__tabSamples.at(-1));const ms=result.ready-result.start;samples.push({iteration:i+1,channel:target,ms:Number(ms.toFixed(2)),cards:result.cards,network:network.slice(networkStart)});}
+await p.locator('[data-range="today"]').click();await p.locator('#item-list[aria-busy="false"]').waitFor();await p.locator('[data-channel="official"]').click();await p.locator('#item-list[aria-busy="false"]').waitFor();
+const today={cards:await p.locator('#item-list .item-card').count(),empty:await p.locator('#item-list .top-message').allTextContents()};
+const result={base,samples,today,errors,network};fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(result,null,2));console.log(samples.map(x=>({channel:x.channel,ms:x.ms,cards:x.cards})));assert.equal(errors.length,0);if(process.argv.includes('--assert-budget'))assert(samples.every(x=>x.ms<=1000));
+}finally{if(ctx)await ctx.close()}})().catch(e=>{console.error(e);process.exitCode=1});

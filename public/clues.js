@@ -14,7 +14,7 @@ const periodValues=new Set(periodChips.map(([v])=>v)),sortValues=new Set(sortChi
 function syncChips(){const locked=state.view==='year';for(const b of $('#cl-period-chips').children){b.setAttribute('aria-pressed',String(b.dataset.period===$('#cl-period').value));}for(const b of $('#cl-sort-chips').children){b.setAttribute('aria-pressed',String(b.dataset.sort===$('#cl-sort').value));b.disabled=locked;}$('#cl-period-note').hidden=!$('#cl-period').value;}
 function syncUrl(){const u=new URL(location.href);u.searchParams.set('sort',$('#cl-sort').value);u.searchParams.set('period',$('#cl-period').value);u.searchParams.set('source',$('#cl-source').value);history.replaceState(null,'',u);}
 function readUrl(){const p=new URL(location.href).searchParams,s=p.get('sort'),d=p.get('period');if(s&&sortValues.has(s))$('#cl-sort').value=s;if(d&&periodValues.has(d))$('#cl-period').value=d;if(p.get('source')==='aisa'){$('#cl-source').add(new Option('AIsa 雷达','aisa'));$('#cl-source').value='aisa';}}
-async function api(url,body){const r=await fetch(url,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Article-Studio':'1'},body:JSON.stringify(body)});const value=await r.json();if(!r.ok){const error=new Error(value.error||'请求失败');error.status=r.status;throw error;}return value;}
+async function api(url,body,options={}){const r=await fetch(url,{...options,...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Article-Studio':'1'},body:JSON.stringify(body)})});const value=await r.json();if(!r.ok){const error=new Error(value.error||'请求失败');error.status=r.status;throw error;}return value;}
 const safe=fn=>async(...args)=>{try{$('#cl-status').textContent='';await fn(...args);}catch(e){$('#cl-status').textContent=e.message;}};
 let aisaPending=null,aisaTimer=null,aisaSubmitting=false;
 const aisaInputs=()=>[$('#cl-aisa-platform'),$('#cl-aisa-handles'),$('#cl-aisa-limit')];
@@ -68,15 +68,43 @@ $('#cl-aisa-run').onclick=async()=>{
 };
 try{const saved=sessionStorage.getItem('aisa-manual-pending');if(saved){aisaPending=JSON.parse(saved);$('#cl-aisa-panel').hidden=false;aisaControls(true);aisaProgress(aisaPending.request_id);}}catch{}
 function badges(item){return `<div class="cl-badges">${item.categories.map(c=>`<span class="cl-badge">${esc(categoryNames[c]||c)}</span>`).join('')}<span class="cl-badge">${esc(states[item.status])}</span>${item.priority==='important'?'<span class="cl-badge cl-important">优先关注</span>':''}${(item.tags||[]).map(tag=>`<span class="cl-badge cl-tech-badge" title="${item.tags_source==='manual'?'人工标签':'根据标题与摘要建议，可在详情调整'}">${esc(techNames[tag]||tag)}</span>`).join('')}${item.kind==='discussion'?'<span class="cl-badge">群讨论</span>':''}${item.tracking?'<span class="cl-badge">持续跟踪</span>':''}</div>`;}
-function render(){for(const b of $('#cl-views').querySelectorAll('[data-view]'))b.classList.toggle('selected',b.dataset.view===state.view);$('#cl-view-title').textContent=views[state.view]+(state.category?' · '+categoryNames[state.category]:'')+(state.tag?' · '+techNames[state.tag]:'');$('#cl-count').textContent=`${state.total||0} ${state.view==='year'?'次有据更新':'条线索'}`;
-const tags=$('#cl-tech-tags');tags.hidden=state.category!=='technology'&&!state.tag;tags.innerHTML=`<label class="cl-tech-select-wrap">技术方向<select id="cl-tech-select" aria-label="技术标签"><option value="">全部技术</option>${Object.entries(techNames).map(([tag,label])=>`<option value="${tag}">${esc(label)} (${state.tag_counts?.[tag]||0})</option>`).join('')}</select></label><div class="cl-tech-buttons"><button type="button" class="cl-tag-filter ${!state.tag?'active':''}" data-tag="" aria-pressed="${!state.tag}">全部技术</button>`+Object.entries(techNames).map(([tag,label])=>`<button type="button" class="cl-tag-filter ${state.tag===tag?'active':''}" data-tag="${tag}" aria-pressed="${state.tag===tag}">${esc(label)} <small>${state.tag_counts?.[tag]||0}</small></button>`).join('')+'</div>';$('#cl-tech-select').value=state.tag;
+function facetCount(values,key){return state.facetsPending?(state.facetsError?'未知':'统计中'):(values?.[key]||0);}
+function renderFilters(){for(const b of $('#cl-views').querySelectorAll('[data-view]'))b.classList.toggle('selected',b.dataset.view===state.view);$('#cl-view-title').textContent=views[state.view]+(state.category?' · '+categoryNames[state.category]:'')+(state.tag?' · '+techNames[state.tag]:'');$('#cl-count').textContent=`${state.total||0} ${state.view==='year'?'次有据更新':'条线索'}`;
+const tags=$('#cl-tech-tags');tags.hidden=state.category!=='technology'&&!state.tag;tags.innerHTML=`<label class="cl-tech-select-wrap">技术方向<select id="cl-tech-select" aria-label="技术标签"><option value="">全部技术</option>${Object.entries(techNames).map(([tag,label])=>`<option value="${tag}">${esc(label)} (${facetCount(state.tag_counts,tag)})</option>`).join('')}</select></label><div class="cl-tech-buttons"><button type="button" class="cl-tag-filter ${!state.tag?'active':''}" data-tag="" aria-pressed="${!state.tag}">全部技术</button>`+Object.entries(techNames).map(([tag,label])=>`<button type="button" class="cl-tag-filter ${state.tag===tag?'active':''}" data-tag="${tag}" aria-pressed="${state.tag===tag}">${esc(label)} <small>${facetCount(state.tag_counts,tag)}</small></button>`).join('')+'</div>';$('#cl-tech-select').value=state.tag;
 $('#cl-sort').disabled=state.view==='year';syncChips();
-$('#cl-categories').innerHTML=Object.entries(categoryNames).map(([c,n])=>`<button class="cl-category ${state.category===c?'active':''}" data-category="${c}" aria-pressed="${state.category===c}"><span>${n}</span><b>${state.counts?.[c]||0}</b></button>`).join('');
+$('#cl-categories').innerHTML=Object.entries(categoryNames).map(([c,n])=>`<button class="cl-category ${state.category===c?'active':''}" data-category="${c}" aria-pressed="${state.category===c}"><span>${n}</span><b>${facetCount(state.counts,c)}</b></button>`).join('');
+}
+function render(){renderFilters();
 if(state.view==='year'){let group='';$('#cl-list').innerHTML=state.timeline.map(e=>{const g=e.year==='unknown'?'时间未知':`${e.year} 年 · ${e.month} 月`;const h=g!==group?`<h3 class="cl-year-heading">${esc(g)}</h3>`:'';group=g;return h+`<button class="cl-card" data-clue="${e.thread_id}"><small>${clock(e.clock)} · ${esc(e.data.clock_label)}</small><h3>${esc(e.thread.title)}</h3><p>${esc(e.data.note)}</p>${badges(e.thread)}<small>采集／记录：${clock(e.created_at)}</small></button>`;}).join('');}else $('#cl-list').innerHTML=state.items.map(t=>`<button class="cl-card ${t.id===state.selected?'active':''}" data-clue="${t.id}">${t.unread?'<span class="cl-unread">● 有未读更新</span>':''}<h3>${esc(t.title)}</h3>${badges(t)}<p>${esc(t.summary)}</p>${t.latest_note&&t.latest_note!==t.summary?`<p>最新更新：${esc(t.latest_note)}</p>`:''}${t.relevance?`<p>关注原因：${esc(t.relevance)}</p>`:''}<div class="cl-card-time"><time>${t.source_time?esc(t.source_time_label||'原文')+' '+clock(t.source_time):(t.sources?.includes('aisa')?'来源未提供发布时间':'原文时间未知')}</time><span>更新 ${clock(t.updated_at)}</span></div><small>${esc([...(t.sources||[]).map(s=>sourceNames[s]||s),...(t.source_platforms||[]).map(s=>({twitter:'推特',douyin:'抖音',xiaohongshu:'小红书'})[s]||s)].join(' · '))}</small></button>`).join('');
 if(!$('#cl-list').innerHTML)$('#cl-list').innerHTML='<div class="cl-empty">此范围暂无线索。可从已有事项导入，或选择知识库原文收集。没有线索不表示来源中没有资料。</div>';$('#cl-more').hidden=state.next===null;
 }
 function populate(select,values,label,names={}){const old=select.value;select.innerHTML=`<option value="">${label}</option>`+values.map(v=>`<option value="${esc(v)}">${esc(names[v]||v)}</option>`).join('');select.value=values.includes(old)?old:'';}
-async function load(offset=0){const sequence=++request;const p=new URLSearchParams({q:$('#cl-query').value,category:state.category,view:state.view,source:$('#cl-source').value,year:$('#cl-year').value,tag:state.tag,sort:$('#cl-sort').value,period:$('#cl-period').value,priority:$('#cl-priority-filter').value,offset:String(offset)});const value=await api('/api/clues?'+p);if(sequence!==request)return;state={...state,...value,items:offset?[...state.items,...value.items]:value.items,timeline:offset?[...state.timeline,...value.timeline]:value.timeline,next:value.next_offset};if(value.sort&&$('#cl-sort').value!==value.sort){$('#cl-sort').value=value.sort;syncUrl();}/* 年度记事表会把排序强制改成原文最新；不同步回 URL，刷新后就会回到一个页面上根本没显示的选择。 */populate($('#cl-source'),[...new Set(['aisa',...value.sources])],'所有来源',sourceNames);populate($('#cl-year'),value.years,'所有年份',{unknown:'时间未知'});render();}
+async function loadFacets(parameters,sequence){
+ const p=new URLSearchParams(parameters);p.set('phase','facets');
+ try{
+  const value=await api('/api/clues?'+p);
+  if(sequence!==request)return;
+  state={...state,counts:value.counts,tag_counts:value.tag_counts,heat_counts:value.heat_counts,years:value.years,sources:value.sources,facetsPending:false,facetsError:false};
+  populate($('#cl-source'),[...new Set(['aisa',...value.sources])],'所有来源',sourceNames);
+  populate($('#cl-year'),value.years,'所有年份',{unknown:'时间未知'});
+  renderFilters(); // Late statistics never rebuild cards or reset their selection.
+ }catch(error){
+  if(sequence!==request)return;
+  state={...state,facetsError:true};renderFilters();$('#cl-status').textContent='线索统计暂不可用：'+error.message;
+ }
+}
+async function load(offset=0){
+ const sequence=++request;
+ const p=new URLSearchParams({q:$('#cl-query').value,category:state.category,view:state.view,source:$('#cl-source').value,year:$('#cl-year').value,tag:state.tag,sort:$('#cl-sort').value,period:$('#cl-period').value,priority:$('#cl-priority-filter').value,offset:String(offset),phase:'rows'});
+ let value;
+ try{value=await api('/api/clues?'+p);}catch(error){if(sequence!==request)return;throw error;}
+ if(sequence!==request)return;
+ state={...state,...value,items:offset?[...state.items,...value.items]:value.items,timeline:offset?[...state.timeline,...value.timeline]:value.timeline,next:value.next_offset,facetsPending:!!value.facets_pending,facetsError:false};
+ if(value.sort&&$('#cl-sort').value!==value.sort){$('#cl-sort').value=value.sort;p.set('sort',value.sort);syncUrl();}
+ /* 年度记事表强制原文最新；同步当前选择，刷新后保持。 */
+ render();
+ void loadFacets(p,sequence);
+}
 function evidenceHTML(e){let link=e.origin_url&&/^\/(?:knowledge|schedules)\.html\?/.test(e.origin_url)?e.origin_url:'';if(e.kind==='aisa'&&e.origin_url){try{const u=new URL(e.origin_url);if(u.protocol==='https:'&&!u.username&&!u.password&&['x.com','twitter.com','douyin.com','iesdouyin.com'].some(h=>u.hostname===h||u.hostname.endsWith('.'+h)))link=u.href;}catch{}}return `<div class="cl-evidence">${link?`<a href="${esc(link)}" target="_blank" rel="noreferrer noopener">${esc(e.title||'原文')} ↗</a>`:esc(e.title)}<small> · ${esc(sourceNames[e.source]||e.source)} · ${e.state==='changed'?'来源已变化，保留旧快照':e.state==='unavailable'?'来源暂不可用，保留旧快照':'固定依据'}</small>${e.kind==='aisa'?`<small>${esc(e.provenance?.link_label||'')} · ${({twitter:'推特',douyin:'抖音',xiaohongshu:'小红书'})[e.provenance?.platform]||''}</small>`:''}<blockquote>${esc(e.excerpt)}</blockquote><small>指纹 ${esc(e.hash)} · 原文范围 ${e.start}–${e.end}</small></div>`;}
 async function detail(id,offset=0){const next=await api('/api/clues/'+id+'?offset='+offset);if(offset&&current&&next.revision===current.revision)next.entries=[...current.entries,...next.entries];current=next;state.selected=id;$('#cl-detail').innerHTML=`<article class="cl-detail-card">${badges(current)}<h2>${esc(current.title)}</h2><p>${esc(current.summary)}</p>${current.relevance?`<p><b>为什么关注</b><br>${esc(current.relevance)}</p>`:''}<div class="cl-controls">${current.categories.includes('business')?`<a class="button" href="/deals.html?clue=${esc(current.id)}">确认 / 关联商单 ↗</a>`:''}<button class="button primary" data-detail="append">追加新依据</button><button class="button" data-detail="edit">整理分类与状态</button>${current.event_id?`<a ${EVENTS_ENABLED?'':'hidden'} class="button" href="/events.html?event=${esc(current.event_id)}">关联事项 ↗</a>`:`<button ${EVENTS_ENABLED?'':'hidden'} class="button" data-detail="promote">建立待确认事项</button>`}</div><p class="muted">线索版本 ${current.revision} · 未核对信息与本人待办分别管理。</p><h3>变化与原文依据</h3>${current.entries.map(e=>`<section class="cl-update"><time>${e.entry_type==='edit'?'整理记录':clock(e.clock)} · 记录于 ${clock(e.created_at)}</time><h4>${e.entry_type==='edit'?'分类／状态整理':e.entry_type==='association'?'任务结果关联':esc(e.clock_label||'原文依据')}</h4><p>${esc(e.note)}</p>${e.before?`<small>${Object.entries(e.after||{}).filter(([k,v])=>JSON.stringify(v)!==JSON.stringify(e.before[k])).map(([k])=>esc(({categories:'分类',status:'核对状态',tracking:'跟踪状态',title:'标题',summary:'概要',relevance:'关注原因',kind:'类型',event_id:'关联事项',priority:'重要程度',tags:'技术标签'})[k]||k)).join('、')}已更新；此前内容保存在历史中。</small>`:''}${(e.evidence||[]).map(evidenceHTML).join('')}</section>`).join('')}${current.entries_next_offset!==null?'<button class="button" data-detail="history">读取更早的历史</button>':''}</article>`;await api('/api/clues/'+id+'/seen',{revision:current.revision});const t=state.items.find(t=>t.id===id);if(t)t.unread=false;render();}
 function openEditor(mode='new'){editing=mode==='new'?null:current;$('#cl-form').reset();picks=[];$('#cl-form-status').textContent='';$('#cl-pick-status').textContent='';$('#cl-knowledge-results').innerHTML='';$('#cl-editor-title').textContent=mode==='new'?'收集线索':mode==='append'?'追加新依据':'整理线索';for(const k of ['title','summary','relevance','kind','priority'])$('#cl-'+k).value=editing?.[k]||(k==='kind'?'information':k==='priority'?'normal':'');$('#cl-verification').value=editing?.status||'candidate';$('#cl-tracking').checked=!!editing?.tracking;$('#cl-category-fields').innerHTML=Object.entries(categoryNames).map(([c,n])=>`<label><input type="checkbox" value="${c}" ${(editing?.categories||['other']).includes(c)?'checked':''}>${n}</label>`).join('');$('#cl-pick-section').hidden=mode==='edit';$('#cl-reason').required=mode==='edit';$('#cl-tags-auto').checked=editing?.tags_source!=='manual';$('#cl-tags-options').innerHTML=Object.entries(techNames).map(([tag,label])=>`<label><input type="checkbox" value="${tag}" ${(editing?.tags||[]).includes(tag)?'checked':''}>${esc(label)}</label>`).join('');tagFields();renderPicks();$('#cl-editor').showModal();}
@@ -101,20 +129,64 @@ $('#cl-search').onsubmit=safe(async event=>{event.preventDefault();await load();
 $('#cl-import').onclick=async()=>{try{const data=await api('/api/events?view=all&limit=100');$('#cl-event-options').innerHTML=data.events.map(e=>`<div class="cl-result"><b>${esc(e.title)}</b><p>${esc(e.summary)}</p><button class="button" data-import-event="${e.id}">导入此事项</button></div>`).join('')||'<p class="muted">暂无已有事项，可先从知识库选择原文。</p>';$('#cl-event-status').textContent='';$('#cl-event-picker').showModal();}catch(e){$('#cl-status').textContent=e.message;}};
 $('#cl-event-options').onclick=async event=>{const b=event.target.closest('[data-import-event]');if(!b)return;b.disabled=true;try{const saved=await api('/api/clues/import-event',{event_id:b.dataset.importEvent});$('#cl-event-picker').close();await load();await detail(saved.id);}catch(e){$('#cl-event-status').textContent=e.message;}finally{b.disabled=false;}};
 let analysisSettings=null,analysisRevision=null;
+async function acquisitionHealth(signal){
+  const health=await api('/api/knowledge/health',undefined,{signal}).catch(()=>null);
+  if(health?.capture&&typeof health.capture==='object')return health;
+  // Older servers/invalid health responses may still have a last-known compatibility snapshot.
+  const metadata=await api('/api/knowledge',undefined,{signal});
+  const capture=metadata.sources?.find(s=>s.id==='wechat')?.capture;
+  return {capture:capture||{status:'unknown'},state:capture?'last_known':'unknown',as_of:metadata.health_as_of||null};
+}
+async function analysisState(){
+  const controller=new AbortController();let timer;
+  const expired=new Promise((_,reject)=>{timer=setTimeout(()=>{
+    controller.abort();reject(new Error('状态读取超时；旧结果保留，数据可能过时，请稍后重试'));
+  },6000);});
+  try{
+    return await Promise.race([Promise.all([
+      api('/api/clues/wechat/status',undefined,{signal:controller.signal}),
+      api('/api/schedules',undefined,{signal:controller.signal}),
+      acquisitionHealth(controller.signal)
+    ]),expired]);
+  }catch(error){
+    if(controller.signal.aborted)throw new Error('状态读取超时；旧结果保留，数据可能过时，请稍后重试');
+    throw error;
+  }finally{clearTimeout(timer);controller.abort();}
+}
+function analysisUnavailable(error){
+  $('#cl-analysis-status').textContent='微信分析状态暂不可用：'+error.message;
+  $('#cl-coverage-warning').hidden=false;
+  $('#cl-coverage-summary').textContent='微信分析状态暂不可用';
+  $('#cl-coverage-detail').textContent=error.message+'。数据可能过时，不能据此判断没有微信信息。';
+}
 async function analysisStatus(){
-  const s=await api('/api/clues/wechat/status'), tasks=await api('/api/schedules');
+  const [s,tasks,health]=await analysisState();
   const t=tasks.tasks.find(t=>t.kind==='wechat_clues'), last=t?.last_run;
-  const sources=await api('/api/knowledge'), capture=sources.sources.find(v=>v.id==='wechat')?.capture;
+  const count=value=>Number.isInteger(value)&&value>=0?value:'统计中';
+  const checked=count(s.processed_versions), statusError=!!s.error;
+  const coverageStale=s.coverage_stale===true||s.coverage?.stale===true||s.available===false||statusError;
+  const coverageAt=s.coverage_as_of||s.coverage?.as_of;
+  const coverageTime=coverageAt&&Number.isFinite(new Date(coverageAt).getTime())?new Date(coverageAt).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}):'未知';
+  const coverageText=`${coverageStale?'数据可能过时，':'覆盖统计'}截至 ${coverageTime}`;
+  const checkedText=unit=>checked==='统计中'?'已检查：统计中':`已检查 ${checked} ${unit}`;
+  const capture=health.capture;
   const warning=$('#cl-coverage-warning'), captureFailed=['error','needs_review','commit_unknown','unavailable'].includes(capture?.status);
   const review=t?.wechat_review?s.daily_review:null;
-  warning.hidden=!captureFailed&&!s.has_pending&&!review?.pending_versions;
-  $('#cl-coverage-summary').textContent=captureFailed?'微信新消息采集待恢复，正在使用已有缓存':s.has_pending?'微信仍有未分析消息，分类尚未覆盖全部缓存':'微信会话仍有待复查内容';
+  warning.hidden=health.state!=='unknown'&&!captureFailed&&!s.has_pending&&!review?.pending_versions;
+  $('#cl-coverage-summary').textContent=health.state==='unknown'?'微信采集健康未知':captureFailed?'微信新消息采集待恢复，正在使用已有缓存':s.has_pending?'微信仍有未分析消息，分类尚未覆盖全部缓存':'微信会话仍有待复查内容';
   $('#cl-coverage-detail').textContent=captureFailed?`微信新消息采集尚未完成：${capture.detail||'采集状态需要核对'}。${s.cache_latest_time?'当前缓存截至 '+clock(s.cache_latest_time)+'。':''}分类数字只统计已保存的线索，不能据此判断今天没有商单。`:s.has_pending?'微信缓存仍有未分析消息。分类数字只统计已保存的线索，不代表全部消息已筛查。':review?.pending_versions?'已分析缓存仍有会话日待复查。分类数字只统计已保存线索，不能据此判断没有遗漏。':'';
+  if(health.state==='unknown')$('#cl-coverage-detail').textContent='未能及时核对采集健康；正在使用已有缓存，不能据此判断今天没有新消息。';
+  if(health.state==='last_known')$('#cl-coverage-detail').textContent=`最近已知状态（${clock(health.as_of)}）：`+$('#cl-coverage-detail').textContent;
+  if(coverageStale||checked==='统计中'){
+    warning.hidden=false;
+    $('#cl-coverage-summary').textContent=statusError?'微信覆盖统计状态异常':checked==='统计中'?'微信覆盖统计中':'微信覆盖统计数据可能过时';
+    $('#cl-coverage-detail').textContent=[coverageText,s.error,checked==='统计中'?'覆盖数量统计中，不能据此判断没有微信信息':'显示上次统计值，不能据此判断已覆盖全部微信信息',$('#cl-coverage-detail').textContent].filter(Boolean).join('。');
+  }
   const phase={capture:'正在采集与更新索引',analysis:'正在模型分析',review:'正在复查会话与后续变化'};
-  const progress=s.progress?.run_id===last?.id?` · 本轮新增分析 ${s.progress.processed||0} 条，复查 ${s.progress.reviewed||0} 个版本，跳过媒体 ${s.progress.skipped||0} 条`:'';
-  const reviewText=review?` · 会话日已复查 ${review.reviewed_versions} 个版本，待复查 ${review.pending_versions} 个版本`:t?.wechat_review?' · 会话日复查已启用，等待运行':' · 会话日复查未启用';
-  $('#cl-analysis-status').textContent=`微信分析 · ${t?.running?(phase[s.progress?.phase]||'正在后台执行'):t?.enabled?'定时已启用':'定时未启用'} · 已检查 ${s.processed_versions||0} 条${s.has_pending?' · 待分析 '+(s.pending_versions??'未知')+' 条':''}`;
-  $('#cl-analysis-detail').textContent=`微信助手分析 · 工作台调度：${t?.running?(phase[s.progress?.phase]||'正在后台执行'):t?.enabled?'定时后台执行':'尚未启用定时'} · 已检查 ${s.processed_versions||0} 个消息版本${progress}${last?' · 最近'+({succeeded:'完成',partial:'部分完成',failed:'失败',running:'运行中',timeout:'超时',cancelled:'已停止'}[last.status]||last.status):''}${s.has_pending?' · 待分析 '+(s.pending_versions??'未知')+' 个版本':''}${reviewText}。最近七天，${t?.wechat_mode==='incremental'?'持续增量，无每小时条数配额':'单次试跑最多30条'}${s.cache_latest_time?' · 缓存最新消息 '+clock(s.cache_latest_time):''}。`;
+  const progress=s.progress&&last?.id&&s.progress.run_id===last.id?` · 本轮新增分析 ${count(s.progress.processed)} 条，复查 ${count(s.progress.reviewed)} 个版本，跳过媒体 ${count(s.progress.skipped)} 条`:'';
+  const reviewText=review?` · 会话日已复查 ${count(review.reviewed_versions)} 个版本，待复查 ${count(review.pending_versions)} 个版本`:t?.wechat_review?' · 会话日复查已启用，等待运行':' · 会话日复查未启用';
+  $('#cl-analysis-status').textContent=`微信分析 · ${t?.running?(phase[s.progress?.phase]||'正在后台执行'):t?.enabled?'定时已启用':'定时未启用'} · ${checkedText('条')}${statusError?' · 状态异常':''} · ${coverageText}${s.has_pending?' · 待分析 '+count(s.pending_versions)+' 条':''}`;
+  $('#cl-analysis-detail').textContent=`微信助手分析 · 工作台调度：${t?.running?(phase[s.progress?.phase]||'正在后台执行'):t?.enabled?'定时后台执行':'尚未启用定时'} · ${checkedText('个消息版本')}${statusError?' · 状态异常':''} · ${coverageText}${progress}${last?' · 最近'+({succeeded:'完成',partial:'部分完成',failed:'失败',running:'运行中',timeout:'超时',cancelled:'已停止'}[last.status]||last.status):''}${s.has_pending?' · 待分析 '+count(s.pending_versions)+' 个版本':''}${reviewText}。最近七天，${t?.wechat_mode==='incremental'?'持续增量，无每小时条数配额':'单次试跑最多30条'}${s.cache_latest_time?' · 缓存最新消息 '+clock(s.cache_latest_time):''}。`;
   const revision=JSON.stringify([s.processed_versions,s.last_batch?.created_at,last?.id,last?.status,review?.reviewed_versions]);
   if(analysisRevision!==null&&analysisRevision!==revision){await load();if(state.selected&&!$('#cl-editor').open)await detail(state.selected);}analysisRevision=revision;
 }
@@ -122,8 +194,8 @@ $('#cl-analyze').onclick=safe(async()=>{analysisSettings=await api('/api/schedul
 function analysisEndpoint(){const m=analysisSettings?.models?.find(m=>m.profile_id===$('#cl-analysis-model').value);$('#cl-analysis-endpoint').textContent=m?`模型：${m.model} · 接口：${m.endpoint}`:'请先在创作助手中配置可用模型';}
 $('#cl-analysis-model').onchange=analysisEndpoint;
 $('#cl-analysis-run').onclick=async()=>{const b=$('#cl-analysis-run');b.disabled=true;try{const r=await api('/api/clues/wechat/run',{profile_id:$('#cl-analysis-model').value,enabled:$('#cl-analysis-hourly').checked});$('#cl-analysis-editor').close();$('#cl-status').innerHTML=`微信分析已在工作台后台开始。<a href="/schedules.html?run=${esc(r.run_id)}">查看本次运行 ↗</a>`;await analysisStatus();}catch(e){$('#cl-analysis-error').textContent=e.message;}finally{b.disabled=false;}};
-analysisStatus().catch(e=>{$('#cl-analysis-status').textContent='微信分析状态读取失败：'+e.message;});
-setInterval(()=>{if(!document.hidden)analysisStatus().catch(()=>{});},10000);
+analysisStatus().catch(analysisUnavailable);
+setInterval(()=>{if(!document.hidden)analysisStatus().catch(analysisUnavailable);},10000);
 for(const b of document.querySelectorAll('[data-close]'))b.onclick=()=>b.closest('dialog').close();
-safe(async()=>{const sources=await api('/api/knowledge');for(const s of sources.sources)sourceNames[s.id]=s.name;readUrl();await load();const params=new URL(location.href).searchParams;const id=params.get('clue');if(id)await detail(id);const doc=params.get('document');if(doc){openEditor();openedDocument=await api('/api/knowledge/document/'+encodeURIComponent(doc));$('#cl-title').value=openedDocument.title;$('#cl-document-title').textContent=openedDocument.title;$('#cl-document-body').value=openedDocument.body;$('#cl-document-origin').textContent='从知识库打开的原文，请选中相关片段后收集。';$('#cl-document').showModal();}})();
+safe(async()=>{api('/api/knowledge/meta').then(value=>Array.isArray(value.sources)?value:api('/api/knowledge')).then(sources=>{for(const s of sources.sources)sourceNames[s.id]=s.name;for(const option of $('#cl-source').options)if(sourceNames[option.value])option.textContent=sourceNames[option.value];if(state.view!=='year')for(const card of $('#cl-list').querySelectorAll('[data-clue]')){const item=state.items.find(t=>t.id===card.dataset.clue),label=card.querySelector(':scope > small:last-child');if(item&&label)label.textContent=[...(item.sources||[]).map(s=>sourceNames[s]||s),...(item.source_platforms||[]).map(s=>({twitter:'推特',douyin:'抖音',xiaohongshu:'小红书'})[s]||s)].join(' · ');}}).catch(e=>{$('#cl-status').textContent=e.message;});readUrl();await load();const params=new URL(location.href).searchParams;const id=params.get('clue');if(id)await detail(id);const doc=params.get('document');if(doc){openEditor();openedDocument=await api('/api/knowledge/document/'+encodeURIComponent(doc));$('#cl-title').value=openedDocument.title;$('#cl-document-title').textContent=openedDocument.title;$('#cl-document-body').value=openedDocument.body;$('#cl-document-origin').textContent='从知识库打开的原文，请选中相关片段后收集。';$('#cl-document').showModal();}})();
 })();

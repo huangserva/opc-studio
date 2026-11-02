@@ -2,6 +2,7 @@
 import copy
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
+import re
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,7 @@ RUN_STATUSES = frozenset({'running', 'succeeded', 'partial', 'failed', 'timeout'
 # Kinds that must resolve a real model profile before a run is claimed. `script` and
 # `intel_wechat_mp` run locally with no model; keeping one list stops claim() from
 # handing a model task a None config (intake_cards used to fall out of this list).
-MODEL_KINDS = ('pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','outsourced')
+MODEL_KINDS = ('pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','outsourced','source_events')
 
 class ModelBusy(ValueError):
     """A runnable task waits; no failure receipt or checkpoint is created."""
@@ -39,9 +40,14 @@ def next_due(task, now):
         for offset in range(8):
             date = local + timedelta(days=offset)
             candidate = date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if candidate.weekday() in task['weekdays'] and candidate.timestamp() > now:
+            owner=candidate
+            if task.get('kind')=='source_events' and task.get('window'):
+                from source_orchestra import rules
+                a=rules().minute(task['window']['start']);b=rules().minute(task['window']['end'],end=True)
+                if a>b and hour*60+minute<b:owner=candidate-timedelta(days=1)
+            if owner.weekday() in task['weekdays'] and candidate.timestamp() > now:
                 result = candidate.timestamp(); break
-    if task.get('ends_at') and result > datetime.fromisoformat(task['ends_at']).timestamp():
+    if result is not None and task.get('ends_at') and result > datetime.fromisoformat(task['ends_at']).timestamp():
         return None
     return result
 
@@ -51,7 +57,7 @@ class ScheduledTasks:
         self.folder.mkdir(mode=0o700, parents=True, exist_ok=True); self.folder.chmod(0o700)
         self.db_path = self.folder / 'tasks.db'
         self.lock = threading.RLock(); self.stop_event = threading.Event()
-        self.active = {}; self.workers = {}; self.assistant = assistant; self.last_error = None; self.last_tick = None; self.heat_recomputer = None; self.publisher = None; self.wechat_analyzer = None; self.github_analyzer = None; self.radar_analyzer = None; self.deals_analyzer = None; self.intake_analyzer = None; self.intel_analyzer = None; self.outsourced_clues = None
+        self.active = {}; self.workers = {}; self.assistant = assistant; self.last_error = None; self.last_tick = None; self.heat_recomputer = None; self.publisher = None; self.wechat_analyzer = None; self.github_analyzer = None; self.radar_analyzer = None; self.deals_analyzer = None; self.intake_analyzer = None; self.intel_analyzer = None; self.outsourced_clues = None; self.source_analyzer = None; self.source_receipt_reader = None; self.source_receipt_thread = None; self.source_receipt_cursor = 0
         with self.db() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, revision INTEGER, data TEXT, next_run REAL);
             CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, task_id TEXT, snapshot TEXT, trigger TEXT,
@@ -60,8 +66,18 @@ class ScheduledTasks:
             columns={r['name'] for r in db.execute('PRAGMA table_info(runs)')}
             for name in ('clue_id','publication_error'):
                 if name not in columns: db.execute('ALTER TABLE runs ADD COLUMN '+name+' TEXT')
-            db.execute("UPDATE runs SET status='interrupted',finished_at=?,output=output||? WHERE status='running'",
+            # A restart must not erase the identity of a source job that may
+            # already have committed results. Reconciliation is GET-only.
+            for row in db.execute("SELECT * FROM runs WHERE status='running' AND json_extract(snapshot,'$.kind') IN ('wechat_clues','wechat_radar')").fetchall():
+                try:data=json.loads(row['output'])
+                except (ValueError,TypeError):data={}
+                if not isinstance(data,dict):data={}
+                data.update(source_run_id=data.get('source_run_id') or row['id'],receipt_pending=True,
+                            source_receipt_final=False,state='工作台重连后等待原任务最终回执，未重新提交作业')
+                db.execute('UPDATE runs SET output=? WHERE id=?',(json.dumps(data,ensure_ascii=False),row['id']))
+            db.execute("UPDATE runs SET status='interrupted',finished_at=?,output=output||? WHERE status='running' AND json_extract(snapshot,'$.kind') NOT IN ('source_events','wechat_clues','wechat_radar')",
                        (stamp(), '\n工作台重启中断；未自动重做该次运行。'))
+            db.execute("UPDATE runs SET status='interrupted',finished_at=? WHERE status='running' AND json_extract(snapshot,'$.kind') IN ('wechat_clues','wechat_radar')",(stamp(),))
         self.db_path.chmod(0o600)
         from external_tasks import ExternalTasks
         self.external_tasks = ExternalTasks(workspace)
@@ -70,7 +86,61 @@ class ScheduledTasks:
 
     def start(self):
         if self.thread is None:
+            self.recover_sources()
             self.thread=threading.Thread(target=self.run_loop,daemon=True);self.thread.start()
+            if self.source_receipt_reader:
+                self.source_receipt_thread=threading.Thread(target=self.source_receipt_loop,daemon=True)
+                self.source_receipt_thread.start()
+
+    def reconcile_source_receipt(self):
+        # Reattach to one existing source job; never submit work or change the
+        # user's timeout/cancel outcome. A separate loop cannot delay due tasks.
+        if not self.source_receipt_reader:return
+        with self.db() as db:
+            row=db.execute("SELECT rowid AS receipt_rowid,* FROM runs WHERE rowid>? AND status!='running' AND json_extract(snapshot,'$.kind') IN ('source_events','wechat_clues','wechat_radar') AND json_valid(output) AND json_extract(output,'$.receipt_pending')=1 AND COALESCE(json_extract(output,'$.source_receipt_final'),0)!=1 ORDER BY rowid LIMIT 1",(self.source_receipt_cursor,)).fetchone()
+        if not row:self.source_receipt_cursor=0;return
+        self.source_receipt_cursor=row['receipt_rowid']
+        prior=json.loads(row['output'])
+        kind={'source_events':'source_events','wechat_clues':'clues','wechat_radar':'radar'}[json.loads(row['snapshot'])['kind']]
+        rid=prior.get('source_run_id') or row['id']
+        if not isinstance(rid,str) or not re.fullmatch('[a-f0-9]{32}',rid):return
+        result=(self.source_receipt_reader(rid,row['task_id']) if kind=='source_events' else
+                self.source_receipt_reader(rid,row['task_id'],kind=kind))
+        if result.get('run_id')!=rid or result.get('task_id')!=row['task_id'] or result.get('kind')!=kind:return
+        if result.get('status') in ('queued','running'):return
+        if result.get('status') not in ('succeeded','partial','failed','cancelled','timeout','interrupted'):return
+        try:data=json.loads(result.get('output',''))
+        except (ValueError,TypeError):data={'source_output':result.get('output','')}
+        if kind=='source_events' and (not isinstance(data,dict) or not isinstance(data.get('events'),list) or len(data['events'])>13):return
+        if not isinstance(data,dict):data={'source_output':data}
+        data.update(source_run_id=rid,source_final_status=result['status'],source_receipt_final=True,receipt_pending=False)
+        status,finished=row['status'],row['finished_at']
+        if kind!='source_events' and status not in ('timeout','cancelled'):
+            status=result['status']
+            finished=result.get('finished_at') or stamp()
+        with self.lock,self.db() as db:
+            db.execute('UPDATE runs SET output=?,status=?,finished_at=?,exit_code=? WHERE id=? AND status=? AND output=?',
+                (json.dumps(data,ensure_ascii=False),status,finished,result.get('exit_code') if kind!='source_events' and row['status'] not in ('timeout','cancelled') else row['exit_code'],row['id'],row['status'],row['output']))
+
+    def source_receipt_loop(self):
+        while not self.stop_event.is_set():
+            try:self.reconcile_source_receipt()
+            except (ValueError,OSError,TypeError,sqlite3.Error):pass  # Keep the honest pending receipt for the next pass.
+            self.stop_event.wait(2)
+
+    def recover_sources(self):
+        if not self.source_analyzer:return
+        with self.lock,self.db() as db:
+            for row in db.execute("SELECT * FROM runs WHERE status='running' AND json_extract(snapshot,'$.kind')='source_events'"):
+                rid=row['id']
+                if rid in self.active:continue
+                task=json.loads(row['snapshot'])
+                task['execution_deadline_at']=datetime.fromisoformat(row['started_at']).timestamp()+task['timeout']
+                try:config=self.model_config(task['profile_id'])
+                except ValueError:config={}
+                cancel=threading.Event();self.active[rid]=cancel
+                worker=threading.Thread(target=self.execute,args=(rid,task,cancel,config),daemon=True)
+                self.workers[rid]=worker;worker.start()
 
     def health(self):
         """Small read-only snapshot; never expose task data or exception text."""
@@ -139,7 +209,7 @@ class ScheduledTasks:
         path = Path(task['cwd']).expanduser()
         if not path.is_absolute() or not path.is_dir(): raise ValueError('工作目录必须是本机存在的绝对目录')
         task['cwd'] = str(path.resolve())
-        if task['kind'] not in ('script','pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','intel_wechat_mp','recompute_heat','outsourced'): raise ValueError('请选择脚本、Pi、外包、商单分析、创意提炼、公众号订阅或线索分析任务')
+        if task['kind'] not in ('script','pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','intel_wechat_mp','recompute_heat','outsourced','source_events'): raise ValueError('请选择脚本、Pi、外包、商单分析、创意提炼、公众号订阅或线索分析任务')
         from scheduled_pi import validate_scope
         task.update(validate_scope(payload, task['kind']))
         if task['kind'] in ('wechat_clues','github_clues','wechat_radar'):
@@ -150,6 +220,9 @@ class ScheduledTasks:
                 task['wechat_review']=payload.get('wechat_review',False)
                 if type(task['wechat_review']) is not bool:raise ValueError('会话日复查开关格式错误')
                 if task['wechat_review'] and task['wechat_mode']!='incremental':raise ValueError('会话日复查需要持续增量任务')
+        if task['kind']=='source_events':
+            from source_orchestra import normalize
+            task=normalize(task,payload)
         if task['kind']=='recompute_heat':
             if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id'] or task['frequency']!='daily':
                 raise ValueError('heat 重算仅允许每日本地计算，不允许命令或结果投递')
@@ -197,7 +270,10 @@ class ScheduledTasks:
         if task['kind']=='outsourced' and task['fallback']=='none':
             return task
         if task['kind'] in MODEL_KINDS:
-            self.model_config(task['profile_id'])
+            config=self.model_config(task['profile_id'])
+            if task['kind']=='source_events':
+                from source_orchestra import private_model_allowed
+                if not private_model_allowed(self,task['profile_id'],config):raise ValueError('微信事件包含私密资料，请复用已登记的微信任务模型')
         return task
 
     def seed_heat_schedule(self,workspace):
@@ -254,7 +330,13 @@ class ScheduledTasks:
                     'scheduler_health': {'running': bool(self.thread and self.thread.is_alive() and not self.stop_event.is_set()),
                                          'last_tick': self.last_tick, 'last_error': self.last_error},
                     'concurrency': {'max': 2, 'active': active, 'available': max(0, 2 - active)},
-                    'models':settings.get('profiles',[]),'default_profile_id':settings.get('active_profile_id')}
+                    'models':settings.get('profiles',[]),'default_profile_id':settings.get('active_profile_id'),
+                    **self.source_overview(tasks)}
+
+    def source_overview(self,tasks):
+        from source_orchestra import catalog,coverage
+        try:return {'event_catalog':catalog(),'event_coverage':coverage(tasks)}
+        except (ValueError,ImportError,OSError):return {'event_catalog':None,'event_coverage':None,'event_error':'来源事件组件未加载，请检查来源服务部署'}
 
     def save(self, payload):
         task=self.validate(payload); identity=payload.get('id') or uuid.uuid4().hex
@@ -398,6 +480,13 @@ class ScheduledTasks:
             if db.execute("SELECT COUNT(*) FROM runs WHERE status='running'").fetchone()[0]>=2: raise ValueError('同时最多运行两个任务，请稍后再试')
             if task.get('ends_at') and now>datetime.fromisoformat(task['ends_at']).timestamp():
                 db.execute('UPDATE tasks SET next_run=NULL WHERE id=?',(identity,));return None
+            from source_orchestra import is_wechat
+            active_tasks=[json.loads(r['snapshot']) for r in db.execute("SELECT snapshot FROM runs WHERE status='running' OR (json_extract(snapshot,'$.kind') IN ('source_events','wechat_clues','wechat_radar') AND CASE WHEN json_valid(output) THEN json_extract(output,'$.receipt_pending') END=1)")]
+            if is_wechat(task) and any(is_wechat(t) and ('source_events' in (task['kind'],t['kind'])) for t in active_tasks):
+                raise ModelBusy('微信来源已有相关任务运行，等待共享执行器与检查点')
+            if task['kind'] in ('wechat_clues','wechat_radar') and db.execute(
+                    "SELECT 1 FROM runs WHERE status!='running' AND json_extract(snapshot,'$.kind')=? AND CASE WHEN json_valid(output) THEN json_extract(output,'$.receipt_pending') END=1 LIMIT 1", (task['kind'],)).fetchone():
+                raise ModelBusy('微信原任务最终回执待对账，未重新提交作业')
             config=self.model_config(task['profile_id']) if task['kind'] in MODEL_KINDS else None
             if config and db.execute("SELECT 1 FROM runs WHERE status='running' AND json_extract(snapshot,'$.profile_id')=?",(task['profile_id'],)).fetchone():
                 raise ModelBusy('同一模型已有后台任务，排队等待，不重复占用推理服务')
@@ -438,6 +527,9 @@ class ScheduledTasks:
                             db.execute('UPDATE tasks SET next_run=? WHERE id=?',(next_due(task,time.time()),row['id']))
 
     def deliver_result(self,run_id):
+        with self.db() as db:
+            row=db.execute('SELECT snapshot FROM runs WHERE id=?',(run_id,)).fetchone()
+            if row and json.loads(row['snapshot']).get('kind')=='source_events':raise ValueError('来源事件回执不可作为公开线索发布')
         try:
             if not self.publisher:raise ValueError('线索入口未连接')
             result=self.publisher(run_id)
@@ -737,6 +829,8 @@ class ScheduledTasks:
 
     def execute(self,run_id,task,cancel,config):
         deadline=time.monotonic()+task['timeout']
+        if task['kind']=='source_events' and task.get('execution_deadline_at'):
+            deadline=min(deadline,time.monotonic()+task['execution_deadline_at']-time.time())
         try:
             if task['kind']=='recompute_heat':
                 if not self.heat_recomputer:raise ValueError('heat 重算入口未连接')
@@ -744,6 +838,9 @@ class ScheduledTasks:
                 status=('cancelled' if cancel.is_set() else 'timeout' if time.monotonic()>=deadline else 'succeeded')
                 code=0 if status=='succeeded' else None
                 output=json.dumps(result,ensure_ascii=False)
+            elif task['kind']=='source_events':
+                if not self.source_analyzer:raise ValueError('来源事件入口未连接')
+                status,code,output=self.source_analyzer(run_id,task,cancel,config,deadline)
             elif task['kind']=='github_clues':
                 if not self.github_analyzer:raise ValueError('GitHub 分析入口未连接')
                 status,code,output=self.github_analyzer(run_id,task,cancel,config,deadline)
@@ -794,5 +891,6 @@ class ScheduledTasks:
             for cancel in self.active.values(): cancel.set()
             workers=list(self.workers.values())
         if self.thread: self.thread.join(timeout=3)
+        if self.source_receipt_thread: self.source_receipt_thread.join(timeout=3)
         deadline=time.monotonic()+8
         for worker in workers: worker.join(timeout=max(0,deadline-time.monotonic()))

@@ -9,10 +9,12 @@ def stage(node_type, kind):
         return 'encoding', '正在理解画面描述'
     if node_type in ('MiniMaxH3ReferenceToVideo', 'MiniMaxH3AddGuide'):
         return 'encoding', '正在处理参考素材'
-    if node_type in ('KSampler', 'SamplerCustomAdvanced'):
+    if node_type in ('KSampler', 'SamplerCustomAdvanced', 'AICG3D_H3SequenceSegment'):
         return 'sampling', '正在生成视频' if kind == 'video' else '正在生成画面'
     if node_type == 'MiniMaxH3Director':
         return 'video', '正在生成视频'
+    if node_type == 'AICG3D_H3SequenceCombine':
+        return 'decoding', '正在合并与解码无限长视频'
     if node_type == 'VAEDecode':
         return 'decoding', '正在解码视频' if kind == 'video' else '正在解码图片'
     if node_type == 'VAEDecodeAudio':
@@ -49,6 +51,29 @@ def event_progress(event, prompt_id, graph, kind, previous=None):
             progress.update(current=value, total=total, percent=round(100 * value / total))
     elif previous and previous.get('node') == node:
         progress.update({k: previous[k] for k in ('current', 'total', 'percent') if k in previous})
+    if node.startswith('seq_seg_'):
+        seg_nodes = sorted(
+            [k for k in graph if k.startswith('seq_seg_') and k.split('_')[-1].isdigit()],
+            key=lambda k: int(k.split('_')[-1]),
+        )
+        total_segs = max(1, len(seg_nodes))
+        try:
+            seg_idx = int(node.split('_')[-1])
+        except ValueError:
+            seg_idx = 1
+        steps_per_seg = int((graph.get('seq_global', {}).get('inputs') or {}).get('steps') or 4)
+        combined_steps = total_segs * steps_per_seg
+        seg_frac = (value / total) if (event_type == 'progress' and isinstance(value, (int, float)) and isinstance(total, (int, float)) and total > 0) else 0.0
+        completed_steps = round(((seg_idx - 1) + min(1.0, max(0.0, seg_frac))) * steps_per_seg, 2)
+        completed_steps = max(completed_steps, (previous or {}).get('current', 0))
+        percent = min(99, round(100 * completed_steps / max(1, combined_steps)))
+        percent = max(percent, (previous or {}).get('percent', 0))
+        progress.update(
+            current=completed_steps,
+            total=combined_steps,
+            percent=percent,
+            label=f'正在生成第 {seg_idx}/{total_segs} 段视频 (尾帧潜空间续写)',
+        )
     if 'refine_sampler' in graph:
         first = graph['scheduler']['inputs']['steps']
         second = graph['refine_scheduler']['inputs']['steps']

@@ -33,7 +33,7 @@ s.serve_forever()`;
  for(let i=0;i<100;i++){try{if((await fetch(base+'/api/settings/overview')).ok)return}catch(_){}if(child.exitCode!==null)throw Error(stderr);await new Promise(r=>setTimeout(r,100))}throw Error('隔离服务未启动 '+stderr);
 }
 const api=async url=>{const r=await context.request.get(base+url);return {status:r.status(),body:await r.json()}};
-async function ready(p){await p.locator('#sources[aria-busy=false]').waitFor();await p.locator('#tasks [data-task]').first().waitFor();await p.locator('#models [data-profile]').first().waitFor()}
+async function ready(p){await p.locator('#sources[aria-busy=false]').waitFor();await p.locator('#models [data-profile]').first().waitFor()}
 (async()=>{try{
  await start();context=await chromium.launchPersistentContext(path.join(tmp,'profile'),{headless:true,channel:'chrome',viewport:{width:1440,height:1000}});
  await context.route('**/*',r=>new URL(r.request().url()).origin===base?r.continue():r.abort());
@@ -42,7 +42,10 @@ async function ready(p){await p.locator('#sources[aria-busy=false]').waitFor();a
  check('P8 设置页加载5次均小于1秒',timings.every(t=>t<1),JSON.stringify(timings));
  const overview=(await api('/api/settings/overview')).body,schedules=(await api('/api/schedules')).body;
  const externalTaskCount=Number(fs.readFileSync(path.join(tmp,'expected-external-count'),'utf8'));
- check('G1 7个真实来源及定时任务数量一致',overview.sources.length===7&&overview.schedule_task_count===schedules.tasks.length&&await page.locator('#sources .card').count()===7&&await page.locator('#tasks [data-task-row]').count()===schedules.tasks.length&&await page.locator('#tasks [data-external-row]').count()===externalTaskCount&&await page.locator('#tasks [data-external-row] [data-task],#tasks [data-external-row] button').count()===0&&await page.locator('#tasks tr').count()===schedules.tasks.length+externalTaskCount);
+ check('G1 设置保留7个来源且总览入口已迁移',overview.sources.length===7&&overview.schedule_task_count===schedules.tasks.length&&await page.locator('#sources .card').count()===7&&await page.locator('#tasks,#runs').count()===0&&await page.getByRole('link',{name:'前往定时任务页'}).count()===1);
+ await page.getByRole('link',{name:'前往定时任务页'}).click();await page.locator('#overview-tasks [data-overview-task]').first().waitFor();
+ check('G1 定时任务页内置及外部数量保持一致',await page.locator('#overview-tasks [data-overview-task]').count()===schedules.tasks.length&&await page.locator('#overview-tasks [data-external-row]').count()===externalTaskCount&&await page.locator('#overview-tasks [data-external-row] button').count()===0&&await page.locator('#overview-tasks [data-overview-task],#overview-tasks [data-external-row]').count()===schedules.tasks.length+externalTaskCount&&await page.locator('#overview-tasks .external-group').count()===1);
+ await page.goto(base+'/settings.html');await ready(page);
  check('来源实际成功时间与夹具一致',(await page.locator('[data-source=grok]').innerText()).includes('2026')&&overview.sources.find(s=>s.id==='grok').last_success==='2026-10-29T08:00:00Z');
  assert.equal(overview.sources.find(s=>s.id==='twitter').last_success,'2026-10-29T14:00:38.594Z');
  assert.equal(overview.sources.find(s=>s.id==='aisa').last_success,'2026-10-29T14:00:38.594Z');
@@ -64,9 +67,9 @@ async function ready(p){await p.locator('#sources[aria-busy=false]').waitFor();a
  const taskId=fs.readFileSync(path.join(tmp,'task-id'),'utf8');
  for(const action of ['pause','resume']){
   await page.goto(base+'/settings.html');await ready(page);
-  const response=page.waitForResponse(r=>r.url().endsWith('/'+taskId+'/'+action));await page.locator('#tasks [data-task="'+taskId+'"]').click();assert.equal((await response).status(),200);
+  const response=page.waitForResponse(r=>r.url().endsWith('/'+taskId+'/'+action));await page.locator('#sources [data-task="'+taskId+'"]').first().click();assert.equal((await response).status(),200);
   const expected=action==='resume';assert.equal((await api('/api/schedules')).body.tasks.find(t=>t.id===taskId).enabled,expected);
-  await page.goto(base+'/schedules.html');const row=page.locator('[data-task-id="'+taskId+'"]');await row.waitFor();await row.locator('[data-action="'+(expected?'pause':'resume')+'"]').waitFor();
+  await page.goto(base+'/schedules.html');const row=page.locator('[data-task-id="'+taskId+'"]');await row.waitFor();await row.locator('.task-more summary').click();await row.locator('[data-action="'+(expected?'pause':'resume')+'"]').waitFor();
   check('P5 设置页'+(expected?'恢复':'暂停')+'后旧任务页状态同步',await row.innerText().then(t=>expected?!t.includes('已暂停'):t.includes('已暂停')));
  }
  // 避免页面自动状态读取触发本地连接器；只读 /tmp 业务数据，其余状态用固定回执。
@@ -76,8 +79,8 @@ async function ready(p){await p.locator('#sources[aria-busy=false]').waitFor();a
  await context.route('**/api/intel/**',r=>r.fulfill({json:{subscriptions:[],jobs:[]}}));
  const pages=fs.readdirSync(path.join(ROOT,'public')).filter(f=>f.endsWith('.html')&&fs.readFileSync(path.join(ROOT,'public',f),'utf8').includes('workspace-nav.js'));
  const priorErrors=errors.length;
- for(const f of pages){await page.goto(base+'/'+f);await page.locator('#workspace-nav>a').first().waitFor();assert.deepEqual(await page.locator('#workspace-nav>a').evaluateAll(ns=>ns.map(n=>n.dataset.navItem)),['today','library','works','publish','deals','settings']);assert.equal(await page.locator('#workspace-nav [data-nav-group=legacy] a').count(),9);await page.screenshot({path:path.join(tmp,f+'.png')})}
- check('P6 每个共享导航页面都有6项且顺序正确',pages.length>=16,String(pages.length)+'页');
+ for(const f of pages){await page.goto(base+'/'+f);await page.locator('#workspace-nav>a').first().waitFor();assert.deepEqual(await page.locator('#workspace-nav>a').evaluateAll(ns=>ns.map(n=>n.dataset.navItem)),['today','library','works','publish','deals','schedules','settings']);assert.equal(await page.locator('#workspace-nav [data-nav-group=legacy] a').count(),8);await page.screenshot({path:path.join(tmp,f+'.png')})}
+ check('P6 每个共享导航页面都有7项且顺序正确',pages.length>=16,String(pages.length)+'页');
  for(const url of ['/clues.html','/intel.html','/github.html','/schedules.html','/feedback.html','/x-official.html','/knowledge.html','/intake.html','/cards.html','/events.html']){const r=await context.request.get(base+url);assert.equal(r.status(),200)}check('P6 旧版9个路径与events直接地址全部可打开',true);
  await page.goto(base+'/events.html');await page.locator('#ev-view-nav').waitFor();check('events直接打开保留页面功能',await page.locator('#ev-view-nav button').count()>0);
  await page.goto(base+'/clues.html');const clueId=fs.readFileSync(path.join(tmp,'clue-id'),'utf8');await page.locator('[data-clue="'+clueId+'"]').click();await page.locator('#cl-detail h2').getByText('合成线索',{exact:true}).waitFor();

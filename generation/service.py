@@ -197,7 +197,8 @@ class Generation:
         if resolved.parent != folder or not resolved.is_file():
             raise ValueError('图片文件不在该生成记录的目录内，请重新选择')
         skill = job.get('image_skill') or {}
-        label = str(skill.get('user_prompt') or job.get('input_prompt') or job.get('prompt') or '生成图片').strip()[:120]
+        raw_label = str(skill.get('user_prompt') or job.get('input_prompt') or job.get('prompt') or '生成图片')
+        label = re.sub(r'[\x00-\x1f\x7f/\\]+', ' ', raw_label).strip()[:80]
         # Picking the same record again reuses the copy already on disk, so a repeated
         # choice cannot grow the reference folder or hand the page a new id each time.
         expected = job.get('sha256')
@@ -296,7 +297,7 @@ class Generation:
         request_id=payload.get('request_id')
         if request_id is not None and (not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9-]{20,40}',request_id)):
             raise ValueError('无效生成请求编号')
-        fingerprint=hashlib.sha256(json.dumps({k:payload.get(k) for k in ('model','prompt','size','seed','frames','steps','cfg','slug','version','image_style','lora','lora_strength','lora_trigger','workflow','video_checkpoint','video_accelerator','video_loras','references','denoise','video_sampling','video_refine_steps','video_refine_denoise','video_upscale')},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        fingerprint=hashlib.sha256(json.dumps({k:payload.get(k) for k in ('model','prompt','size','seed','frames','steps','cfg','slug','version','image_style','lora','lora_strength','lora_trigger','workflow','video_checkpoint','video_accelerator','video_loras','references','denoise','video_sampling','video_refine_steps','video_refine_denoise','video_upscale','segments','is_sequence')},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         job_id = uuid.uuid4().hex
         payload=dict(payload)
         if MODELS.get(payload.get('model'), {}).get('kind') == 'video':
@@ -345,6 +346,10 @@ class Generation:
             # the server applies its own documented default instead of rejecting the job
             api_params.update(workflow=settings.get('workflow') or payload.get('workflow') or 't2v',
                               frames=settings['frames'])
+            if payload.get('segments') or settings.get('segments'):
+                api_params['segments'] = payload.get('segments') or settings.get('segments')
+            if payload.get('video_ref_image_size') is not None or (api_params.get('segments') and settings.get('video_ref_image_size')):
+                api_params['video_ref_image_size'] = payload.get('video_ref_image_size') or settings.get('video_ref_image_size')
             for key in ('video_checkpoint', 'video_accelerator'):
                 if settings.get(key) is not None:
                     api_params[key] = settings[key]
@@ -365,8 +370,9 @@ class Generation:
                 declared['duration'] = item['duration']
             # video duration is intentionally not declared: the server measures it, and
             # container duration can differ from frames/24 beyond the tolerance.
+            clean_name = re.sub(r'[\x00-\x1f\x7f/\\]+', ' ', str(item.get('name') or '参考素材')).strip()[:80] or '参考素材'
             upload_plan.append({'id': item['id'], 'kind': item['kind'],
-                                'name': str(item.get('name') or '参考素材')[:120],
+                                'name': clean_name,
                                 '_local_path': item['_local_path'], 'meta': declared})
         api_key = request_id or job_id
         slug = payload.get('slug')
@@ -544,7 +550,7 @@ class Generation:
                 # restart with a known API id: a persisted stop intent must be replayed
                 self._apply_pending_cancel(job_id, api, api_job_id)
             observer = self._spawn_observer(job_id, api_job_id, stop)
-            deadline = time.monotonic() + 3600
+            deadline = time.monotonic() + 7200
             failures = 0
             while time.monotonic() < deadline:
                 try:
@@ -799,3 +805,85 @@ class Generation:
             saves[mode] = saved
             self.update(job_id, saved=saves)
             return saved
+
+    def concat_lab_videos(self, payload):
+        job_ids = payload.get('job_ids', [])
+        if not isinstance(job_ids, list) or len(job_ids) < 2:
+            raise ValueError('请至少提供两个已完成的视频任务编号进行合并')
+        title = payload.get('title') or '微短剧 60 秒完整成片'
+        sources = []
+        with self.lock:
+            for jid in job_ids:
+                if jid not in self.jobs:
+                    raise ValueError(f'任务 {jid} 不存在')
+                job = self.jobs[jid]
+                if job.get('status') != 'done' or job.get('kind') != 'video':
+                    raise ValueError(f'任务 {jid} 尚未完成或不是视频')
+                src_path = self.folder / jid / job.get('asset_file', 'result.mp4')
+                if not src_path.is_file():
+                    raise ValueError(f'任务 {jid} 视频文件缺失')
+                sources.append(src_path)
+
+        concat_job_id = uuid.uuid4().hex
+        out_folder = self.folder / concat_job_id
+        out_folder.mkdir(parents=True, exist_ok=True)
+        out_file = out_folder / 'result.mp4'
+        list_file = out_folder / 'concat_list.txt'
+
+        with open(list_file, 'w', encoding='utf-8') as f:
+            for s in sources:
+                f.write(f"file '{s.resolve()}'\n")
+
+        ffmpeg = shutil.which('ffmpeg')
+        if not ffmpeg and Path('/opt/homebrew/bin/ffmpeg').is_file():
+            ffmpeg = '/opt/homebrew/bin/ffmpeg'
+        if not ffmpeg:
+            raise ValueError('系统未找到 ffmpeg，无法执行短剧拼接')
+
+        try:
+            subprocess.run([
+                ffmpeg, '-hide_banner', '-loglevel', 'error', '-y',
+                '-f', 'concat', '-safe', '0', '-i', str(list_file),
+                '-c:v', 'copy', '-c:a', 'aac', str(out_file)
+            ], check=True, timeout=60)
+        except Exception as exc:
+            shutil.rmtree(out_folder, ignore_errors=True)
+            raise ValueError(f'视频合并失败: {exc}') from exc
+        finally:
+            list_file.unlink(missing_ok=True)
+
+        now_ts = now()
+        first_job = self.jobs[job_ids[0]]
+        merged_job = {
+            'id': concat_job_id,
+            'model': first_job.get('model', 'h3'),
+            'model_name': first_job.get('model_name', 'H3 MiniMax'),
+            'kind': 'video',
+            'prompt': title,
+            'input_prompt': f'【4幕短剧合并成片】共 {len(job_ids)} 幕',
+            'created_at': now_ts,
+            'finished_at': now_ts,
+            'updated_at': now_ts,
+            'status': 'done',
+            'origin': 'lab',
+            'transport': 'internal',
+            'asset_file': 'result.mp4',
+            'settings': {
+                'workflow': 'concat',
+                'source_job_ids': job_ids,
+                'title': title,
+                'frames': 0,
+                'size': first_job.get('settings', {}).get('size', '768x448')
+            }
+        }
+        write(out_folder / 'job.json', merged_job)
+        with self.lock:
+            self.jobs[concat_job_id] = merged_job
+
+        try:
+            self.thumbnail(concat_job_id)
+        except Exception:
+            pass
+
+        return self.public(concat_job_id)
+

@@ -1,0 +1,77 @@
+'use strict';
+const fs=require('fs'),path=require('path'),os=require('os'),assert=require('node:assert/strict'),{spawn}=require('child_process');
+const {chromium}=(()=>{try{return require('playwright')}catch{return require(path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'))}})();
+const ROOT=path.resolve(__dirname,'../..'),BASE=path.dirname(ROOT),PY=path.join(BASE,'article-importer/.venv/bin/python');
+const tmp=fs.mkdtempSync(path.join(BASE,'source-browser-'));fs.mkdirSync(path.join(tmp,'screenshots'));
+const results=[],errors=[],consoleErrors=[],check=(name,condition)=>{assert.ok(condition,name);results.push({name,passed:true});console.log('通过 '+name)};
+let child,browser,stderr='';
+(async()=>{
+ child=spawn(PY,['-u',path.join(ROOT,'tests/source_events_browser_fixture.py'),tmp],{cwd:ROOT,stdio:['ignore','ignore','pipe']});child.stderr.on('data',b=>stderr+=b);
+ async function until(condition,label,timeout=120000){const end=Date.now()+timeout;for(;;){if(await condition())return;if(Date.now()>=end)throw Error(label);await new Promise(resolve=>setTimeout(resolve,100));}}
+ await until(()=>{if(child.exitCode!==null)throw Error(stderr);return fs.existsSync(path.join(tmp,'ready.json'))},'fixture startup timed out');
+ const {base}=JSON.parse(fs.readFileSync(path.join(tmp,'ready.json'),'utf8'));
+ browser=await chromium.launchPersistentContext(path.join(tmp,'profile'),{headless:true,channel:'chrome',viewport:{width:1440,height:1000}});
+ await browser.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+ browser.on('page',page=>{page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text())});page.on('dialog',d=>d.accept())});
+ await browser.addInitScript(()=>{const original=window.fetch;window.__testPendingFetch=0;window.fetch=async function(...args){window.__testPendingFetch++;try{return await Reflect.apply(original,this,args)}finally{window.__testPendingFetch--}}});
+ const p=await browser.newPage();p.setDefaultTimeout(60000);
+ async function idle(){await p.waitForFunction(()=>window.__testPendingFetch===0);}
+ async function list(){return (await browser.request.get(base+'/api/schedules')).json()}
+ async function refresh(){await p.locator('#refresh').click();await idle();}
+ await p.goto(base+'/schedules.html');await p.locator('.task-row').first().waitFor();
+ await p.locator('#source-events-panel summary').click();
+ check('漏选提醒显示识别商单当前没人做',(await p.locator('#source-coverage').innerText()).includes('识别商单当前没人做'));
+ await p.locator('#new-task').click();await p.locator('[name=kind]').selectOption('source_events');
+ check('分组13事件、基础锁定、第三期禁选',await p.locator('[name=source_event]').count()===13 && await p.locator('[name=source_event][value="1"]').isDisabled() && await p.locator('[name=source_event][value="11"]').isDisabled());
+ await p.locator('[name=name]').fill('雷达 <script>window.injected=1</script> "测试" 🧪');
+ for(const n of [5,6])await p.locator('[name=source_event][value="'+n+'"]').uncheck();
+ await p.locator('[name=source_event][value="7"]').check();
+ await p.locator('[name=window_enabled]').check();await p.locator('[name=window_start]').fill('00:00');await p.locator('[name=window_end]').fill('24:00');
+ await p.screenshot({path:path.join(tmp,'screenshots','timer-editor-1440.png')});
+ await p.setViewportSize({width:390,height:1000});await p.locator('[name=window_end]').scrollIntoViewIfNeeded();await p.screenshot({path:path.join(tmp,'screenshots','timer-editor-390.png')});
+ check('390编辑对话框无横向溢出',await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await p.setViewportSize({width:1440,height:1000});
+ await p.locator('#task-form [type=submit]').click();await p.locator('#editor').waitFor({state:'hidden'});
+ let data=await list(),task=data.tasks.find(t=>t.kind==='source_events');
+ check('保存只选事件与北京时间时间段、默认停用',JSON.stringify(task.events)==='[1,2,3,7]'&&task.window.end==='24:00'&&!task.enabled);
+ check('名称按文本显示无注入',await p.evaluate(()=>window.injected===undefined) && (await p.locator('.task-name').allTextContents()).some(t=>t.includes('<script>')));
+ await p.locator('[data-action=run][data-id="'+task.id+'"]').click();
+ await until(async()=>{await refresh();data=await list();return data.tasks.find(t=>t.id===task.id)?.last_run?.status==='succeeded'},'native run did not finish '+stderr);
+ await p.locator('#run-tab').click();await p.locator('[data-run]').first().waitFor();
+ const outputText=await p.locator('#runs').innerText();check('来源执行器到作业回执到运行记录逐事件成功',outputText.includes('识别商单')&&outputText.includes('知识干货')&&outputText.includes('成功'));
+ const receipts=await (await browser.request.get(base+'/api/schedules/runs')).json();const run=receipts.runs.find(r=>r.task_id===task.id);
+ check('一次同步且未选事件无进度',JSON.parse(fs.readFileSync(path.join(tmp,'capture-count.json'),'utf8'))===1 && JSON.parse(run.output).events.map(e=>e.event).join(',')==='1,2,3,7');
+ const typed=await (await browser.request.get(base+'/api/schedules/run/'+run.id+'?event=3')).json();
+ check('统一输出私密身份链接和证据回指齐全',typed.items.length===1&&typed.items[0].privacy==='private'&&typed.items[0].people.length>0&&typed.items[0].links.length>0&&typed.items[0].evidence[0].hash.length===64);
+ check('运行摘要不含私聊正文链接或原始身份',!run.output.includes('请为品牌甲')&&!run.output.includes('/private')&&!run.output.includes('fixture-peer'));
+ await p.locator('[data-run="'+run.id+'"]').click();await p.locator('#run-events [data-event-output="3"]').click();await p.locator('#event-output-list article').waitFor();
+ check('私密详情真实点击可查看原文引用',(await p.locator('#event-output-list').innerText()).includes('私密')&&await p.locator('#event-output-list a[rel="noopener noreferrer"]').count()>0);
+ await p.locator('#run-detail [data-close]').click();
+ const pendingRoute=async route=>{const response=await route.fetch(),data=await response.json();const target=data.runs?.find(r=>r.id===run.id);if(target){target.status='timeout';target.output=JSON.stringify({source:'wechat',receipt_pending:true,events:[{event:1,name:'同步存档',status:'succeeded',processed:7},{event:3,name:'识别商单',status:'running'}]})}await route.fulfill({response,json:data})};
+ await p.route('**/api/schedules/runs*',pendingRoute);await refresh();
+ await p.waitForFunction(()=>document.querySelector('#runs').innerText.includes('最终回执将自动回填')&&document.querySelector('#runs').innerText.includes('执行中'));
+ check('停止后阶段结果明确待回填且保留已提交步骤',(await p.locator('#runs').innerText()).includes('最终回执将自动回填')&&(await p.locator('#runs').innerText()).includes('执行中'));
+ await p.screenshot({path:path.join(tmp,'screenshots','pending-stop-receipt-1440.png')});
+ await p.unroute('**/api/schedules/runs*',pendingRoute);await refresh();
+ await p.waitForFunction(()=>!document.querySelector('#runs').innerText.includes('最终回执将自动回填'));
+ check('最终回执恢复后待回填提示消失',!(await p.locator('#runs').innerText()).includes('最终回执将自动回填'));
+ await p.locator('#task-tab').click();
+ const old=(await list()).tasks.filter(t=>t.kind!=='source_events').map(t=>[t.id,t.enabled]);
+ const rejected=await browser.request.post(base+'/api/schedules/batch',{headers:{Origin:'https://evil.invalid','X-Article-Studio':'1'},data:{source_action:'new'}});
+ check('新切换操作保持同源防护',rejected.status()===403);
+ const invalid=await browser.request.post(base+'/api/schedules/save',{headers:{Origin:base,'X-Article-Studio':'1'},data:{...task,events:[1,2,11]}});
+ check('伪造第三期事件由真实保存接口拒绝',invalid.status()===400);
+ await p.locator('#source-presets').click();await idle();data=await list();
+ check('四预设安装停用且旧三项保持原状',data.tasks.filter(t=>t.kind==='source_events').length===5&&data.tasks.filter(t=>t.kind==='source_events').every(t=>!t.enabled)&&old.every(([id,on])=>data.tasks.find(t=>t.id===id).enabled===on));
+ await p.locator('#source-switch-new').click();await idle();data=await list();
+ check('切换新预设启用旧三项停用',data.tasks.filter(t=>t.kind==='source_events'&&t.id!==task.id).every(t=>t.enabled)&&old.every(([id])=>!data.tasks.find(t=>t.id===id).enabled));
+ await p.locator('#source-switch-old').click();await idle();data=await list();
+ check('切回精确恢复含原先停用项',old.every(([id,on])=>data.tasks.find(t=>t.id===id).enabled===on)&&data.tasks.filter(t=>t.kind==='source_events').every(t=>!t.enabled));
+ await p.locator('[data-task-menu="'+task.id+'"] summary').click();await p.locator('[data-action=resume][data-id="'+task.id+'"]').click();await idle();
+ await p.waitForFunction(()=>!document.querySelector('#source-coverage').innerText.includes('识别商单当前没人做'));
+ check('启用后漏选提醒同步更新',!(await p.locator('#source-coverage').innerText()).includes('识别商单当前没人做'));
+ for(const menu of await p.locator('.task-more[open] summary').all())await menu.click();
+ for(const width of [1440,1280,1024,768,390]){await p.setViewportSize({width,height:1000});await p.evaluate(()=>scrollTo(0,0));await p.screenshot({path:path.join(tmp,'screenshots',width+'-top.png')});await p.evaluate(()=>scrollTo(0,document.body.scrollHeight));await p.screenshot({path:path.join(tmp,'screenshots',width+'-bottom.png')});check(width+'无页面横向滚动',await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));}
+ check('控制台与页面0错误',errors.length===0&&consoleErrors.length===0);
+ fs.writeFileSync(path.join(tmp,'results.json'),JSON.stringify({results,errors,consoleErrors},null,2));console.log('证据 '+tmp+'；'+results.length+'项通过');
+})().catch(e=>{console.error(e.stack);fs.writeFileSync(path.join(tmp,'failure.txt'),e.stack+'\n'+stderr);process.exitCode=1}).finally(async()=>{if(browser)await browser.close();if(child && child.exitCode===null){child.kill('SIGTERM');await new Promise(r=>child.once('exit',r))}});

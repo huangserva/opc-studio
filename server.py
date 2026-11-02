@@ -26,6 +26,9 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs, unquote
 
+# Browser asset/API bursts must survive a busy request thread without TCP resets.
+ThreadingHTTPServer.request_queue_size = 128
+
 import markdown_blocks
 
 ROOT = Path(__file__).resolve().parent
@@ -729,6 +732,10 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parts.query)
         store = self.server.store
         try:
+            if parts.path == '/api/clue-inbox' or parts.path.startswith('/api/clue-objects/'):
+                return __import__('clue_ingest_api').get_route(self, parts, query)
+            if parts.path == '/api/settings/wechat-tools': return __import__('settings_view').wechat_tools_route(self)
+            if parts.path == '/api/settings/official-accounts': return __import__('settings_view').official_accounts_route(self)
             if parts.path == '/api/settings/overview': return __import__('settings_view').get_route(self, parts)
             if parts.path == '/api/settings/logs': return __import__('settings_view').get_route(self, parts)
             if parts.path == '/api/settings/interest-topics': return __import__('interest_channel').topics_route(self)
@@ -823,7 +830,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts.path == '/api/clues/wechat/status':
                 return self.reply(200,store.wechat_source.clue_status())
             if parts.path == '/api/clues':
-                return self.reply(200, store.clues.listing(query=query.get('q',[''])[0],category=query.get('category',[''])[0],view=query.get('view',['all'])[0],source=query.get('source',[''])[0],year=query.get('year',[''])[0],offset=query.get('offset',[0])[0],tag=query.get('tag',[''])[0],sort=query.get('sort',['updated'])[0],period=query.get('period',[''])[0],priority=query.get('priority',[''])[0],heat=query.get('heat',[''])[0]))
+                return self.reply(200, store.clues.listing(query=query.get('q',[''])[0],category=query.get('category',[''])[0],view=query.get('view',['all'])[0],source=query.get('source',[''])[0],year=query.get('year',[''])[0],offset=query.get('offset',[0])[0],tag=query.get('tag',[''])[0],sort=query.get('sort',['updated'])[0],period=query.get('period',[''])[0],priority=query.get('priority',[''])[0],heat=query.get('heat',[''])[0],**__import__('raw_materials_meta').clue_read_options(parts.query)))
             if len(segments)==3 and segments[:2]==['api','clues']:
                 return self.reply(200, store.clues.detail(segments[2],offset=int(query.get('offset',[0])[0])))
             if parts.path == '/api/events':
@@ -832,10 +839,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, store.events.event(segments[2]))
             if parts.path == '/api/github':
                 return self.reply(200, {**store.github.status(), 'tasks':[t for t in self.server.schedules.listing()['tasks'] if t['kind']=='github_clues']})
+            if parts.path in ('/api/knowledge/meta', '/api/knowledge/health'):
+                return __import__('raw_materials_meta').get_route(self, parts)
             if parts.path == '/api/knowledge':
-                return self.reply(200, store.knowledge.status())
+                return self.reply(200, store.knowledge.status(cached=True))
             if parts.path == '/api/knowledge/search':
-                return self.reply(200, store.knowledge.search(query.get('q', [''])[0], query.get('kind', [''])[0], query.get('tag', [''])[0], query.get('offset', [0])[0], query.get('source', [''])[0]))
+                offset = __import__('raw_materials_meta').material_search_offset(parts.query)
+                return self.reply(200, store.knowledge.search(query.get('q', [''])[0], query.get('kind', [''])[0], query.get('tag', [''])[0], offset, query.get('source', [''])[0]))
             if len(segments) == 4 and segments[:3] == ['api', 'knowledge', 'document']:
                 try:
                     document = store.knowledge.document(segments[3])
@@ -1020,6 +1030,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if segments == ['api', 'settings', 'official-accounts']: return __import__('settings_view').official_accounts_route(self, payload)
+            if segments == ['api', 'settings', 'wechat-tools']: return __import__('settings_view').wechat_tools_route(self, payload)
             if segments == ['api', 'settings', 'interest-topics']:
                 return __import__('interest_channel').topics_route(self, payload)
             if segments == ['api', 'today', 'feedback']:

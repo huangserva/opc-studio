@@ -12,6 +12,60 @@ import {
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions';
 
 const emit = value => process.stdout.write(JSON.stringify(value) + '\n');
+
+// Never retain an exception message, URL, request body or credentials in telemetry.
+const ERROR_NAMES = new Set(['Error','TypeError','AggregateError','AbortError','TimeoutError',
+  'APIError','APIConnectionError','APIConnectionTimeoutError','AuthenticationError',
+  'PermissionDeniedError','RateLimitError','BadRequestError','NotFoundError']);
+const CAUSE_CODES = new Set(['ECONNRESET','ECONNREFUSED','ECONNABORTED','ENOTFOUND','EAI_AGAIN',
+  'ENETUNREACH','EHOSTUNREACH','EPIPE','ETIMEDOUT','ERR_INVALID_URL',
+  'UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','UND_ERR_SOCKET',
+  'UND_ERR_CONNECT','UND_ERR_DESTROYED','CERT_HAS_EXPIRED','CERT_NOT_YET_VALID',
+  'CERT_UNTRUSTED','DEPTH_ZERO_SELF_SIGNED_CERT','SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY','ERR_TLS_CERT_ALTNAME_INVALID']);
+const boundedInt = (n, max) => Number.isFinite(n) ? Math.max(0, Math.min(max, Math.round(n))) : 0;
+export function transportDiagnostic(error, elapsedMs = 0, attempt = 1) {
+  const result = {category:'unknown', error_name:null, cause_code:null, http_status:null,
+    elapsed_ms:boundedInt(elapsedMs,3600000),attempt:Math.max(1,boundedInt(attempt,128))};
+  try{if (!(error instanceof Error) && !(typeof DOMException==='function' && error instanceof DOMException)) return result;}catch{return result;}
+  // Depth-first: root -> cause -> AggregateError.errors in array order, bounded/cycle-safe.
+  const seen = new Set(), stack = [{value:error,depth:0}];let unknownCode=false;
+  while(stack.length && seen.size<32){
+    const {value,depth}=stack.pop();if(!value || typeof value!=='object' || seen.has(value) || depth>8)continue;
+    seen.add(value);
+    try {
+      if(!result.error_name && ERROR_NAMES.has(value.name))result.error_name=value.name;
+      if(result.http_status===null && Number.isInteger(value.status) && value.status>=400 && value.status<=599)result.http_status=value.status;
+      if(typeof value.code==='string'){
+        if(!result.cause_code && CAUSE_CODES.has(value.code))result.cause_code=value.code;
+        else if(!CAUSE_CODES.has(value.code))unknownCode=true;
+      }
+      if(Array.isArray(value.errors))for(const child of value.errors.slice(0,16).reverse())stack.push({value:child,depth:depth+1});
+      if(value.cause)stack.push({value:value.cause,depth:depth+1});
+    } catch { /* Hostile getters are untrusted input too. */ }
+  }
+  const status=result.http_status,code=result.cause_code;
+  if(status===401 || status===403)result.category='authentication';
+  else if(status===429)result.category='rate_limit';
+  else if(status===413)result.category='context_limit';
+  else if(status===400 || status===404 || status===422){
+    let message='';try{if(typeof error.message==='string' && error.message.length<=4096)message=error.message;}catch{}
+    result.category=/context.{0,30}(length|window|limit|exceed)|maximum.{0,20}context|too many tokens|max_tokens.{0,20}(exceed|limit)|上下文.{0,20}(超|限)/i.test(message)?'context_limit':'local_config';
+  } else if(code==='ERR_INVALID_URL')result.category='local_config';
+  else if(code==='ETIMEDOUT' || code?.includes('TIMEOUT'))result.category='timeout';
+  else if(code)result.category='network_connection';
+  else if(!unknownCode && ['APIConnectionTimeoutError','TimeoutError'].includes(result.error_name))result.category='timeout';
+  return result;
+}
+function httpDiagnostic(status,elapsedMs,attempt,message=''){
+  const envelope=new Error(typeof message==='string' && message.length<=4096 ? message : '');
+  envelope.status=status;
+  const diagnostic=transportDiagnostic(envelope,elapsedMs,attempt);
+  diagnostic.error_name=null; // No exception was thrown at an HTTP response boundary.
+  return diagnostic;
+}
+function safeFailureText(diagnostic){return '模型执行失败（'+diagnostic.category+'）';}
+
 // Stdout is a private framed protocol, never a log channel.
 console.log = () => {};
 let buffer = '', session, request, started = false, cancelled = false, calls = 0;
@@ -72,9 +126,9 @@ function testStream(model, context, options) {
   })();
   return stream;
 }
-function modelFailure(message, seconds) {
+function modelFailure(message, seconds, diagnostic) {
   const detail = String(message?.errorMessage || '');
-  const code = detail.match(/\b(400|401|403|404|413|415|422|429|500|502|503|504)\b/)?.[1];
+  const code = diagnostic?.http_status ? String(diagnostic.http_status) : detail.match(/\b(400|401|403|404|413|415|422|429|500|502|503|504)\b/)?.[1];
   if (code) return `模型服务返回 HTTP ${code}，${['401','403'].includes(code) ? '请核对模型接口鉴权配置' : code === '429' ? '服务繁忙或请求已限流，请稍后重试' : '请核对模型服务状态与请求参数'}。已保存的操作仍保留。`;
   if (message?.stopReason === 'aborted') return `模型请求超时或中断（连续 ${seconds} 秒无响应），请稍后重试。已保存的操作仍保留。`;
   return '模型请求未完成，请检查模型服务后重试。';
@@ -119,6 +173,7 @@ function optionalRunLimits(input) {
 async function run(input) {
   request = input;
   let timer, mediaReceipt, stageReceipt, dealReceipt, toolViolation, pasteStop;
+  let lastTransport, visionFailure=false, fetchAttempt=0;
   let blockedToolNames = [];
   let lastEditReject = '', editRejects = 0, savedBeforeStop = false;
   const workBaseVersions = new Map();
@@ -149,8 +204,38 @@ async function run(input) {
         if (input.test_transport) return testStream(model, context, options);
         emit({type:'phase',phase:'模型正在读取上下文，长内容首字需要等待…'});
         let thinking = false;
+        const fetchBase=options?.fetch || globalThis.fetch;
+        const diagnosticFetch=async(...args)=>{
+          const started=Date.now(),attempt=++fetchAttempt;
+          try{
+            const response=await fetchBase(...args);
+            lastTransport=httpDiagnostic(response.status,Date.now()-started,attempt);
+            if(!response.body)return response;
+            // Fetch resolves at headers; stream errors happen later at reader.read().
+            const reader=response.body.getReader();
+            const body=new ReadableStream({
+              async pull(controller){
+                try{const next=await reader.read();if(next.done)controller.close();else controller.enqueue(next.value);}
+                catch(error){
+                  lastTransport=transportDiagnostic(error,Date.now()-started,attempt);
+                  // A truncated HTTP error body must not turn a 401/429 into a retryable connection error.
+                  if(response.status>=400){const http=httpDiagnostic(response.status,Date.now()-started,attempt);lastTransport={...lastTransport,category:http.category,http_status:http.http_status};}
+                  else if(lastTransport.category==='unknown' && (args[1]?.signal || args[0]?.signal)?.aborted && !options?.signal?.aborted && !cancelled)lastTransport.category='timeout';
+                  controller.error(error);
+                }
+              },
+              cancel(reason){return reader.cancel(reason);}
+            });
+            return new Response(body,{status:response.status,statusText:response.statusText,headers:response.headers});
+          }catch(error){
+            lastTransport=transportDiagnostic(error,Date.now()-started,attempt);
+            // Only our per-call watchdog (not caller cancellation) makes AbortError a timeout.
+            if(lastTransport.category==='unknown' && (args[1]?.signal || args[0]?.signal)?.aborted && !options?.signal?.aborted && !cancelled)lastTransport.category='timeout';
+            throw error;
+          }
+        };
         return monitoredStream(streamOptions => streamSimple(model, context, {
-          ...streamOptions, temperature: config.temperature, maxTokens: config.max_output_tokens,
+          ...streamOptions, temperature: config.temperature, maxTokens: config.max_output_tokens, fetch:diagnosticFetch,
           onPayload: async (payload, model) => {
             const upstream = await options?.onPayload?.(payload, model);
             const prepared = upstream ?? payload;
@@ -163,7 +248,8 @@ async function run(input) {
             thinking = true;emit({type:'phase',phase:'模型正在思考…'});
           }
         }, error => {
-          const message = assistantMessage(model, [], 'error');message.errorMessage = String(error.message);
+          lastTransport=lastTransport?.category!=='unknown' && lastTransport ? lastTransport : transportDiagnostic(error,0,fetchAttempt || 1);
+          const message = assistantMessage(model, [], 'error');message.errorMessage = safeFailureText(lastTransport);
           return {type:'error',reason:'error',error:message};
         });
       },
@@ -237,8 +323,25 @@ async function run(input) {
       resourceLoader: loader, tools: customTools.map(t => t.name), customTools }));
     const unsubscribe = session.subscribe(event => {
       if (event.type === 'message_end' && event.message.role === 'assistant') {
-        if (event.message.errorMessage) event.message.errorMessage = String(event.message.errorMessage)
-          .split(config.api_key || '\u0000').join('[redacted]').replace(/https?:\/\/[^\s]+/g,'[endpoint]');
+        if (event.message.errorMessage) {
+          const providerDiagnostic=typeof event.message.errorMessage==='string' ? event.message.errorMessage : '';
+          // Match the legacy order: redact the full message, then redact again and truncate for the done diagnostic.
+          const redactDiagnostic=value=>value.split(config.api_key || '\u0000').join('[redacted]').replace(/https?:\/\/[^\s]+/g,'[endpoint]');
+          const sessionDiagnostic=redactDiagnostic(providerDiagnostic);
+          const compatDiagnostic=redactDiagnostic(sessionDiagnostic).slice(0,600);
+          const raw=sessionDiagnostic.length<=4096 ? sessionDiagnostic : '';
+          visionFailure=/image|vision|multimodal/i.test(sessionDiagnostic);
+          const fromMessage=httpDiagnostic(lastTransport?.http_status,lastTransport?.elapsed_ms || 0,fetchAttempt || 1,raw);
+          if(!lastTransport || (fromMessage.category!=='unknown' && (lastTransport.category==='unknown' || fromMessage.category==='context_limit')))lastTransport=fromMessage;
+          // Keep the legacy SDK-timeout decision, without serializing its text or overriding non-retryable categories.
+          if(lastTransport.category==='unknown' && /timed?\s*out|timeout|超时/i.test(compatDiagnostic))lastTransport.category='timeout';
+          // Legacy watchdog aborts were unresponsive (one call), not SDK timeout retries.
+          if(event.message.stopReason==='aborted' && !cancelled && !/timed?\s*out|timeout|超时/i.test(compatDiagnostic)){
+            lastTransport.timeout_source='watchdog';
+            if(lastTransport.category==='unknown')lastTransport.category='timeout';
+          }
+          event.message.errorMessage=safeFailureText(lastTransport);
+        }
         const allowed = new Set(input.tools.map(t => t.function.name));
         const blocked = event.message.content.filter(p => p.type === 'toolCall' && !allowed.has(p.name));
         if (blocked.length) {
@@ -271,17 +374,17 @@ async function run(input) {
     if (mediaReceipt && !cancelled) manager.appendMessage(assistantMessage(model,[{type:'text',text:mediaReceipt}]));
     if (dealReceipt && !cancelled) manager.appendMessage(assistantMessage(model,[{type:'text',text:dealReceipt}]));
     emit({ type: 'done', status: cancelled ? 'cancelled' : (toolViolation || pasteStop) ? 'error' : (mediaReceipt || stageReceipt || dealReceipt) ? 'done' : error ? 'error' : 'done',
-      answer: cancelled ? '已停止。已保存的修改仍保留。' : toolViolation || pasteStop || mediaReceipt || dealReceipt || (stageReceipt ? '阶段完成' : (last?.stopReason === 'aborted' ? modelFailure(last, config.timeout_seconds) : empty ? '模型没有返回回复正文。请检查输出预算和模型服务后重试。' : error ? modelFailure(last, config.timeout_seconds) : text)),
+      answer: cancelled ? '已停止。已保存的修改仍保留。' : toolViolation || pasteStop || mediaReceipt || dealReceipt || (stageReceipt ? '阶段完成' : (last?.stopReason === 'aborted' ? modelFailure(last, config.timeout_seconds, lastTransport) : empty ? '模型没有返回回复正文。请检查输出预算和模型服务后重试。' : error ? modelFailure(last, config.timeout_seconds, lastTransport) : text)),
       session_id: manager.getSessionId(), usage: last?.usage,
       ...(toolViolation ? {blocked_tool_names: blockedToolNames, error_kind: 'tool_policy'} : {}),
       stop_reason:last?.stopReason,content_types:last?.content.map(p=>p.type),
-      ...(error ? { diagnostic: String(last?.errorMessage || '').split(config.api_key || '\u0000').join('[redacted]').replace(/https?:\/\/[^\s]+/g,'[endpoint]').slice(0,600) } : {}),
-      ...(error ? { error_kind: /image|vision|multimodal/i.test(last?.errorMessage || '') ? 'vision' : 'model' } : {}) });
+      ...(error ? { transport_diagnostic: lastTransport || transportDiagnostic(null,0,fetchAttempt || 1) } : {}),
+      ...(error ? { error_kind: visionFailure ? 'vision' : 'model' } : {}) });
     unsubscribe();
   } catch (error) {
-    if (input.test_transport) emit({type:'diagnostic',message:String(error.message),stack:String(error.stack)});
+    const diagnostic=transportDiagnostic(error,0,fetchAttempt || 1);
     emit({ type: 'done', status: cancelled ? 'cancelled' : 'error',
-      answer: cancelled ? '已停止。' : 'Pi 助手未完成本次请求，请检查运行日志或模型连接。', error_kind: 'runtime' });
+      answer: cancelled ? '已停止。' : 'Pi 助手未完成本次请求，请检查运行日志或模型连接。', error_kind: 'runtime', transport_diagnostic:diagnostic });
   } finally {
     clearTimeout(timer); session?.dispose();
     for (const p of pending.values()) { p.cleanup();p.reject(new Error('closed')); }

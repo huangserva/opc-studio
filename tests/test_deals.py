@@ -42,7 +42,7 @@ class DealsTests(unittest.TestCase):
         self.assertEqual(listing['stage_counts']['cancelled'],1);self.assertEqual(listing['stage_counts']['ready'],0)
         self.assertEqual(listing['summary']['received'],{'CNY':'0.00','USD':'0.00'})
         self.assertEqual(self.deals.options()['stages']['writing'],'待写')
-        self.assertEqual(self.deals.options()['stage_groups']['发布结账'][-2:],('payment_pending','settled'))
+        self.assertEqual(self.deals.options()['main_stages'],('contact','negotiating','preparing','writing','draft','published','closed'))
     def test_closed_business_progress_requires_cash_confirmation_and_void_reopens_payment(self):
         d=self.create(stage='payment_pending',quote='100',currency='CNY',quote_confirmed=True)
         with self.assertRaisesRegex(ValueError,'确认全部到账'):self.edit(d,stage='settled')

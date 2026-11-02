@@ -85,7 +85,7 @@ async function fixture(t, options = {}) {
   };
   w.eval(fs.readFileSync('public/schedules.js','utf8'));
   await settle();
-  return {w,d,calls,listing,intervals,timers,form:d.querySelector('#task-form'),postCalls:() => calls.filter(call => call.opts.method === 'POST'),runCalls:() => calls.filter(call => call.url.startsWith('/api/schedules/runs?')),flushSearch:async () => {for (const [id,timer] of timers) {timers.delete(id);timer.callback();}await settle();}};
+  return {w,d,calls,listing,intervals,timers,form:d.querySelector('#task-form'),postCalls:() => calls.filter(call => call.opts.method === 'POST'),runCalls:() => calls.filter(call => call.url.startsWith('/api/schedules/runs?') && !call.url.endsWith('page_size=10')),flushSearch:async () => {for (const [id,timer] of timers) {timers.delete(id);timer.callback();}await settle();}};
 }
 function change(f,selector,value) {const element = f.d.querySelector(selector);if (element.type === 'checkbox') element.checked = value;else element.value = value;element.dispatchEvent(new f.w.Event('change',{bubbles:true}));return element;}
 function search(f,value) {const element = f.d.querySelector('#search');element.value = value;element.dispatchEvent(new f.w.Event('input',{bubbles:true}));}
@@ -111,10 +111,10 @@ test('compact task row presents assistant, model, human frequency, relative time
   assert.match(row.textContent,/工作台助手（Pi）/);assert.match(row.textContent,/合成模型/);assert.match(row.textContent,/每 6 小时/);
   assert.match(row.querySelector('.task-schedule small').textContent,/分钟后/);
   assert.match(row.querySelector('.task-schedule small').title,/北京时间/);
-  assert.match(row.querySelector('.task-last').textContent,/最近 · 成功/);assert.match(row.querySelector('.task-last').textContent,/1 分 5 秒/);
+  assert.equal(row.querySelector('.result-badge').textContent,'成功');assert.match(row.querySelector('.last-age').title,/1 分 5 秒/);assert.match(row.querySelector('.last-age').textContent,/前|刚刚/);
   assert(!row.textContent.includes('/Users/example'));
   assert.equal(row.querySelector('[data-action=run]').closest('details'),null);
-  assert.equal(row.querySelector('[data-action=pause]').closest('details'),null);
+  assert(row.querySelector('[data-action=pause]').closest('details')); // Pause moved into the required more menu.
   assert(row.querySelector('[data-action=edit]').closest('details'));
   row.querySelector('[data-action=detail]').click();await settle();
   assert(f.d.querySelector('#task-meta').textContent.includes(task.cwd));
@@ -389,7 +389,7 @@ test('partial WeChat results show persisted progress, candidate links, batch err
   const clues=['1'.repeat(32),'2'.repeat(32)], error={batch_id:'f'.repeat(64),message:'模型引用未通过校验',attempts:2,next_retry_at:'2026-10-06T01:30:00Z',documents:3};
   const partial={...run,status:'partial',snapshot:{...task,kind:'wechat_clues',wechat_mode:'incremental'},output:JSON.stringify({processed:10,skipped:1,clues,has_more:true,deferred:3,errors:[error]})};
   const f=await fixture(t,{tasks:[{...task,last_run:partial}],runs:[partial]});
-  assert.match(f.d.querySelector('.task-last').textContent,/最近 · 部分完成/);
+  assert.equal(f.d.querySelector('.task-last .result-badge').textContent,'部分完成');
   f.d.querySelector('#run-tab').click();await settle();
   assert.equal(f.d.querySelector('#runs .state-pill').textContent,'部分完成');
   assert.match(f.d.querySelector('.run-result-summary').textContent,/持续增量（本机最近 7 天消息） · 本轮分析 10 条 · 跳过 1 条 · 2 条待核对线索/);
@@ -533,4 +533,134 @@ test('invalid quote mapping metadata cannot inject public receipt content',async
   const records=['-1','<img src=x onerror=alert(1)>',1.5].map((count,i)=>({...run,id:String(i+6).repeat(32),snapshot:{...task,kind:'wechat_radar'},output:JSON.stringify({processed:1,has_more:false,format:{quote_mapped:count}})}));
   const f=await fixture(t,{runs:records});f.d.querySelector('#run-tab').click();await settle();
   assert(!f.d.querySelector('#runs').textContent.includes('精确映射'));assert.equal(f.d.querySelector('#runs img'),null);
+});
+
+
+test('unified table counts all data and filters its only list, escapes missing external fields and keeps external read-only',async t => {
+  const f=await fixture(t,{tasks:[task],listing:{external:{tasks:[{id:'external-empty'},{id:'external-xss',name:'<img src=x onerror=alert(1)>',owner:'<script>bad</script>',status:'bad-class',status_label:'<b>bad</b>'}],checked_at:null}}});
+  assert.equal(f.d.querySelector('#overview-count').textContent,'（内置 1 · 外部 2）');
+  assert.equal(f.d.querySelectorAll('#overview-tasks [data-external-row]').length,2);
+  assert.equal(f.d.querySelectorAll('#overview-tasks [data-external-row] button').length,0);
+  assert.match(f.d.querySelector('[data-external-row="external-empty"]').textContent,/未知/);
+  assert.equal(f.d.querySelectorAll('#overview-tasks img,#overview-tasks script,#overview-tasks b').length,0);
+  assert.match(f.d.querySelector('#external-checked').textContent,/未知/);
+  assert.equal(f.calls.filter(c=>c.url==='/api/schedules/runs?page_size=10').length,1);
+  search(f,'no-match');await settle();
+  assert.equal(f.d.querySelectorAll('#tasks [data-task-id]').length,0);
+  assert.equal(f.d.querySelectorAll('#overview-tasks [data-overview-task]').length,0);
+  assert.equal(f.d.querySelector('#stat-all').textContent,'3');
+  assert.equal(f.d.querySelectorAll('.unified-tasks').length,1);
+});
+test('overview built-in actions and recent detail reuse existing endpoints',async t => {
+  const f=await fixture(t,{tasks:[task]});
+  f.d.querySelector('[data-action="resume"]').click();await settle();
+  assert.equal(f.postCalls()[0].url,'/api/schedules/'+taskId+'/resume');
+  assert.deepEqual(f.postCalls()[0].body,{});
+  f.d.querySelector('[data-overview-run]').click();await settle();
+  assert.equal(f.d.querySelector('#run-detail').open,true);
+  assert.match(f.d.querySelector('#run-output').textContent,/查询结果/);
+});
+test('overview keeps previous external check error visible and reports a recent-runs failure honestly',async t => {
+  const f=await fixture(t,{listing:{external:{tasks:[],checked_at:'2026-10-31T00:00:00Z',last_error:true,last_error_at:'2026-10-31T01:00:00Z'}},handler:c=>c.url==='/api/schedules/runs?page_size=10'?response({error:'合成读取失败'},false):undefined});
+  assert.match(f.d.querySelector('#external-checked').textContent,/保留上次快照/);
+  assert.match(f.d.querySelector('#overview-runs').textContent,/暂不可读.*合成读取失败/);
+});
+
+
+// fix1: each regression fails against the pre-fix client, including recovery's initial error state.
+const assertOverviewFailure=f=>{
+  assert.equal(f.d.querySelector('#overview-count').textContent,'（内置 未知 · 外部 未知）');
+  assert.match(f.d.querySelector('#overview-tasks').textContent,/读取失败.*刷新重试/);
+  assert.ok(!f.d.querySelector('.schedule-overview').textContent.includes('正在读取'));
+  assert.match(f.d.querySelector('#overview-runs').textContent,/每日查询/);
+};
+test('fix1 initial 503 exits loading with unknown counts while recent runs remain readable',async t=>{
+  const f=await fixture(t,{handler:c=>c.url==='/api/schedules'?response({error:'合成503暂不可读'},false):undefined});
+  assertOverviewFailure(f);assert.match(f.d.querySelector('#overview-error').textContent,/合成503/);
+});
+test('fix1 timeout exits loading and offers refresh',async t=>{
+  const f=await fixture(t,{handler:c=>{if(c.url==='/api/schedules')throw new DOMException('合成请求超时','AbortError')}});
+  assertOverviewFailure(f);assert.match(f.d.querySelector('#overview-error').textContent,/超时/);
+});
+test('fix1 external-only failure marks only external unknown and preserves builtins and recent runs',async t=>{
+  const f=await fixture(t,{tasks:[task],listing:{external:{last_error:'合成外部503',checked_at:null}}});
+  assert.equal(f.d.querySelector('#overview-count').textContent,'（内置 1 · 外部 未知）');
+  assert.equal(f.d.querySelectorAll('#overview-tasks [data-overview-task]').length,1);
+  assert.match(f.d.querySelector('[data-external-error]').textContent,/外部任务读取失败.*刷新重试/);
+  assert.match(f.d.querySelector('#overview-runs').textContent,/每日查询/);
+  assert.equal(f.d.querySelector('#overview-error'),null);
+});
+test('fix1 refresh recovers from an initial error and clears all stale failure text',async t=>{
+  let failed=true;
+  const f=await fixture(t,{tasks:[task],listing:{external:{tasks:[],checked_at:null}},handler:c=>c.url==='/api/schedules'&&failed?response({error:'合成首次失败'},false):undefined});
+  assertOverviewFailure(f);failed=false;f.d.querySelector('#refresh').click();await settle();
+  assert.equal(f.d.querySelector('#overview-count').textContent,'（内置 1 · 外部 0）');
+  assert.equal(f.d.querySelectorAll('#overview-tasks [data-overview-task]').length,1);
+  assert.equal(f.d.querySelector('#overview-error'),null);
+  assert.ok(!f.d.querySelector('.schedule-overview').textContent.includes('读取失败'));
+  assert.equal(f.d.querySelector('#message').textContent,'');
+});
+
+test('fix1 a timed-out fetch is actually aborted and leaves neither timers nor loading text',async t=>{
+  const f=await fixture(t,{handler:c=>c.url==='/api/schedules'?new Promise((resolve,reject)=>c.opts.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')))):undefined});
+  const pending=[...f.timers.values()].find(timer=>timer.delay===8000);assert(pending,'schedule fetch must have a finite timeout');pending.callback();await settle();
+  assertOverviewFailure(f);assert.equal(f.timers.size,0);
+});
+test('fix1 failed refresh preserves prior rows as stale, disables stale actions and restores them after recovery',async t=>{
+  let failed=false;const f=await fixture(t,{tasks:[task],listing:{external:{tasks:[],checked_at:null}},handler:c=>c.url==='/api/schedules'&&failed?response({error:'合成刷新失败'},false):undefined});
+  failed=true;f.d.querySelector('#refresh').click();await settle();
+  assert.equal(f.d.querySelectorAll('[data-overview-task]').length,1);assert.match(f.d.querySelector('#overview-error').textContent,/保留上次快照/);
+  assert([...f.d.querySelectorAll('[data-action]')].every(b=>b.disabled));
+  failed=false;f.d.querySelector('#refresh').click();await settle();
+  assert.equal(f.d.querySelector('#overview-error'),null);assert([...f.d.querySelectorAll('[data-action]')].every(b=>!b.disabled));
+});
+
+
+test('redesign human plans cover minute and weekday boundaries without verbose weekday lists',async t=>{
+  const cases=[[{frequency:'interval',minutes:1},'每 1 分钟'],[{frequency:'interval',minutes:59},'每 59 分钟'],[{frequency:'interval',minutes:60},'每 1 小时'],[{frequency:'interval',minutes:90},'每 90 分钟'],[{frequency:'interval',minutes:1440},'每 24 小时'],[{frequency:'interval',minutes:43200},'每 720 小时']];
+  for(const [weekdays,at,text] of [[[],'08:30','执行日未知 08:30'],[[6],'08:30','周日 08:30'],[[0,1,2,3,4,5,6],'08:30','每天 08:30'],[[0,1,2,3,4],'08:30','工作日 08:30'],[[5,6],'08:30','周末 08:30'],[[0,2,4],'08:30','周一、三、五 08:30'],[[0,1,2,3,4,5,6],null,'每天 未知时刻']])cases.push([{frequency:'daily',weekdays,at},text]);
+  const f=await fixture(t,{tasks:cases.map(([plan],i)=>({...task,...plan,id:String(i).padStart(32,'0'),name:'边界'+i}))});
+  for(const [i,[plan,text]] of cases.entries())assert.equal(f.d.querySelector('[data-task-id="'+String(i).padStart(32,'0')+'"] .task-schedule strong').textContent,text);
+});
+test('redesign has exactly one table, grouped readonly rows, live summary filters and independent source scopes',async t=>{
+  const data=[{...task,id:'1'.repeat(32),name:'运行',enabled:true,running:true,next_run:Date.now()/1000+60},{...task,id:'2'.repeat(32),name:'注意',enabled:true,last_run:{status:'failed'},next_run:Date.now()/1000+120},{...task,id:'3'.repeat(32),name:'普通',enabled:true,next_run:Date.now()/1000+180},{...task,id:'4'.repeat(32),name:'暂停'}];
+  const external={tasks:[{id:'e1',name:'外部注意',status:'missing'},{id:'e2',name:'外部运行',status:'running'}]};
+  const f=await fixture(t,{tasks:data,listing:{external}});
+  assert.equal(f.d.querySelectorAll('.unified-tasks').length,1);assert.equal(f.d.querySelector('#stat-all').textContent,'6');assert.equal(f.d.querySelector('#stat-running').textContent,'2');assert.equal(f.d.querySelector('#stat-paused').textContent,'1');assert.equal(f.d.querySelector('#stat-attention').textContent,'2');
+  assert.deepEqual([...f.d.querySelectorAll('[data-task-id]')].map(e=>e.dataset.taskId),data.map(e=>e.id));
+  assert(f.d.querySelector('.external-group').textContent.includes('外部任务 · 只读'));assert.equal(f.d.querySelectorAll('[data-external-row] button,[data-external-row] [data-action]').length,0);
+  f.d.querySelector('[data-summary=attention]').click();assert.equal(f.d.querySelectorAll('[data-task-id]').length,1);assert.equal(f.d.querySelectorAll('[data-external-row]').length,1);assert.equal(f.d.querySelector('[data-summary=attention]').getAttribute('aria-pressed'),'true');
+  f.d.querySelector('[data-summary=attention]').click();assert.equal(f.d.querySelectorAll('[data-task-id]').length,4);
+  f.d.querySelector('[data-scope=external]').click();assert.equal(f.d.querySelectorAll('[data-task-id]').length,0);assert.equal(f.d.querySelectorAll('[data-external-row]').length,2);
+  f.d.querySelector('[data-external-row]').click();assert(f.d.querySelector('#task-detail').open);assert.equal(f.postCalls().length,0);
+});
+test('redesign pause-enable and running-complete update counters, state pills and next times together',async t=>{
+  const f=await fixture(t,{tasks:[{...task,enabled:true,next_run:Date.now()/1000+300}]});
+  assert.equal(f.d.querySelector('#stat-paused').textContent,'0');
+  Object.assign(f.listing.tasks[0],{enabled:false,next_run:null});f.d.querySelector('[data-action=pause]').click();await settle();
+  assert.equal(f.d.querySelector('#stat-paused').textContent,'1');assert.match(f.d.querySelector('.task-state').textContent,/已暂停/);assert.equal(f.d.querySelector('.next-cell').textContent,'—');
+  Object.assign(f.listing.tasks[0],{enabled:true,next_run:Date.now()/1000+300});f.d.querySelector('[data-action=resume]').click();await settle();
+  assert.equal(f.d.querySelector('#stat-paused').textContent,'0');assert.match(f.d.querySelector('.task-state').textContent,/已启用/);assert.match(f.d.querySelector('.next-cell').textContent,/分钟后/);
+  f.listing.tasks[0].running=true;f.d.querySelector('[data-action=run]').click();await settle();assert.equal(f.d.querySelector('#stat-running').textContent,'1');assert.match(f.d.querySelector('.task-state').textContent,/运行中/);assert(f.d.querySelector('[data-action=run]').disabled);
+  Object.assign(f.listing.tasks[0],{running:false,last_run:{status:'succeeded',finished_at:new Date().toISOString()},next_run:Date.now()/1000+300});f.d.querySelector('#refresh').click();await settle();assert.equal(f.d.querySelector('#stat-running').textContent,'0');assert.equal(f.d.querySelector('.result-badge').textContent,'成功');assert.match(f.d.querySelector('.next-cell').textContent,/分钟后/);
+});
+test('redesign 100-char names are escaped and have a full-name title, menus keep every task action',async t=>{
+  const prefix='<script>"😀测试',name=prefix+'长'.repeat(100-Array.from(prefix).length),f=await fixture(t,{tasks:[{...task,name}],listing:{external:{tasks:[{id:'e',name:'外部'}]}}});
+  assert.equal(f.d.querySelector('.task-name').title,name);assert.equal(f.d.querySelector('.task-name').textContent,name);assert.equal(f.d.querySelectorAll('#tasks script,#tasks img').length,0);
+  assert.match(f.d.querySelector('[data-external-row]').textContent,/未知/);
+  assert.deepEqual([...f.d.querySelectorAll('.task-row [data-action]')].map(n=>n.dataset.action),['run','resume','edit','history','detail','delete']);
+});
+test('redesign first-load failure replaces every loading placeholder with retry and restores live counters',async t=>{
+  let failed=true;const f=await fixture(t,{tasks:[task],handler:c=>c.url==='/api/schedules'&&failed?response({error:'合成503'},false):undefined});
+  assert.equal(f.d.querySelectorAll('#tasks [data-retry]').length,1);assert(!f.d.querySelector('#tasks').textContent.includes('正在读取'));assert.equal(f.d.querySelector('#stat-all').textContent,'未知');assert.equal(f.d.querySelector('#scope-builtin').textContent,'未知');assert.equal(f.d.querySelector('#scope-external').textContent,'未知');
+  failed=false;f.d.querySelector('#tasks [data-retry]').click();await settle();assert.equal(f.d.querySelector('#stat-all').textContent,'1');assert.equal(f.d.querySelectorAll('.task-row').length,1);assert.equal(f.d.querySelector('#overview-error'),null);
+});
+
+test('redesign run-list and recent failures preserve readable snapshots and expose retry controls',async t=>{
+  let failed=false;const f=await fixture(t,{handler:c=>failed&&c.url.startsWith('/api/schedules/runs?')?response({error:'合成记录503'},false):undefined});
+  f.d.querySelector('#run-tab').click();await settle();assert.equal(f.d.querySelectorAll('.run-row').length,1);
+  failed=true;f.d.querySelector('#refresh').click();await settle();
+  assert.equal(f.d.querySelectorAll('.run-row').length,1);assert.match(f.d.querySelector('#runs-error').textContent,/以下为上次数据/);assert(f.d.querySelector('[data-retry-runs]'));
+  assert.match(f.d.querySelector('#overview-runs').textContent,/以下为上次数据/);assert.equal(f.d.querySelectorAll('[data-overview-run]').length,1);
+  failed=false;f.d.querySelector('[data-retry-runs]').click();await settle();assert.equal(f.d.querySelector('#runs-error'),null);
 });

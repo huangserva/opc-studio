@@ -298,3 +298,28 @@ def get_route(handler, parts):
             raise ValueError('总览不接受参数')
         return handler.reply(200, overview(handler.server))
     return handler.reply(200, logs(handler.server.store.workspace, query))
+
+
+def wechat_tools_route(handler, payload=None):
+    import wechat_tools_config as tools
+    try:
+        root = handler.server.store.workspace
+        return handler.reply(200, tools.read(root) if payload is None else tools.save(root, payload))
+    except tools.Conflict as exc:
+        return handler.reply(409, {'error': str(exc)})
+    except (ValueError, UnicodeError):
+        return handler.reply(400, {'error': '白名单格式无效，请检查群名与版本'})
+    except OSError:
+        return handler.reply(500, {'error': '白名单保存失败，请重试'})
+
+
+def official_accounts_route(handler, payload=None):
+    from urllib.parse import urlsplit
+    import official_accounts as official
+    try:
+        if urlsplit(handler.path).query:raise ValueError('官方号名单参数无效')
+        result=official.read_rules(handler.server.store.workspace) if payload is None else official.save_rules(handler.server.store.workspace,payload)
+        return handler.reply(200,result)
+    except official.Conflict as exc:return handler.reply(409,dict(error=str(exc)))
+    except (ValueError,UnicodeError):return handler.reply(400,dict(error='官方号名单无效：检查账号、重复项及版本'))
+    except OSError:return handler.reply(500,dict(error='官方号名单保存失败，请重试'))

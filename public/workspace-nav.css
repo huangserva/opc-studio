@@ -3,19 +3,28 @@
 .workspace-nav a {
   display: block;
   padding: 11px 13px;
-  border-radius: 9px;
-  color: #67728a;
+  border-radius:var(--radius-card);
+  color: var(--c-muted);
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
   overflow-wrap: anywhere;
 }
-.workspace-nav a:hover { background: #f1f4fb; }
-.workspace-nav a.selected { color: #4263eb; background: #edf1ff; }
-.workspace-nav a[aria-current="page"] { color: #4263eb; background: #edf1ff; }
+.workspace-nav a:hover { background: var(--c-surface); }
+.workspace-nav a.selected { color: var(--c-ink); background: var(--c-bg); }
+.workspace-nav a[aria-current="page"] { color: var(--c-ink); background: var(--c-bg); }
 
 /* 窄屏侧栏是覆盖层（最宽 280px），条目收紧一点，保证一行放得下。 */
 @media (max-width: 760px) {
   .workspace-nav { gap: 4px; margin-bottom: 20px; }
   .workspace-nav a { padding: 10px 12px; font-size: 13px; }
 }
+
+/* Group titles use the same alignment and type scale as their sibling links. */
+#workspace-nav > details > summary{display:flex;align-items:center;justify-content:space-between;gap:8px;list-style:none;cursor:pointer;padding:11px 13px;border-radius:var(--radius-card);color:var(--c-muted);font-size:14px;font-weight:600;line-height:normal}
+#workspace-nav > details > summary::-webkit-details-marker{display:none}
+#workspace-nav > details > summary::after{content:'▸';font-size:11px;color:var(--c-muted);flex-shrink:0}
+#workspace-nav > details[open] > summary::after{content:'▾'}
+#workspace-nav > details > summary:hover{background:var(--c-surface)}
+.workspace-sidebar #workspace-nav > details > summary{padding:10px 8px;margin:3px 0;color:var(--c-ink);border-radius:var(--radius-card)}
+@media(max-width:760px){#workspace-nav > details > summary{padding:10px 12px;font-size:13px}.workspace-sidebar #workspace-nav > details > summary{padding:10px 8px}}
