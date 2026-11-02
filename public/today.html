@@ -4,7 +4,7 @@
 <body class="today-workspace">
 <aside class="workspace-sidebar"><a class="brand" href="/today.html">内容工作台</a><nav id="workspace-nav" aria-label="工作台栏目"></nav></aside>
 <main class="today-main">
-<header class="today-status"><h1 class="page-title">今日</h1><span id="total"></span><button type="button" id="today-todo-toggle" aria-expanded="false" aria-controls="today-todo">今天该做的</button><button type="button" id="today-refresh">刷新</button></header>
+<header class="today-status"><h1 class="page-title">今日</h1><span id="total"></span><button type="button" id="today-todo-toggle" aria-expanded="true" aria-controls="today-todo-content" aria-label="收起今天该做的">今天该做的</button><button type="button" id="today-refresh">刷新</button></header>
 <div class="today-source-row" aria-label="来源状态"><div id="sources" aria-live="polite">正在读取各来源…</div><details id="clue-morning-panel"><summary id="clue-morning-summary">微信线索晨报 · 正在读取…</summary><pre id="clue-morning-content"></pre></details></div>
 <div class="today-content"><div class="today-stream"><section id="today-controls" class="today-controls" aria-label="筛选与排序">
 <button type="button" id="filter-summary" class="filter-summary" aria-expanded="false" hidden></button>
@@ -27,7 +27,7 @@
 <div id="divider" class="divider" role="separator" aria-orientation="vertical" aria-label="调整左右分栏" tabindex="0"></div>
 <section id="reader" class="reader" aria-label="全文阅读器" tabindex="-1"><div class="reader-empty"><span>从今天值得学的内容开始</span><p>点左侧条目查看全文</p><small>J / K 上下切换 · O 打开原帖 · Enter 聚焦阅读器</small></div></section>
 </div>
-</div><aside id="today-todo" class="today-todo" aria-label="今天该做的"><header class="todo-heading"><h2>今天该做的</h2><button type="button" id="today-todo-close" aria-label="收起今天该做的">关闭</button></header><div id="today-todo-content"></div></aside></div>
+</div><aside id="today-todo" class="today-todo open" aria-label="今天该做的"><header class="todo-heading"><h2>今天该做的</h2><button type="button" id="today-todo-next" aria-label="换一批今天该做的" aria-describedby="today-todo-batch" title="正在读取推荐" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 4 4-4 4M20 7H8a4 4 0 0 0-4 4m4 10-4-4 4-4M4 17h12a4 4 0 0 0 4-4"/></svg><span>换一批</span></button><button type="button" id="today-todo-close" aria-label="收起今天该做的" title="收起今天该做的" aria-controls="today-todo-content" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></header><div id="today-todo-content"></div></aside></div>
 </main>
 <dialog id="source-error"><h2>来源异常详情</h2><pre></pre><button type="button">关闭</button></dialog>
 <script src="/workspace-nav.js"></script><script type="module" src="/today.js"></script>

@@ -192,3 +192,27 @@ html body.today-workspace #sources>.source-incomplete {max-width:none}
 html body.today-workspace .source-incomplete-list {padding-left:24px;line-height:1.7;overflow-wrap:anywhere}
 html body.today-workspace .source-incomplete-list li+li {margin-top:16px}
 html body.today-workspace .source-incomplete-list p {margin:4px 0 0;color:var(--c-muted);font-size:12px}
+
+/* 仅今日右栏：收起保留可操作窄条，正文使用释放的空间。 */
+html body.today-workspace #today-todo-close {display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;min-height:28px;padding:4px}
+html body.today-workspace #today-todo-close svg {display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+html body.today-workspace #today-todo-close:focus-visible {outline:2px solid currentColor;outline-offset:2px}
+html body.today-workspace .today-todo.is-collapsed {display:flex;width:44px;max-width:44px}
+html body.today-workspace .today-todo.is-collapsed .todo-heading {flex-direction:column;padding:12px 6px;gap:12px;align-items:center}
+html body.today-workspace .today-todo.is-collapsed .todo-heading h2 {writing-mode:vertical-rl;white-space:nowrap;font-size:14px;line-height:1.4}
+html body.today-workspace .today-todo.is-collapsed #today-todo-close {order:-1;margin-left:0}
+html body.today-workspace .today-todo.is-collapsed #today-todo-close svg {transform:rotate(180deg)}
+html body.today-workspace #today-todo-content[hidden] {display:none}
+@media(max-width:1199px){
+ html body.today-workspace .today-todo.is-collapsed {position:static;box-shadow:none;z-index:auto}
+}
+
+/* 换批仅操作日报面板，收起保留原44px窄条。 */
+html body.today-workspace .todo-heading {gap:6px;padding-right:12px}
+html body.today-workspace .todo-heading h2 {white-space:nowrap;flex:none}
+html body.today-workspace #today-todo-next {display:inline-flex;align-items:center;gap:4px;flex:none;margin-left:auto;padding:4px 6px;font-size:12px;line-height:18px;background:transparent;color:var(--c-paper);border-color:var(--c-paper)}
+html body.today-workspace #today-todo-next svg {width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+html body.today-workspace #today-todo-next:disabled {opacity:.65;cursor:default}
+html body.today-workspace #today-todo-close {margin-left:0}
+html body.today-workspace .today-todo.is-collapsed #today-todo-next {display:none}
+html body.today-workspace .digest-batch,html body.today-workspace .digest-batch-origin {font-size:12px;line-height:1.5;color:var(--c-paper);margin:0 0 10px;overflow-wrap:anywhere}

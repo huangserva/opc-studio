@@ -433,7 +433,7 @@ def _cross_source_page(root, query, now=None):
     states=copy.deepcopy(current_states)
     for key,(_,updated) in channel_times.items():states[key]={**states.get(key,dict(error=None)), 'updated_at':updated}
     states['跨来源索引']=dict(updated_at=cache['built_at'],error=cache['error'] or ('全来源索引正在首次建立，数量暂不完整' if cache['partial'] else '正在后台重建，暂显示上次完整索引' if cache['refreshing'] else '部分输入暂不可读：'+ '、'.join(data['errors']) if data.get('errors') else None))
-    return dict(_valid_until=valid_until,channel='interest',items=output,total=len(output),page=1,page_size=50,top=[],top_message='',sources=states,
+    return dict(_valid_until=valid_until,channel='interest',items=output,total=len(output),range_total=len(selected),page=1,page_size=50,top=[],top_message='',sources=states,
                 filtering=dict(by_source=counts,items=audit,total=len(audit),policy='按当前兴趣方向匹配；任一版本命中即保留整条线索和全部渠道。来源分别按参与的规范线索计数；官方号保留在兴趣栏。'),
                 configured_topics=configured,_official_hints=__import__('official_accounts').interest_hints(),interest_cache=cache,daily_counts=dict(Counter(grok.stamp(p['fetched_at']).astimezone(grok.BEIJING).date().isoformat() for p in output)),
                 sort_policy='采集日倒序 · 各方向按设置顺序加权轮流展示 · 来源可信度与时间优先；内容不足后排')

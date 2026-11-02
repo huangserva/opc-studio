@@ -64,16 +64,67 @@ function todayCard(item){
   const metrics=card.querySelector('.item-card-metrics');(metrics||head).after(meta);
   return card;
 }
-function setTodoOpen(open){$('today-todo').classList.toggle('open',open);$('today-todo-toggle').setAttribute('aria-expanded',String(open));}
+const todoCollapsedKey='today.todo.collapsed';
+let todoOpen=true;
+try{todoOpen=localStorage.getItem(todoCollapsedKey)!=='true';}catch(_){}
+function setTodoOpen(open,{remember=false}={}){
+  todoOpen=Boolean(open);
+  $('today-todo').classList.toggle('open',todoOpen);
+  $('today-todo').classList.toggle('is-collapsed',!todoOpen);
+  $('today-todo-content').hidden=!todoOpen;
+  const label=(todoOpen?'收起':'展开')+'今天该做的';
+  for(const id of ['today-todo-close','today-todo-toggle']){
+    $(id).setAttribute('aria-expanded',String(todoOpen));
+    $(id).setAttribute('aria-label',label);$(id).title=label;
+  }
+  if(remember)try{localStorage.setItem(todoCollapsedKey,String(!todoOpen));}catch(_){}
+}
+setTodoOpen(todoOpen);
+// Keep the reader's document-level Enter shortcut from swallowing these native buttons.
+for(const id of ['today-todo-close','today-todo-toggle'])$(id).addEventListener('keydown',event=>{
+  if(event.key==='Enter'||event.key===' ')event.stopPropagation();
+});
+const todoBatchKey='today.todo.batch';
+let todoBatch={date:null,index:0};
+try{
+  const saved=JSON.parse(localStorage.getItem(todoBatchKey));
+  if(saved&&typeof saved.date==='string'&&Number.isSafeInteger(saved.index)&&saved.index>=0)todoBatch=saved;
+}catch(_){}
+function saveTodoBatch(){try{localStorage.setItem(todoBatchKey,JSON.stringify(todoBatch));}catch(_){} }
+function todoBatches(todo){
+  const first=Array.isArray(todo?.items)?todo.items:[];
+  if(!first.length)return [];
+  const seen=new Set(first.map(item=>item.id)),extras=[];
+  for(const item of Array.isArray(todo.batch_candidates)?todo.batch_candidates:[])if(item&&typeof item.id==='string'&&!seen.has(item.id)){seen.add(item.id);extras.push(item);}
+  const batches=[first];
+  for(let i=0;i<extras.length;i+=3)batches.push(extras.slice(i,i+3));
+  return batches;
+}
+$('today-todo-next').onclick=()=>{
+  const batches=todoBatches(digestResult);
+  if(batches.length<2)return;
+  todoBatch.index=(todoBatch.index+1)%batches.length;saveTodoBatch();
+  $('today-todo-content').scrollTop=0;showDigest();
+};
+$('today-todo-next').addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')event.stopPropagation();});
 function showDigest(reset=false){
-  if(reset){app.setItems(currentItems);for(const card of $('item-list').querySelectorAll('.selected'))card.classList.remove('selected');try{sessionStorage.removeItem('today.selection');}catch(_){}digestMode=true;$('today-todo-content').scrollTop=0;setTodoOpen(matchMedia('(max-width:1199px)').matches);}
+  if(reset){app.setItems(currentItems);for(const card of $('item-list').querySelectorAll('.selected'))card.classList.remove('selected');try{sessionStorage.removeItem('today.selection');}catch(_){}digestMode=true;$('today-todo-content').scrollTop=0;if(matchMedia('(max-width:1199px)').matches)setTodoOpen(true);}
   if(digestMode){const empty=node('div','reader-empty');empty.append(node('span','','先看今天值得做的'),node('p','','从左侧帖子或右侧「今天该做的」打开全文'));$('reader').replaceChildren(empty);}
   const panel=node('div','today-digest');
   const todo=digestResult||{status:'pending',items:[],reason:'正在读取今天的 Grok 日报…'};
-  panel.append(node('p','digest-source','Grok 日报 · '+(todo.date||dayLabel())));
+  const date=todo.date||dayLabel(),batches=todoBatches(todo);
+  if(todoBatch.date!==date){todoBatch={date,index:0};saveTodoBatch();}
+  if(batches.length&&todoBatch.index>=batches.length){todoBatch.index=0;saveTodoBatch();}
+  const index=batches.length?todoBatch.index:0;
+  const next=$('today-todo-next');next.disabled=batches.length<2;
+  next.title=todo.batch_error?'后续候选暂不可读':batches.length===1?'今日只有一批':batches.length?'显示下一批推荐':'暂无可换的推荐';
+  panel.append(node('p','digest-source','Grok 日报 · '+date));
+  const label=node('p','digest-batch',batches.length?'第 '+(index+1)+'/'+batches.length+' 批'+(todo.batch_error?' · 后续候选暂不可读':batches.length===1?' · 今日只有一批':''):'暂无可换的推荐');
+  label.id='today-todo-batch';label.setAttribute('role','status');label.setAttribute('aria-live','polite');panel.append(label);
+  if(index>0)panel.append(node('p','digest-batch-origin','后续批次：今日爆款余量（非 Grok 精选）'));
   $('today-todo-toggle').textContent='今天该做的'+(todo.items?.length?' '+todo.items.length:'');
   if(!todo.items?.length){panel.append(node('h3','digest-empty-title',todo.status==='empty'?'今天没有值得做的':todo.status==='unavailable'?'今日日报暂不可读':'今天的日报还没出'),node('p','digest-reason',todo.reason||'今天的日报还没出，09:00 后更新'));}
-  for(const item of todo.items||[]){
+  for(const item of batches[index]||[]){
     const block=node('article','digest-item');block.dataset.digestId=item.id;block.tabIndex=0;block.setAttribute('role','button');block.setAttribute('aria-label','看详情：'+item.title);
     const heading=node('div','digest-item-heading'),tier=item.hot?'火爆':['爆款','低粉爆款'].includes(item.tier)?'爆款':item.tier==='起势'?'起势':'';
     if(tier)heading.append(node('span','item-tier',tier));const title=node('h3','',item.title);title.title=item.title;heading.append(title);
@@ -87,11 +138,15 @@ function showDigest(reset=false){
 function updateDigest(result){digestResult=result.today_todo||{status:'pending',date:dayLabel(),items:[],reason:'今天的日报还没出，09:00 后更新'};showDigest();}
 async function openDigestItem(item){
   // The daily list is independent of filters; selecting it does not rewrite the current channel or list.
-  todoOpeningId=item.id;await app.select(item);$('item-list').querySelector('[data-item-id="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest'});setTodoOpen(false);
+  todoOpeningId=item.id;await app.select(item);$('item-list').querySelector('[data-item-id="'+CSS.escape(item.id)+'"]')?.scrollIntoView({block:'nearest'});if(matchMedia('(max-width:1199px)').matches)setTodoOpen(false);
 }
-$('today-todo-toggle').onclick=()=>setTodoOpen(!$('today-todo').classList.contains('open'));
-$('today-todo-close').onclick=()=>{setTodoOpen(false);$('today-todo-toggle').focus();};
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('today-todo').classList.contains('open')){setTodoOpen(false);$('today-todo-toggle').focus();}});
+$('today-todo-toggle').onclick=()=>setTodoOpen(!todoOpen,{remember:true});
+$('today-todo-close').onclick=()=>setTodoOpen(!todoOpen,{remember:true});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&todoOpen&&matchMedia('(max-width:1199px)').matches){
+    setTodoOpen(false,{remember:true});$('today-todo-close').focus();
+  }
+});
 function renderRegistry(registry) {
   if (!registry || registryReady) return;
   registryReady=true;
@@ -231,6 +286,26 @@ function renderMorning(report) {
   $('clue-morning-summary').textContent='微信线索晨报 · '+(report?.status==='ok' ? report.date+' · '+report.clue_count+' 条 · 点开阅读全文' : report?.message || '今日晨报尚未生成');
   $('clue-morning-content').textContent=report?.status==='ok' ? report.content : report?.message || '每天 08:30 运行，可在任务工作台立即运行';
 }
+function interestEmpty(result) {
+  const context=result.filter_context,filters=context?.active_filters||[];
+  if(!filters.length)return node('p','top-message','本次暂无兴趣条目，试试 48 小时或 7 天');
+  const box=node('div','interest-filter-empty');box.setAttribute('role','status');
+  const period={today:'今天','48h':'48 小时内','7d':'7 天内'}[context.range]||'所选范围内';
+  const reason=context.source_tier==='爆款'?'没有来源标记为爆款的条目':'没有符合条件的兴趣条目';
+  const count=Number.isInteger(context.range_total)?'；本范围共有 '+context.range_total+' 条兴趣条目':'';
+  box.append(node('p','top-message','当前筛选（'+filters.join('＋')+'）下，'+period+reason+count+'。'));
+  if(context.source_tier==='爆款'){
+    const cancel=node('button','button','取消只看爆款');cancel.type='button';
+    cancel.onclick=()=>{$('tier').value='';page=1;syncControls();load();};box.append(cancel);
+  }
+  const clear=node('button','button','清空筛选');clear.type='button';
+  clear.onclick=()=>{
+    clearTimeout(searchTimer);selectedPlatforms=[];collectionChannel='';
+    for(const id of ['tier','source','topic','q'])$(id).value='';
+    for(const b of document.querySelectorAll('[data-platform]'))b.setAttribute('aria-pressed','false');
+    page=1;syncControls();load();
+  };box.append(clear);return box;
+}
 function renderList(result, {preserveSelection=false}={}) {
   const card=item=>{const element=todayCard(item);if(item.relevance_note)element.append(node('div','interest-warning','相关性待确认：'+item.relevance_note));return element;};
   const ordered=result.items;
@@ -243,7 +318,7 @@ function renderList(result, {preserveSelection=false}={}) {
     if(channel==='interest' && result.interest_cache && (!result.interest_cache.ready || result.interest_cache.checking)) {const status=node('p','interest-index-status',result.interest_cache.partial?'全来源索引正在首次建立，数量暂不完整':result.interest_cache.checking&&result.interest_cache.ready?'正在核对来源更新，暂显示上次完整结果':'全来源索引正在后台更新，暂显示上次完整结果');status.setAttribute('role','status');list.append(status);}
     if(channel==='interest' && result.sort_policy)list.append(node('p','top-message',result.sort_policy));
     for(const item of result.items)list.append(card(item));
-    if(!result.items.length && !preparing)list.append(node('p','top-message',channel==='official'?(range==='today'?'今天没有官方号帖子，可切 48 小时 / 7 天':'这个范围没有官方号帖子，可切换时间范围'):'本次暂无兴趣条目，试试 48 小时或 7 天'));
+    if(!result.items.length && !preparing)list.append(channel==='official'?node('p','top-message',range==='today'?'今天没有官方号帖子，可切 48 小时 / 7 天':'这个范围没有官方号帖子，可切换时间范围'):interestEmpty(result));
   } else {
     list.append(node('h2','list-heading','发现 · '+result.total+' 条'));
     for(const item of result.items)list.append(card(item));
@@ -276,7 +351,7 @@ async function load({cached=false,background=false}={}) {
     renderRegistry(result.registries);heatControls(result.heat_thresholds);$('total').textContent=result.interest_cache?.partial?'正在准备':result.total+' 条';renderSources(result.sources);renderMorning(result.clue_morning);renderFiltering(result.filtering);renderList(result,{preserveSelection:background});updateDigest(result);if(channel==='interest' && $('filtered-panel').open && result.filtering.total && !result.filtering.items.length){pendingInterestFiltering=result.filtering;$('filtered-panel').dispatchEvent(new Event('toggle'));}
     const current=result.selected_topic || $('topic').value;
     $('topic').value=current;topicButtons(result.topic_options||[],current);if(result.selected_topic && params.get('topic')!==result.selected_topic){params.set('topic',result.selected_topic);updateAddress(params);}syncControls();
-    if(restoreSelection){restoreSelection=false;try{const saved=JSON.parse(sessionStorage.getItem('today.selection')||'null'),found=performance.getEntriesByType('navigation')[0]?.type==='reload'&&saved?.query===location.search&&[...currentItems,...(digestResult?.items||[])].find(item=>item.id===saved.id);if(found){if(saved.fromTodo)todoOpeningId=saved.id;await app.select(found);}}catch(_){}}
+    if(restoreSelection){restoreSelection=false;try{const saved=JSON.parse(sessionStorage.getItem('today.selection')||'null'),found=performance.getEntriesByType('navigation')[0]?.type==='reload'&&saved?.query===location.search&&[...currentItems,...todoBatches(digestResult).flat()].find(item=>item.id===saved.id);if(found){if(saved.fromTodo)todoOpeningId=saved.id;await app.select(found);}}catch(_){}}
     else if(!background){try{sessionStorage.removeItem('today.selection');}catch(_){}}
     $('item-list').inert=false;if(cached || !didPrefetch){didPrefetch=true;prefetchTabs(params);}
     if(result.sources.L?.refreshing || result.interest_cache?.refreshing || result.interest_cache?.checking)refreshTimer=setTimeout(()=>load({background:true}),1200);

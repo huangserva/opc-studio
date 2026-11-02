@@ -436,8 +436,7 @@ def today_todo_view(root, now=None):
             for row in data.get(key, []) if isinstance(data.get(key), list) else []:
                 if isinstance(row, dict):
                     rows[str(row.get('id', row.get('tweet_id', ''))).removeprefix('x:')] = row
-        items = []
-        for entry in todo:
+        def project(entry):
             entry = {'id': entry} if isinstance(entry, (str, int)) and not isinstance(entry, bool) else entry
             if not isinstance(entry, dict):
                 raise ValueError('今天该做的条目结构不正确')
@@ -459,19 +458,44 @@ def today_todo_view(root, now=None):
                 record.update({k: metrics[k] for k in METRICS if k in metrics and k not in record})
             item = _post(record, {report_id: {k: raw[k] for k in EXTRA if k in raw}})
             item.update(report_id=report_id, hot=(grok.number(item['metrics'].get('views')) or 0) >= HOT_VIEWS)
-            items.append(item)
+            return item
+        items = [project(entry) for entry in todo]
         try:
             feedback = _load_feedback(root)
         except ValueError:
             feedback = {}
-        for item in items:
+        # The original curated list is unchanged. Extras are a separately labelled pool.
+        extras = []
+        selected = {item['id'] for item in items}
+        batch_error = None
+        try:
+            if items:
+                for report_id, row in rows.items():
+                    if not grok.ID_RE.fullmatch(report_id) or 'x:' + report_id in selected:
+                        continue
+                    try:
+                        candidate = project(row)
+                    except (ValueError, TypeError):
+                        continue
+                    if candidate['tier'] in TIERS:
+                        extras.append(candidate)
+                from official_accounts import annotate
+                annotate(extras, root)
+                extras = [item for item in extras if not item['official']['is_official']]
+                # Same score/date key as the existing top recommendations; stable ties keep report order.
+                extras.sort(key=lambda item: (-((item['fit_score'] or 0) + (item['doable'] or 0)), -_ts(item['published_at'])))
+        except (OSError, ValueError, TypeError):
+            extras = []
+            batch_error = '后续候选暂不可读，Grok 精选仍保留'
+        for item in items + extras:
             record = feedback.get(item['id'])
             if record:
                 item.update(status=record.get('status', 'new'), feedback=record.get('feedback'))
         annotate_items(root, items)
+        annotate_items(root, extras)
         notes = projection.get('notes')
         reason = notes if isinstance(notes, str) and notes.strip() else '今天的日报没有安排值得做的条目。'
-        result.update(status='ready' if items else 'empty', items=items, reason='' if items else reason)
+        result.update(status='ready' if items else 'empty', items=items, batch_candidates=extras, batch_size=3, batch_error=batch_error, reason='' if items else reason)
     except FileNotFoundError:
         pass
     except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
@@ -505,6 +529,9 @@ def page_view(root, query=None, now=None):
         # 先汇齐兴趣与微信工具，再用 K1 平台/采集渠道筛选，最后分页。
         clean = {k:v for k,v in query.items() if k not in ('platform','collection_channel','source','topic','tier','sort')}
         result = interest_view(root, {**clean, 'page':['1']}, now)
+        # 同一完整快照的匹配基数；与 filtering（兴趣规则排除）和用户筛选分开。
+        # 旧读模型的 total 尚未经过 SQL q/author、平台、方向、热度筛选。
+        range_total = result.pop('range_total', result['total'])
         candidates = interest_detail_metrics(root,result['items'])
         if mode=='heat':candidates=[dict(item,metrics=dict(item.get('metrics') or {})) for item in candidates]
         candidates = [item for item in candidates if matches(item, filters, query.get('source',[''])[0])]
@@ -513,6 +540,20 @@ def page_view(root, query=None, now=None):
         selected_topic=requested_topic if requested_topic.startswith('custom:') else topic_key(requested_topic) if requested_topic else ''
         candidates = [item for item in candidates if not selected_topic or any(m['direction']==selected_topic for m in item['interest_matches'])]
         candidates = [item for item in candidates if matches_tier(item,tier)]
+        registry = registries()
+        active_filters = []
+        if filters[0]:active_filters.append('平台：'+'、'.join(registry['platforms'][key]['display_name'] for key in filters[0]))
+        if filters[1]:active_filters.append('渠道：'+registry['channels'][filters[1]]['display_name'])
+        if query.get('source',[''])[0]:
+            from today_filter_config import SOURCE_NAMES
+            legacy_source=query['source'][0].upper()
+            active_filters.append('来源：'+SOURCE_NAMES.get(legacy_source,legacy_source))
+        if requested_topic:active_filters.append('方向：'+next((row['display_name'] for row in options if row['key']==selected_topic),requested_topic))
+        if tier and tier!='top':active_filters.append({'爆款':'只看爆款','火爆':'火爆徽标'}.get(tier,'来源热度：'+tier))
+        if query.get('q',[''])[0]:active_filters.append('搜索：'+query['q'][0])
+        if query.get('author',[''])[0]:active_filters.append('作者：'+query['author'][0])
+        result['filter_context']=dict(range_total=range_total,active_filters=active_filters,source_tier=tier,
+                                    range=query.get('range',['today'])[0])
         sort_items(candidates,mode)
         if mode:result['sort_policy']={'relevance':'相关度倒序 · 画像与可做分辅助 · 发布时间倒序','heat':'既有排序热度倒序 · 发布时间倒序','time':'发布时间倒序'}[mode]
         from collections import Counter
@@ -629,7 +670,8 @@ def page_view(root, query=None, now=None):
 
 def item_view(root, query):
     if set(query) == {'id', 'today_todo'} and query.get('today_todo') == ['1'] and len(query['id']) == 1:
-        item = next((p for p in today_todo_view(root)['items'] if p['id'] == query['id'][0]), None)
+        todo = today_todo_view(root)
+        item = next((p for p in todo['items'] + todo.get('batch_candidates', []) if p['id'] == query['id'][0]), None)
         if item is None:
             raise ValueError('当日日报没有这条待办')
         return item
@@ -666,7 +708,8 @@ def item_view(root, query):
         raise ValueError('详情必须提供一个 id')
     item = next((p for p in snapshot(root, author_mode=True)[0] if p['id'] == query['id'][0]), None)
     if item is None:
-        item = next((p for p in today_todo_view(root)['items'] if p['id'] == query['id'][0]), None)
+        todo = today_todo_view(root)
+        item = next((p for p in todo['items'] + todo.get('batch_candidates', []) if p['id'] == query['id'][0]), None)
     if item is None:
         raise ValueError('条目不存在或已下榜')
     return annotate_items(root, [item])[0]
