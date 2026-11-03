@@ -56,6 +56,7 @@ for(const link of document.querySelectorAll('#workspace-nav [data-nav-item]')){
 function todayCard(item){
   const card=app.card(item),meta=card.querySelector('.item-card-meta'),title=card.querySelector('.item-summary'),foot=card.querySelector('.item-card-foot');
   card.classList.add('today-card');
+  if(channel==='interest' && item.first_seen_basis==='since_repair_no_history'){const note=node('span','first-seen-note','首次时间从修复时点起算');note.title='没有可恢复的历史观察证据；从 '+(item.first_seen_at||'本次修复')+' 起算';meta.append(note);}
   const head=node('div','today-card-heading'),tier=meta.querySelector('.item-tier');if(tier)head.append(tier);head.append(title);card.prepend(head);
   const score=scores(item);if(score.textContent)card.prepend(score);
   const source=meta.querySelector('.source-badges');if(source){source.querySelector('img')?.replaceWith(lineIcon(item.platform_info?.key||'web'));source.querySelector('.collection-channels')?.remove();}
@@ -315,6 +316,7 @@ function renderList(result, {preserveSelection=false}={}) {
   if(channel==='interest'||channel==='official'||$('sort').value) {
     const preparing=channel==='interest' && result.interest_cache?.partial;
     list.append(node('h2','list-heading',preparing?'兴趣 · 正在准备':(channel==='official'?'官方号':channel==='interest'?'兴趣':'发现')+' · '+result.total+' 条'));
+    if(channel==='interest') {const policy=node('p','interest-arrival-policy',result.arrival_policy||'按首次抵达时间统计，重复同步不计作新到达');policy.setAttribute('role','note');list.append(policy);}
     if(channel==='interest' && result.interest_cache && (!result.interest_cache.ready || result.interest_cache.checking)) {const status=node('p','interest-index-status',result.interest_cache.partial?'全来源索引正在首次建立，数量暂不完整':result.interest_cache.checking&&result.interest_cache.ready?'正在核对来源更新，暂显示上次完整结果':'全来源索引正在后台更新，暂显示上次完整结果');status.setAttribute('role','status');list.append(status);}
     if(channel==='interest' && result.sort_policy)list.append(node('p','top-message',result.sort_policy));
     for(const item of result.items)list.append(card(item));

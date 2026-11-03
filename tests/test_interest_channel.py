@@ -37,7 +37,21 @@ class InterestTests(unittest.TestCase):
         env = patch.dict(os.environ, {'GROK_BOT_REPORTS_DIR': str(self.reports)})
         env.start()
         self.addCleanup(env.stop)
+        self.addCleanup(self.join_interest_workers)
         self.file = NOW.astimezone(grok.BEIJING).strftime('%Y-%m-%d-%H%M') + '.json'
+
+    def join_interest_workers(self):
+        # 清理临时目录/恢复环境前，收回本用例触发的派生索引后台线程。
+        import interest_sources as S, interest_projection as P
+        for states in (P.STATES, S.STATES):
+            for key, state in list(states.items()):
+                if str(self.root.resolve()) not in str(key):
+                    continue
+                worker = state.get('worker')
+                if worker:
+                    worker.join(10)
+                    if worker.is_alive():
+                        raise RuntimeError('interest test worker did not stop')
 
     def write(self, rows, filename=None):
         path = self.reports / 'interest' / (filename or self.file)

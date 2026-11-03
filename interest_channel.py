@@ -286,18 +286,20 @@ def page_view(root, query, now=None, *, unpaged=False):
     if page < 1:
         raise ValueError('页码至少为 1')
     items, states = snapshot(root, now)
-    # 兴趣按报告抵达时间查看，昨日发布、今日发现的内容也能在今天看到。
+    # 兴趣按首次抵达时间查看；重复同步不让旧内容重新进入今天。
+    import interest_first_seen as first_seen
+    first_seen.apply(root,items,now)
     now = now or datetime.now(timezone.utc)
     period = get('range', 'today')
     cutoff = now.astimezone(grok.BEIJING).replace(hour=0, minute=0, second=0, microsecond=0) if period == 'today' else now - timedelta(hours=48 if period == '48h' else 168)
-    filtered = [p for p in items if grok.stamp(p['fetched_at']) >= cutoff
+    filtered = [p for p in items if grok.stamp(p.get('first_seen_at') or p['fetched_at']) >= cutoff
                 and (not get('topic') or get('topic') == p['topic'])
                 and (not get('author') or get('author').casefold() == p['author']['handle'].casefold())
                 and get('q').casefold() in (p['title'] + p['full_text'] + str(p['author']) + p['topic']).casefold()]
     from today_view import SUMMARY, apply_gate
     filtered, filtering = apply_gate(filtered, channel='interest')
-    filtered.sort(key=lambda p: (p['content_insufficient'], -grok.stamp(p['fetched_at']).timestamp(), p['id']))
-    return dict(channel='interest', items=[{k: p[k] for k in (*SUMMARY, 'channel', 'what_new', 'usable', 'relevance', 'incomplete_reasons')} for p in (filtered if unpaged else filtered[(page-1)*50:page*50])],
+    filtered.sort(key=lambda p: (p['content_insufficient'], -grok.stamp(p.get('first_seen_at') or p['fetched_at']).timestamp(), p['id']))
+    return dict(channel='interest', items=[{k: p.get(k) for k in (*SUMMARY, 'first_seen_at', 'last_seen_at', 'first_seen_basis', 'channel', 'what_new', 'usable', 'relevance', 'incomplete_reasons')} for p in (filtered if unpaged else filtered[(page-1)*50:page*50])],
                 total=len(filtered), page=page, page_size=50, top=[], top_message='', sources=states, filtering=filtering,
                 topics=sorted({p['topic'] for p in items if p['topic']}))
 
@@ -360,11 +362,14 @@ def _cross_source_page(root, query, now=None):
     except (OSError,ValueError,KeyError,__import__('sqlite3').DatabaseError) as exc:
         __import__('logging').getLogger(__name__).warning('interest_k1_read_unavailable kind=%s',type(exc).__name__)
         current_states['K1 身份']=dict(updated_at=None,error='线索身份暂不可读，按已有来源规范身份显示')
+    import interest_first_seen as first_seen
+    all_versions=[p for p in data['items'] if not p.get('interest_original')]+live
+    first_seen.apply(root,all_versions,now)
     valid_until=min(now+timedelta(minutes=5),(now.astimezone(grok.BEIJING)+timedelta(days=1)).replace(hour=0,minute=0,second=0,microsecond=0))
     window=timedelta(hours=48 if get('range')=='48h' else 168)
     versions=[];matched_keys=set();groups={};channel_times={}
-    for original in [p for p in data['items'] if not p.get('interest_original')]+live:
-        moment=grok.stamp(original.get('fetched_at'))
+    for original in all_versions:
+        moment=grok.stamp(first_seen.arrival(original))
         if moment:
             for event in (moment,moment+window):
                 if event>now:valid_until=min(valid_until,event)
@@ -373,7 +378,8 @@ def _cross_source_page(root, query, now=None):
         from platform_registry import channel_key,CHANNELS
         for flag in original.get('sources',[]):
             key=channel_key(flag);label={'grok':'G','aisa':'V' if flag=='V' else 'A','wechat':'W','rss':'L'}.get(key,CHANNELS[key]['display_name'])
-            if label not in channel_times or moment>channel_times[label][0]:channel_times[label]=(moment,original['fetched_at'])
+            observed=grok.stamp(original.get('last_seen_at') or original['fetched_at'])
+            if label not in channel_times or observed>channel_times[label][0]:channel_times[label]=(observed,observed.isoformat())
         verdict=original.get('interest_matches',[]) if data.get('match_profile')==profile and not original.get('interest_original') else matching.classify(original,directions)
         value=dict(original,interest_matches=[] if original.get('filtered') else verdict)
         versions.append(value);groups.setdefault(value['canonical_key'],[]).append(value)
@@ -427,7 +433,7 @@ def _cross_source_page(root, query, now=None):
         if record:value.update(status=record.get('status','new'),feedback=record.get('feedback'))
         value.setdefault('official',None)
         output.append(value)
-    # 先按采集自然日分组，再方向权重、来源可信度、时刻；新一天不会被旧日高权重淹没。
+    # 先按首次抵达自然日分组，再方向权重、来源可信度、时刻；新一天不会被旧日高权重淹没。
     output=matching.balanced_sort(output,grok.BEIJING,grok.stamp)
     for c in counts.values():c['ratio']=c['filtered']/c['total'] if c['total'] else 0
     states=copy.deepcopy(current_states)
@@ -435,8 +441,8 @@ def _cross_source_page(root, query, now=None):
     states['跨来源索引']=dict(updated_at=cache['built_at'],error=cache['error'] or ('全来源索引正在首次建立，数量暂不完整' if cache['partial'] else '正在后台重建，暂显示上次完整索引' if cache['refreshing'] else '部分输入暂不可读：'+ '、'.join(data['errors']) if data.get('errors') else None))
     return dict(_valid_until=valid_until,channel='interest',items=output,total=len(output),range_total=len(selected),page=1,page_size=50,top=[],top_message='',sources=states,
                 filtering=dict(by_source=counts,items=audit,total=len(audit),policy='按当前兴趣方向匹配；任一版本命中即保留整条线索和全部渠道。来源分别按参与的规范线索计数；官方号保留在兴趣栏。'),
-                configured_topics=configured,_official_hints=__import__('official_accounts').interest_hints(),interest_cache=cache,daily_counts=dict(Counter(grok.stamp(p['fetched_at']).astimezone(grok.BEIJING).date().isoformat() for p in output)),
-                sort_policy='采集日倒序 · 各方向按设置顺序加权轮流展示 · 来源可信度与时间优先；内容不足后排')
+                configured_topics=configured,_official_hints=__import__('official_accounts').interest_hints(),interest_cache=cache,daily_counts=dict(Counter(grok.stamp(first_seen.arrival(p)).astimezone(grok.BEIJING).date().isoformat() for p in output)),
+                arrival_policy='按首次抵达时间统计；重复同步不计作新到达。缺少历史证据的存量从修复时点起算。',sort_policy='首次抵达日倒序 · 各方向按设置顺序加权轮流展示 · 来源可信度与时间优先；内容不足后排')
 
 
 def save_feedback(root, payload):

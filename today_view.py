@@ -557,7 +557,7 @@ def page_view(root, query=None, now=None):
         sort_items(candidates,mode)
         if mode:result['sort_policy']={'relevance':'相关度倒序 · 画像与可做分辅助 · 发布时间倒序','heat':'既有排序热度倒序 · 发布时间倒序','time':'发布时间倒序'}[mode]
         from collections import Counter
-        result['daily_counts']=dict(Counter(grok.stamp(p['fetched_at']).astimezone(grok.BEIJING).date().isoformat() for p in candidates))
+        result['daily_counts']=dict(Counter(grok.stamp(p.get('first_seen_at') or p['fetched_at']).astimezone(grok.BEIJING).date().isoformat() for p in candidates))
         requested = int(query.get('page',['1'])[0])
         if requested < 1:raise ValueError('页码至少为 1')
         result.update(items=candidates[(requested-1)*50:requested*50],total=len(candidates),page=requested,registries=registries(),topic_options=options,topics=[row['display_name'] for row in options],selected_topic=selected_topic)
@@ -578,7 +578,7 @@ def page_view(root, query=None, now=None):
             own_comparisons=item.pop('_discovery_candidates',None)
             if own_comparisons is not None:
                 item['discovery_overlap']=any(not p['official']['is_official'] or p['official']['hot'] for p in own_comparisons)
-        interest_fields=(*SUMMARY,'channel','what_new','usable','relevance','incomplete_reasons','canonical_key','clue_id','identity_state','input_sources','interest_matches','discovery_overlap','interest_rule_version','interest_rank',*interest_matching.TOOL_FIELDS)
+        interest_fields=(*SUMMARY,'first_seen_at','last_seen_at','first_seen_basis','channel','what_new','usable','relevance','incomplete_reasons','canonical_key','clue_id','identity_state','input_sources','interest_matches','discovery_overlap','interest_rule_version','interest_rank',*interest_matching.TOOL_FIELDS)
         result['items']=[{key:item.get(key) for key in interest_fields} for item in result['items']]
         return {**result, 'heat_thresholds':heat_thresholds(), 'selected_sort':mode, 'clue_morning': morning_snapshot(root, now), 'today_todo': today_todo_view(root, now)}
     get = lambda k, default='': query.get(k, [default])[0]

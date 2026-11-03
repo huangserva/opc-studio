@@ -98,12 +98,12 @@ def balanced_sort(items,beijing,stamp):
  """保留全部结果，按天、完整性分组；方向加权轮转，避免单一方向占满首屏。"""
  from collections import defaultdict,deque
  days=defaultdict(list)
- for value in items:days[(bool(value['content_insufficient']),stamp(value['fetched_at']).astimezone(beijing).date().toordinal())].append(value)
+ for value in items:days[(bool(value['content_insufficient']),stamp(value.get('first_seen_at') or value['fetched_at']).astimezone(beijing).date().toordinal())].append(value)
  output=[]
  for day in sorted(days,key=lambda k:(k[0],-k[1])):
   buckets=defaultdict(list)
   for value in days[day]:buckets[value['interest_matches'][0]['direction']].append(value)
-  buckets={key:deque(sorted(values,key=lambda p:(-p['interest_rank']['trust'],-stamp(p['fetched_at']).timestamp(),p['canonical_key']))) for key,values in buckets.items()}
+  buckets={key:deque(sorted(values,key=lambda p:(-p['interest_rank']['trust'],-stamp(p.get('first_seen_at') or p['fetched_at']).timestamp(),p['canonical_key']))) for key,values in buckets.items()}
   weights={key:max(p['interest_rank']['direction'] for p in values) for key,values in buckets.items()}
   ordered=sorted(buckets,key=lambda key:(-weights[key],key))
   while any(buckets.values()):
@@ -152,6 +152,10 @@ def deduplicate(items):
     for name in ('id','kind',*TOOL_FIELDS):
      if name in candidate:prior[name]=copy.deepcopy(candidate[name])
   # +08:00 与 +00:00 不能按字面比较；两者都来自已验证的 aware 时间。
+  first=min((v for v in (prior.get('first_seen_at') or prior.get('fetched_at'),candidate.get('first_seen_at') or candidate.get('fetched_at')) if v),key=moment)
+  if first==(candidate.get('first_seen_at') or candidate.get('fetched_at')) and candidate.get('first_seen_basis'):prior['first_seen_basis']=candidate['first_seen_basis']
+  prior['first_seen_at']=first
+  if candidate.get('last_seen_at') and moment(candidate['last_seen_at'])>moment(prior.get('last_seen_at')):prior['last_seen_at']=candidate['last_seen_at']
   if moment(candidate.get('fetched_at'))>moment(prior.get('fetched_at')):prior['fetched_at']=candidate['fetched_at']
   if candidate.get('clue_id'):
    prior.update(clue_id=candidate['clue_id'],identity_state='k1')

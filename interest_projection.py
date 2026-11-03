@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-SCHEMA=2
+SCHEMA=3
 LOCK=threading.RLock()
 STATES={}
 LOG=logging.getLogger(__name__)
@@ -78,7 +78,7 @@ def publish(root,now=None):
         with closing(sqlite3.connect(name)) as db,db:
             db.executescript('CREATE TABLE meta(period TEXT PRIMARY KEY,data TEXT); CREATE TABLE cards(period TEXT,ordinal INTEGER,id TEXT,summary TEXT,detail TEXT,search TEXT,author TEXT,PRIMARY KEY(period,id)); CREATE TABLE audit(period TEXT,ordinal INTEGER,data TEXT,PRIMARY KEY(period,ordinal));')
             sig=fingerprint(root,now)
-            fields=(*SUMMARY,'channel','what_new','usable','relevance','incomplete_reasons','canonical_key','clue_id','identity_state','input_sources','interest_matches','discovery_overlap','interest_rule_version','interest_rank',*M.TOOL_FIELDS,'_discovery_candidates','author_type','author_verification_type')
+            fields=(*SUMMARY,'first_seen_at','last_seen_at','first_seen_basis','channel','what_new','usable','relevance','incomplete_reasons','canonical_key','clue_id','identity_state','input_sources','interest_matches','discovery_overlap','interest_rule_version','interest_rank',*M.TOOL_FIELDS,'_discovery_candidates','author_type','author_verification_type')
             for period in ('today','48h','7d'):
                 result=I._cross_source_page(root,{'range':[period]},now)
                 if not result['interest_cache'].get('ready'):raise ValueError('source_index_not_ready')

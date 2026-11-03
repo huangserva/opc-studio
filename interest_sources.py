@@ -20,7 +20,7 @@ from platform_registry import identity,derive_platform
 from clue_store_v2 import canonical,safe_text,safe_url,safe_payload,utc,raw_metrics
 
 LOG=logging.getLogger(__name__)
-VERSION=2
+VERSION=3
 LOCK=threading.RLock()
 STATES={}
 FILE_CACHE=OrderedDict()
@@ -130,7 +130,7 @@ def item(row,source,channel,when=None,*,identifier=None,platform=None,body=None,
  metrics,_=raw_metrics(row)
  result=dict(id=key,canonical_key=key,clue_id=None,identity_state='pending_ingest',platform=plat,kind=kind or content_kind,channel='interest',
              sources=[channel],channels=[],input_sources=[source],input_ids=[str(raw_id or key)],source_topics=[safe_text(topic if topic is not None else row.get('topic') or '')],
-             title=title,what_new=title,full_text=body,url=url,author=safe_payload(author),published_at=published,fetched_at=fetched,
+             title=title,what_new=title,full_text=body,url=url,author=safe_payload(author),published_at=published,fetched_at=fetched,first_seen_at=utc(row.get('first_seen_at')),last_seen_at=fetched,first_seen_basis=safe_text(row.get('first_seen_basis') or ''),
              metrics=metrics,tier='兴趣候选',topic=safe_text(topic if topic is not None else row.get('topic') or ''),relevance=None,fit_score=None,doable=None,hot=False,
              why=safe_payload(row.get('why','')),pattern=safe_payload(row.get('pattern','')),outline=safe_payload(row.get('outline','')),my_angle=safe_payload(row.get('my_angle','')),doable_resource=safe_payload(row.get('doable_resource','')),
              usable=[safe_payload(v) for v in row.get('usable',[]) if isinstance(v,dict)] if isinstance(row.get('usable',[]),list) else [],rich_sources=[safe_payload({k:row[k] for k in ('article','thread','quoted','media','card') if k in row})],
@@ -218,7 +218,8 @@ def signature(root,now,reports=None):
  if db_path.exists():
   with readonly(db_path) as db:
    tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-   for table,sql in [('clue_objects','SELECT id,canonical_key,platform FROM clue_objects ORDER BY id'),('clue_aliases','SELECT alias,clue_id FROM clue_aliases ORDER BY alias'),('clue_channels','SELECT clue_id,channel FROM clue_channels ORDER BY clue_id,channel'),('legacy_object_links','SELECT thread_id,clue_id FROM legacy_object_links ORDER BY thread_id'),('topic_assignments',"SELECT a.clue_id,t.name,a.state FROM topic_assignments a JOIN topics t ON t.id=a.topic_id WHERE t.kind='direction' ORDER BY a.clue_id,t.name")]:
+   first_column=',first_seen_at' if any(r[1]=='first_seen_at' for r in db.execute('PRAGMA table_info(clue_objects)')) else ''
+   for table,sql in [('clue_objects','SELECT id,canonical_key,platform'+first_column+' FROM clue_objects ORDER BY id'),('clue_aliases','SELECT alias,clue_id FROM clue_aliases ORDER BY alias'),('clue_channels','SELECT clue_id,channel FROM clue_channels ORDER BY clue_id,channel'),('legacy_object_links','SELECT thread_id,clue_id FROM legacy_object_links ORDER BY thread_id'),('topic_assignments',"SELECT a.clue_id,t.name,a.state FROM topic_assignments a JOIN topics t ON t.id=a.topic_id WHERE t.kind='direction' ORDER BY a.clue_id,t.name")]:
     if table in tables:identity_tables.append((table,[tuple(r) for r in db.execute(sql)]))
  parts.extend([rows,errors,identity_tables])
  result=hashlib.sha256(json.dumps(parts,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
@@ -307,7 +308,7 @@ def database_items(root,now,errors=None):
        WHERE c.channel='linuxdo:rss' AND v.privacy_scope='public' AND julianday(c.last_seen_at)>=julianday(?)"""
      for row in db.execute(sql,(cut,)):
       rich=json.loads(row['rich_json']);rich=rich if isinstance(rich,dict) else {}
-      append(dict(id=row['canonical_key'],url=row['origin_url'] or '',published_at=row['published_at'],content_complete=bool(row['version_complete']),incomplete_reason=row['version_reason']),
+      append(dict(id=row['canonical_key'],url=row['origin_url'] or '',first_seen_at=row['first_seen_at'],first_seen_basis='k1_first_seen',published_at=row['published_at'],content_complete=bool(row['version_complete']),incomplete_reason=row['version_reason']),
              'linux.do','L',row['fetched'],platform='linuxdo',title=row['title'],body=row['body'],topic=rich.get('topic',''),kind='topic')
     if {'threads','entries'}<=tables:
      evidence={}
@@ -329,7 +330,7 @@ def database_items(root,now,errors=None):
        try:key=canonical(dict(url=url))[0]
        except ValueError:pass
       source='微信线索摘要' if kinds&{'wechat','wechat_links'} else 'GitHub API' if 'github' in kinds else 'AIsa 线索摘要'
-      append(dict(id=key,url=url,content_complete=False,incomplete_reason='仅展示已有线索摘要，原始证据保留在线索中心'),source,'W' if source=='微信线索摘要' else 'github:api' if source=='GitHub API' else 'A',row['updated_at'],title=data.get('title'),body=data.get('summary'),kind='post')
+      append(dict(id=key,url=url,first_seen_at=row['created_at'],first_seen_basis='source_created_at',content_complete=False,incomplete_reason='仅展示已有线索摘要，原始证据保留在线索中心'),source,'W' if source=='微信线索摘要' else 'github:api' if source=='GitHub API' else 'A',row['updated_at'],title=data.get('title'),body=data.get('summary'),kind='post')
   except (OSError,ValueError,TypeError,KeyError,sqlite3.DatabaseError) as exc:
    errors.append('database:'+path.parent.name);LOG.warning('interest_source_read_unavailable source=%s kind=%s',path.parent.name,type(exc).__name__)
  return result
@@ -340,7 +341,9 @@ def attach_k1(root,items):
  with readonly(path) as db:
   tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
   if not {'clue_objects','clue_channels'}<=tables:return
-  records={r['canonical_key']:dict(r) for r in db.execute('SELECT id,canonical_key,platform FROM clue_objects')}
+  columns={r[1] for r in db.execute('PRAGMA table_info(clue_objects)')}
+  first_column=',first_seen_at' if 'first_seen_at' in columns else ''
+  records={r['canonical_key']:dict(r) for r in db.execute('SELECT id,canonical_key,platform'+first_column+' FROM clue_objects')}
   by_id={r['id']:r for r in records.values()}
   aliases={r['alias']:by_id[r['clue_id']] for r in db.execute('SELECT alias,clue_id FROM clue_aliases') if r['clue_id'] in by_id} if 'clue_aliases' in tables else {}
   legacy={r['thread_id']:by_id[r['clue_id']] for r in db.execute('SELECT thread_id,clue_id FROM legacy_object_links') if r['clue_id'] in by_id} if 'legacy_object_links' in tables else {}
@@ -354,16 +357,24 @@ def attach_k1(root,items):
    rec=records.get(value['canonical_key']) or aliases.get(value['id']) or legacy.get(value['id'].removeprefix('legacy:')) or (aliases.get(value.get('url')) if value.get('kind')!='question_cluster' else None)
    if rec:
     value.update(canonical_key=rec['canonical_key'],clue_id=rec['id'],identity_state='k1')
+    first=utc(rec.get('first_seen_at'))
+    if first and (not value.get('first_seen_at') or G.stamp(first)<G.stamp(value['first_seen_at'])):
+     value.update(first_seen_at=first,first_seen_basis='k1_first_seen')
     value['source_topics']=list(dict.fromkeys(value.get('source_topics',[])+topics.get(rec['id'],[])))
     value.update(identity(value,dict(platform=rec['platform'],channels=channels.get(rec['id'],[]))))
 
 def build(root,now,reports=None,*,light=False):
  started=time.perf_counter();errors=[];unique={};orders={};cut=now-timedelta(days=7)
+ import interest_first_seen as first_seen
+ first_seen.apply(root,[],now,reports)
  def remember(value):
   moment=G.stamp(value.get('fetched_at'))
   if not moment or not cut<=moment<=now:return
   key=(value['input_sources'][0],value['canonical_key']);order=(moment.timestamp(),len(value.get('full_text','')))
+  prior=unique.get(key)
+  earliest=min((v for v in (value.get('first_seen_at') or value['fetched_at'], (prior.get('first_seen_at') or prior['fetched_at']) if prior else None) if v),key=G.stamp)
   if key not in orders or order>orders[key]:unique[key]=copy.deepcopy(value);orders[key]=order
+  unique[key]['first_seen_at']=earliest
  selected=files(root,now,reports)
  active={str(p) for p,_ in selected}
  prune_filecache(root,active)
@@ -387,6 +398,7 @@ def build(root,now,reports=None,*,light=False):
   except (OSError,ValueError,TypeError,sqlite3.DatabaseError) as exc:
    errors.append('database');LOG.warning('interest_source_unavailable kind=%s',type(exc).__name__)
  values=list(unique.values());attach_k1(root,values)
+ first_seen.apply(root,values,now,reports)
  from interest_channel import topics
  from interest_match import classify,compile_topics,profile_key
  from today_view import prepare_content
@@ -445,7 +457,7 @@ def candidates(root,now=None):
 def valid_cache(value):
  if not isinstance(value,dict) or value.get('schema')!=VERSION or not value.get('ready') or not isinstance(value.get('items'),list) or not isinstance(value.get('built_at'),str) or not isinstance(value.get('build_ms'),(int,float)):return False
  for p in value['items']:
-  if not isinstance(p,dict) or any(not isinstance(p.get(k),str) for k in ('id','canonical_key','title','full_text','fetched_at')):return False
+  if not isinstance(p,dict) or any(not isinstance(p.get(k),str) for k in ('id','canonical_key','title','full_text','fetched_at','first_seen_at')):return False
   if any(not isinstance(p.get(k),list) or any(not isinstance(v,str) for v in p[k]) for k in ('input_sources','sources','source_topics')):return False
   if not isinstance(p.get('author'),dict) or any(not isinstance(p['author'].get(k,''),str) for k in ('name','handle')) or not isinstance(p.get('metrics'),dict) or not isinstance(p.get('interest_matches'),list):return False
   if any(not isinstance(m,dict) or any(not isinstance(m.get(k),str) for k in ('direction','name','word','field','basis')) or not isinstance(m.get('weight'),int) for m in p['interest_matches']):return False
