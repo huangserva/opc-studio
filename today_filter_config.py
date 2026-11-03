@@ -1,6 +1,6 @@
 """今日页可维护的显示过滤配置；不改变采集与原始快照。"""
 LINUXDO_CATEGORY_BLACKLIST = frozenset({'搞七捻三', '福利羊毛'})
-SOURCE_NAMES = {'G': 'Grok', 'Grok': 'Grok', 'A': 'AIsa 推特', 'AIsa': 'AIsa 推特',
+SOURCE_NAMES = {'grok:radar': 'Grok 推特雷达', 'G': 'Grok', 'Grok': 'Grok', 'A': 'AIsa 推特', 'AIsa': 'AIsa 推特',
                 'V': '视频榜', 'L': 'linux.do', 'linuxdo': 'linux.do'}
 
 # 旧词逐项分组，依据主控M2裁定：不改采集侧 is_ai_related。

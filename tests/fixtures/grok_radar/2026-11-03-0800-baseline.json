@@ -1,0 +1,987 @@
+{
+  "schema_version": "grok-radar-draft-2",
+  "run_id": "run-1",
+  "scheduled_slot": "2026-11-03T00:00:00Z",
+  "round_started_at": "2026-11-03T00:00:00Z",
+  "finished_at": "2026-11-03T00:05:00Z",
+  "target_list_sha": "9d8295ef6941a83e94de5bf7708f924e84ae3ac704021369c57b56164d22ba8b",
+  "target_count": 51,
+  "all_groups_complete": true,
+  "schedule_mode": "full",
+  "rule_version": "fixture-old-monitor-rules",
+  "baseline": true,
+  "status": "ok",
+  "accounts": [
+    {
+      "handle": "gkxspace",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "lxfater",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "dotey",
+      "status": "ok",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Khazix0918",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "vista8",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "gefei55",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "lijigang",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "xiaohu",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "GitHub_Daily",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "AYi_AInotes",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Lonely__MH",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "aehyok",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "MinLiBuilds",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "RealYDT",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "gengdaJ",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "cgnot996",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Astronaut_1216",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "berryxia",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "GoSailGlobal",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "lifesinger",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "fankaishuoai",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "manateelazycat",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "bozhou_ai",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "jinchenma_ai",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "yaohui12138",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Tao_Builds",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "0xlangeai",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "shitunote",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "aidavid125",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "GeekCatX",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "FiniYang",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Leobai825",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "94vanAI",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "yhslgg",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "servasyy_ai",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Saccc_c",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Michaelzsguo",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Adam38363368936",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "MaxForAI",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "jakevin7",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "ooeli_eth",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Dicklong1999",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "HiTw93",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "Gorden_Sun",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "nemoisme",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "jinglian",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "MANISH1027512",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "yihui_indie",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "lianyanshe",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "AI_Jasonyu",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    },
+    {
+      "handle": "xiaomovps",
+      "status": "empty",
+      "query_window": {},
+      "page_count": 1,
+      "truncated": false,
+      "attempts": 1,
+      "error_category": null,
+      "fetched_at": "2026-11-03T02:00:00Z",
+      "record_keys": [],
+      "required_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "completed_slots": [
+        "2026-11-03T02:00:00Z"
+      ],
+      "daily_success_count": 1,
+      "late_slots": []
+    }
+  ],
+  "observations": [],
+  "events": []
+}

@@ -295,6 +295,20 @@ def _post(row, extras):
     return _incomplete(item)
 
 
+def _grok_radar_post(row):
+    events = row.get('events', [])
+    tier = ('爆款' if 'upgrade_100k' in events else '低粉爆款' if 'lowfan_burst' in events
+            else '起势' if any(e in events for e in ('new_fast', 'hourly_delta')) else _tier({'tier_class': 'tier-unknown' if row['views'] is None else 'tier-100k' if row['views']>=100000 else 'tier-50k' if row['views']>=50000 else 'tier-10k'}))
+    item = _post(dict(id=row['tweet_id'], sources=[], handle=row['author_handle'], author=row['author_handle'],
+                      created_at=row['published_at'], collected_at=row['fetched_at'], full_text=row['full_text'],
+                      url=row['url'], followers=row['followers'], topic=row['topic'], grok=row, content_complete=row['content_complete'] and not row['is_stale'],
+                      **{k:row.get(k) for k in METRICS}), {})
+    item['metrics']['bookmarks'] = row.get('bookmarks')
+    item.update(sources=['grok:radar'], tier=tier, radar_events=events,
+                first_seen_at=row['first_seen_at'], first_seen_basis=row['first_seen_basis'])
+    return item
+
+
 def _video(row):
     platform = 'douyin' if row.get('platform') == 'douyin' else 'xhs'
     item = dict(id=platform + ':' + row['id'], kind='video', sources=['V'], video_key=row['key'],
@@ -333,6 +347,19 @@ def snapshot(root, now=None, author_mode=False):
     except Exception as exc:
         states.setdefault('G', dict(updated_at=None, error='读取异常：' + type(exc).__name__))
         states.setdefault('A', dict(updated_at=None, error='读取异常：' + type(exc).__name__))
+    states['A'].update(status='disabled', note='AIsa 推特雷达已停用，后续由 Grok 推特雷达供给；保留历史数据')
+    import grok_radar_ingest as radar_ingest
+    try:
+        radar_rows, states['grok:radar'] = radar_ingest.load(root, now)
+        for row in radar_ingest.discovery_rows(radar_rows):
+            current = _grok_radar_post(row)
+            items[current['id']] = radar_ingest.merge_item(items.get(current['id']), current)
+        arrivals = [p for p in items.values() if 'grok:radar' in p['sources']]
+        if arrivals:
+            from interest_first_seen import apply
+            apply(root, arrivals, now)
+    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+        states['grok:radar'] = dict(updated_at=None, status='error', error='雷达读取异常')
     view = video.page_view(root, now=now)
     errors = [k + '：' + (s.get('note') or s.get('status') or '数据过期') for k, s in view.get('sources', {}).items() if s.get('status') != 'ok' or s.get('stale')]
     if view['status'] == 'ok':
@@ -609,7 +636,7 @@ def page_view(root, query=None, now=None):
     cutoff = now - timedelta(days=30) if author else now.astimezone(grok.BEIJING).replace(hour=0, minute=0, second=0, microsecond=0) if period == 'today' else now - timedelta(hours=48 if period == '48h' else 168)
     filtered = []
     for item in items:
-        published = grok.stamp(item['published_at'])
+        published = grok.stamp(item.get('first_seen_at') if 'grok:radar' in item['sources'] and not official_channel and not author else item['published_at'])
         if not published or not cutoff <= published <= now:
             continue
         if author and author.casefold() not in (item['author']['handle'].casefold(), item['author']['name'].casefold()):
@@ -661,7 +688,7 @@ def page_view(root, query=None, now=None):
     if get('tier') == 'top':
         filtered = list(top)
         sort_items(filtered,mode)
-    summary = lambda p: {**{k: p[k] for k in SUMMARY}, **({k:p[k] for k in ('channel','what_new','usable','relevance','incomplete_reasons')} if p.get('channel')=='interest' else {})}
+    summary = lambda p: {**{k: p[k] for k in SUMMARY}, **{k:p[k] for k in ('first_seen_at','first_seen_basis','radar_events') if k in p}, **({k:p[k] for k in ('channel','what_new','usable','relevance','incomplete_reasons')} if p.get('channel')=='interest' else {})}
     return dict(items=[summary(p) for p in filtered[(page - 1) * 50:page * 50]], total=len(filtered), page=page, page_size=50,
                 top=[summary(p) for p in top], top_message='' if top else '等 Grok Bot 按画像打分后出现' if waiting else '今天没有值得做的',
                 registries=registries(), sources=states, filtering=filtering, topics=[row['display_name'] for row in options], topic_options=options, selected_topic=topic_key(get('topic')) if get('topic') else '',

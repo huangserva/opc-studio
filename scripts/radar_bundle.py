@@ -11,11 +11,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
 
-from radar_common import (
-    SCHEMA_VERSION, TRACK_LABELS, classify_track, content_filter, display_age_hours,
-    format_int, in_window, iso_utc, low_fan_eligible, normalize_handle, parse_utc,
-    topic_summaries,
-)
+if __package__:
+    from .radar_common import (
+        SCHEMA_VERSION, TRACK_LABELS, classify_track, content_filter, display_age_hours,
+        format_int, in_window, iso_utc, low_fan_eligible, normalize_handle, parse_utc,
+        topic_summaries,
+    )
+else:
+    from radar_common import (
+        SCHEMA_VERSION, TRACK_LABELS, classify_track, content_filter, display_age_hours,
+        format_int, in_window, iso_utc, low_fan_eligible, normalize_handle, parse_utc,
+        topic_summaries,
+    )
 
 VIP_VIEWS = 15_000
 VIP_LIKES = 100

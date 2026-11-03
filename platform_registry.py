@@ -14,7 +14,7 @@ PLATFORMS = {
 CHANNELS = {
     key: dict(key=key, display_name=name, short_name=short, icon='/icons/platforms/' + icon + '.svg', color=color, aliases=aliases)
     for key, name, short, icon, color, aliases in (
-        ('grok', 'Grok Bot', 'Grok', 'grok', '#526174', ('G', 'Grok', 'Grok Bot', 'grok:daily', 'grok:alerts', 'grok:interest')),
+        ('grok', 'Grok Bot', 'Grok', 'grok', '#526174', ('G', 'Grok', 'Grok Bot', 'grok:daily', 'grok:alerts', 'grok:interest', 'grok:radar')),
         ('aisa', 'AIsa', 'AIsa', 'aisa', '#526174', ('A', 'V', 'AIsa', 'video', 'aisa:twitter', 'aisa:video', 'video:*', 'aisa:*')),
         ('wechat', '微信雷达', '微信雷达', 'wechat', '#07C160', ('W', 'wechat', 'wechat_tools', 'wechat:*', 'wechat_tools:*')),
         ('rss', 'RSS', 'RSS', 'rss', '#FFA500', ('L', 'RSS', 'linuxdo', 'rss:linuxdo', 'linuxdo:rss', 'rss:*')),
@@ -144,4 +144,4 @@ def parse_filters(query):
 
 def matches(item, filters, legacy=''):
     platforms, channel = filters
-    return (not platforms or item['platform'] in platforms) and (not channel or channel in item['channels']) and (not legacy or legacy.upper() in item.get('sources', []))
+    return (not platforms or item['platform'] in platforms) and (not channel or channel in item['channels']) and (not legacy or legacy.upper() in item.get('sources', []) or legacy.upper() == 'G' and 'grok:radar' in item.get('sources', []))

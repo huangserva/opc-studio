@@ -206,9 +206,11 @@ function renderSources(sources=sourceStates) {
   sourceStates=sources;
   $('sources').replaceChildren();
   for(const [key,status] of Object.entries(sources)) {
-    const label={G:'Grok Bot',A:'AIsa',V:'AIsa · 视频榜',L:'RSS · linux.do',W:'微信雷达',feedback:'反馈'}[key] || key;
+    const label={G:'Grok Bot','grok:radar':'Grok 推特雷达',A:'AIsa',V:'AIsa · 视频榜',L:'RSS · linux.do',W:'微信雷达',feedback:'反馈'}[key] || key;
     const time=status.updated_at ? new Date(status.updated_at).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}) : '暂无';
-    const entry=node(status.error?'button':'span','status-block source-update '+(status.error?'status-warning':status.updated_at?'status-complete':'status-idle'),label+' '+time+(status.error?' · 异常':''));
+    const entry=node(status.error?'button':'span','status-block source-update '+(status.error?'status-warning':status.status==='disabled'?'status-idle':status.updated_at?'status-complete':'status-idle'),label+' '+time+(status.error?' · 异常':status.status==='waiting'?' · 等待产出':status.status==='disabled'?' · 已停用':key==='grok:radar'?' · '+(status.note || '正常'):''));
+    if(status.note)entry.title=status.note;
+    if(key==='grok:radar' && status.status==='ok' && status.note){entry.classList.add('source-notice');entry.style.color='var(--c-muted)';}
     if(status.error) {entry.type='button';entry.onclick=()=>openSourceDialog('来源异常详情',label+'\n'+status.error+'\n最近更新：'+(status.updated_at || '暂无'));}
     $('sources').append(entry);
     if(channel==='interest' && key==='G' && status.incomplete_entries>0){
@@ -234,7 +236,7 @@ function renderSources(sources=sourceStates) {
     const entry=node('span','status-block status-warning','漏报状态待确认');entry.title=sourceCatchup.detail || '状态暂不可读，不能据此判断补跑成功';$('sources').append(entry);
   }
   const entries=[...$('sources').children],bad=entries.filter(el=>el.matches('.status-warning,.status-failed,.status-running,.status-idle'));
-  const notices=entries.filter(el=>el.matches('.source-incomplete')),normal=entries.filter(el=>!bad.includes(el)&&!notices.includes(el)),details=node('details','source-overview'),summary=node('summary','source-summary status-block '+(bad.length?'':'status-complete'));
+  const notices=entries.filter(el=>el.matches('.source-incomplete,.source-notice')),normal=entries.filter(el=>!bad.includes(el)&&!notices.includes(el)),details=node('details','source-overview'),summary=node('summary','source-summary status-block '+(bad.length?'':'status-complete'));
   summary.textContent=bad.length?'其余 '+normal.length+' 个来源正常':'全部 '+normal.length+' 个来源正常';
   details.append(summary);const expanded=node('div','source-expanded');
   // Keep original nodes so error-dialog handlers remain attached.

@@ -349,6 +349,7 @@ def _cross_source_page(root, query, now=None):
     # 两条原有兴趣入口继续即时读，保留已有反馈/异常/逐条改报告的语义。
     from wechat_tools_view import cards
     current,current_states=snapshot(root,now)
+    current_states.update(sources.radar_states(root,now))
     try:tool_cards=cards(root,include_filtered=True)
     except (OSError,ValueError,KeyError,TypeError,__import__('sqlite3').DatabaseError) as exc:
         __import__('logging').getLogger(__name__).warning('interest_tools_read_unavailable kind=%s',type(exc).__name__)

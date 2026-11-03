@@ -79,7 +79,7 @@ def cached_file(root,path,kind):
   for old in [k for k in FILE_CACHE if k[0]==str(path) and k!=key]:FILE_CACHE.pop(old,None)
   FILE_CACHE[key]=rows
  return rows
-SOURCE_TRUST={'Grok 兴趣':5,'微信群工具':5,'X 书签':4,'Grok 日报':4,'Grok 快报':4,'Grok 周报':4,'GitHub API':4,'公众号文章':4,'外部文章收藏':3,'微信线索摘要':3,'AIsa 线索摘要':3,'AIsa X':2,'AIsa 手动取数':2,'linux.do':2,'抖音视频榜':1,'小红书灵感榜':1,'X 榜单':1,'读者问题':3}
+SOURCE_TRUST={'Grok 兴趣':5,'微信群工具':5,'X 书签':4,'Grok 推特雷达':4,'Grok 日报':4,'Grok 快报':4,'Grok 周报':4,'GitHub API':4,'公众号文章':4,'外部文章收藏':3,'微信线索摘要':3,'AIsa 线索摘要':3,'AIsa X':2,'AIsa 手动取数':2,'linux.do':2,'抖音视频榜':1,'小红书灵感榜':1,'X 榜单':1,'读者问题':3}
 
 def workspace(root):
  root=Path(root).resolve()
@@ -140,6 +140,15 @@ def item(row,source,channel,when=None,*,identifier=None,platform=None,body=None,
  if not result['content_complete']:result['incomplete_reasons']=[result['incomplete_reason']]
  return result
 
+def radar_states(root,now,reports=None):
+ """来源健康独立于候选匹配和缓存；无帖子时仍能显示等待或异常。"""
+ import grok_radar_ingest as R
+ try:
+  _,state=R.load(root,now,reports)
+ except (OSError,ValueError,TypeError,KeyError,OverflowError):
+  state=dict(updated_at=None,status='error',error='雷达读取异常')
+ return {R.CHANNEL:state}
+
 def files(root,now,reports=None):
  base=workspace(root);cut=(now-timedelta(days=7)).astimezone(G.BEIJING).date().isoformat();reports=(Path(reports) if reports is not None else G.reports_dir()).resolve()
  out=[]
@@ -154,6 +163,9 @@ def files(root,now,reports=None):
  for rel,kind in (('video-radar/page.json','video'),('linuxdo/top-daily.json','linuxdo'),('linuxdo/previous.json','linuxdo')):
   p=base/rel
   if p.is_file():out.append((p,kind))
+ import grok_radar_ingest as R
+ try:out.extend((p,'grok:radar') for p in R.round_paths(reports))
+ except (OSError,ValueError):pass
  return out
 
 def parse_file(path,kind):
@@ -180,6 +192,15 @@ def parse_file(path,kind):
     else:
      source={'daily':'Grok 日报','alerts':'Grok 快报','weekly':'Grok 周报','bookmarks':'X 书签'}[name]
      add(row,source,'x:bookmarks' if name=='bookmarks' else 'G',when.isoformat(),platform='x',topic=row.get('suggested_topic') or row.get('topic'))
+ elif kind=='grok:radar':
+  import grok_radar_ingest as R
+  data=R.read_round(path)
+  for row in data['observations']:
+   if row['is_stale']:continue
+   value=item(row,'Grok 推特雷达','grok:radar',platform='x')
+   if value:
+    value['metrics'].update({k:row[k] for k in R.METRICS})
+    result.append(value)
  elif kind=='aisa' and isinstance(data,dict):
   for row in data.get('tweets',[]):
    if isinstance(row,dict) and not row.get('is_stale'):
@@ -211,7 +232,10 @@ def signature(root,now,reports=None):
  if old and old[0]==probe:return old[1]
  parts=[VERSION,rules_version,configured]
  for path,kind in selected:
-  parts.append((str(path),kind,content_digest(path)))
+  try:parts.append((str(path),kind,content_digest(path)))
+  except (OSError,ValueError):
+   if kind!='grok:radar':raise
+   parts.append((str(path),kind,'unreadable'))
  errors=[];rows=database_items(root,now,errors);attach_k1(root,rows)
  # K1身份/方向会影响文件条目；仅摘要身份表，不触及私密evidence或任务表。
  identity_tables=[];db_path=base/'clues/clues.db'
@@ -382,7 +406,7 @@ def build(root,now,reports=None,*,light=False):
   for old in [k for k in FILE_CACHE if k[0] not in active]:FILE_CACHE.pop(old,None)
  if light:
   current=[(p,k) for p,k in selected if p.parent==workspace(root)/'linuxdo' or p.name=='page.json']
-  for kind in ('aisa','report:daily','report:alerts','report:weekly'):
+  for kind in ('aisa','grok:radar','report:daily','report:alerts','report:weekly'):
    values=[(p,k) for p,k in selected if k==kind]
    if values:current.append(values[-1])
   selected=current
