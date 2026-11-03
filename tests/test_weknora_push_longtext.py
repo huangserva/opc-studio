@@ -24,14 +24,14 @@ class Client:
   if self.fail_tags:raise ApiError(500)
   self.remote[kid]['tags']=[{'id':t} for t in tags]
 def doc(ident='a:b',source='articles',body=' 原样首段\r\n\r\n第二段末尾\t '):
- return P.render(dict(id=ident,source=source,title='标题',body=body,url='https://example.org/a',modified='2026-11-03T12:00:00Z'),'public-tag')
+ return P.render(dict(id=ident,source=source,title='标题',body=body,url='https://example.org/a',modified='2026-11-03T12:00:00Z'),'public-tag','type-work' if source=='articles' else 'type-reference')
 class Tests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory(prefix='weknora-longtext-test-',dir='/tmp');self.root=Path(self.tmp.name);self.addCleanup(self.tmp.cleanup);self.path=self.root/'ledger.db'
   with sqlite3.connect(self.path) as db:db.execute(DDL);db.execute('INSERT INTO result_ledger VALUES(?,?,?,?,?,?,?)',('SD-other',P.KB,'other-id','hash','[]','time','active'))
   self.ledger=P.Ledger(self.path);self.client=Client()
  def test_verbatim_body_and_fixed_metadata(self):
-  d=doc();self.assertEqual(d.content.partition(P.MARKER)[2],d.body);self.assertTrue(d.content.startswith('# 【长文·作品】CW-a-b'));self.assertIn('- 隐私：公开',d.content);self.assertEqual(d.tag_ids,('public-tag',));self.assertIn('documents.id=a:b',d.content)
+  d=doc();self.assertEqual(d.content.partition(P.MARKER)[2],d.body);self.assertTrue(d.content.startswith('# 【长文·作品】CW-a-b'));self.assertIn('- 隐私：公开',d.content);self.assertEqual(d.tag_ids,('public-tag','type-work'));self.assertIn('documents.id=a:b',d.content)
  def test_external_is_public(self):self.assertIn('- 隐私：公开',doc(source='external-references').content);self.assertEqual(doc(source='external-references').number,'WC-a-b')
  def test_create_skip_no_repeated_write(self):
   d=doc();self.assertEqual(P.push_one(self.client,self.ledger,d),'created');calls=len(self.client.calls);self.assertEqual(P.push_one(self.client,self.ledger,d),'skipped');self.assertEqual(len(self.client.calls),calls)
@@ -62,7 +62,7 @@ class Tests(unittest.TestCase):
   with sqlite3.connect(self.path) as db:db.execute('UPDATE result_ledger SET knowledge_base_id=? WHERE result_number=?',('wrong',d.number))
   with self.assertRaises(P.SafetyStop):P.push_one(self.client,self.ledger,doc(body='changed'))
  def test_source_only_read_and_empty_excluded_collision_rejected(self):
-  source=self.root/'knowledge.db';tags=self.root/'tags.json';tags.write_text(json.dumps({'knowledge_base_id':P.KB,'tags':{'隐私-公开':'public-tag'}}))
+  source=self.root/'knowledge.db';tags=self.root/'tags.json';tags.write_text(json.dumps({'knowledge_base_id':P.KB,'tags':{'隐私-公开':'public-tag','类型-长文·作品':'type-work','类型-长文·外部参考':'type-reference'}}))
   with sqlite3.connect(source) as db:
    db.execute('CREATE TABLE documents(id TEXT,source TEXT,title TEXT,body TEXT,url TEXT,modified TEXT)');db.executemany('INSERT INTO documents VALUES(?,?,?,?,?,?)',[('id','articles','标题','text','','date'),('empty','external-references','空文','','','date')])
   before=source.read_bytes();values,empty=P.read_documents(source,tags);self.assertEqual(len(values),1);self.assertEqual(len(empty),1);self.assertEqual(source.read_bytes(),before)
@@ -82,4 +82,28 @@ class Tests(unittest.TestCase):
   with sqlite3.connect(self.path) as db:before=db.execute("SELECT sql FROM sqlite_master WHERE name='result_ledger'").fetchone()[0]
   P.push_one(self.client,self.ledger,doc())
   with sqlite3.connect(self.path) as db:self.assertEqual(db.execute("SELECT sql FROM sqlite_master WHERE name='result_ledger'").fetchone()[0],before)
+ def test_type_tags_follow_source(self):
+  self.assertEqual(doc().tag_ids,('public-tag','type-work'));self.assertEqual(doc(source='external-references').tag_ids,('public-tag','type-reference'))
+ def test_migrate_existing_privacy_only_without_content_update(self):
+  from dataclasses import replace
+  for source in ('articles','external-references'):
+   new=doc(ident=source,source=source);old=replace(new,tag_ids=('public-tag',));P.push_one(self.client,self.ledger,old)
+   before=self.client.remote[self.ledger.get(new.number)['knowledge_id']]['metadata'].copy();self.client.calls=[]
+   self.assertEqual(P.push_one(self.client,self.ledger,new),'updated');self.assertEqual([c[0] for c in self.client.calls],['get','tags'])
+   self.assertEqual(self.client.calls[-1][2],list(new.tag_ids));self.assertEqual(self.client.remote[self.ledger.get(new.number)['knowledge_id']]['metadata'],before)
+   self.assertEqual(json.loads(self.ledger.get(new.number)['tag_ids_json']),list(new.tag_ids))
+   self.client.calls=[];self.assertEqual(P.push_one(self.client,self.ledger,new),'skipped');self.assertEqual(self.client.calls,[])
+ def test_missing_or_duplicate_type_ids_fail(self):
+  tags=self.root/'tags.json';source=self.root/'source.db'
+  for values in ({'隐私-公开':'pub'}, {'隐私-公开':'pub','类型-长文·作品':'same','类型-长文·外部参考':'same'}, {'隐私-公开':'pub','类型-长文·作品':'pub','类型-长文·外部参考':'ref'}):
+   tags.write_text(json.dumps({'knowledge_base_id':P.KB,'tags':values}))
+   with self.assertRaises(P.SafetyStop):P.read_documents(source,tags)
+   self.assertFalse(source.exists())
+ def test_preflight_accepts_pairs_rejects_wrong_source_and_extra_tags(self):
+  from dataclasses import replace
+  self.client._request=lambda *args:{'data':{'indexing_strategy':{'wiki_enabled':False,'graph_enabled':False},'extract_config':{'enabled':False}}}
+  self.client.list_tags=lambda *args:{'data':[{'id':'public-tag','name':'隐私-公开'},{'id':'type-work','name':'类型-长文·作品'},{'id':'type-reference','name':'类型-长文·外部参考'}]}
+  P.preflight(self.client,[doc(),doc(source='external-references')])
+  for tags in (('public-tag',),('public-tag','type-reference'),('public-tag','type-work','type-reference'),('type-work','public-tag')):
+   with self.assertRaises(P.SafetyStop):P.preflight(self.client,[replace(doc(),tag_ids=tags)])
 if __name__=='__main__':unittest.main()

@@ -41,7 +41,7 @@ class Document:
     tag_ids:tuple[str,...]
 
 
-def render(row,tag_id):
+def render(row,tag_id,type_tag_id):
     prefix,kind,source=SOURCES[row['source']]
     number=prefix+'-'+re.sub(r'[^A-Za-z0-9_-]','-',row['id'])
     title=line(row['title']) or '无标题'
@@ -55,7 +55,7 @@ def render(row,tag_id):
                        '- 隐私：公开','- 来源：'+source,'- 原文位置：'+location,
                        '- 时间：'+line(row['modified']),'- 涉及：无','- 关联：无','- 更新：'+line(row['modified'])])+MARKER+body
     if len(content)>200000:raise SafetyStop('longtext_exceeds_manual_limit')
-    return Document(number,row['id'],row['source'],heading[:250],body,content,sha(content),(tag_id,))
+    return Document(number,row['id'],row['source'],heading[:250],body,content,sha(content),(tag_id,type_tag_id))
 
 
 def read_documents(source_db,tags_path):
@@ -63,11 +63,17 @@ def read_documents(source_db,tags_path):
     if tags.get('knowledge_base_id')!=KB:raise SafetyStop('tag_knowledge_base_mismatch')
     tag_id=tags['tags']['隐私-公开']
     if not isinstance(tag_id,str) or not tag_id:raise SafetyStop('privacy_tag_missing')
+    type_tags={}
+    for source,(_,kind,_) in SOURCES.items():
+        type_id=tags['tags'].get('类型-'+kind)
+        if not isinstance(type_id,str) or not type_id or type_id==tag_id:raise SafetyStop('type_tag_missing_or_invalid')
+        type_tags[source]=type_id
+    if len(set(type_tags.values()))!=len(SOURCES):raise SafetyStop('type_tags_not_distinct')
     docs=[];empty=[];numbers=set()
     with closing(sqlite3.connect(Path(source_db).resolve().as_uri()+'?mode=ro',uri=True)) as db:
         db.row_factory=sqlite3.Row;db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         for row in db.execute("SELECT id,source,title,body,url,modified FROM documents WHERE source IN ('articles','external-references') ORDER BY source,id"):
-            doc=render(row,tag_id)
+            doc=render(row,tag_id,type_tags[row['source']])
             if doc.number in numbers:raise SafetyStop('result_number_collision')
             numbers.add(doc.number)
             if not doc.body.strip():
@@ -172,7 +178,10 @@ def preflight(client,docs):
     tag_rows=client.list_tags(KB)['data']
     if isinstance(tag_rows,dict):tag_rows=tag_rows.get('data',tag_rows.get('items',[]))
     valid={r['id']:r['name'] for r in tag_rows}
-    if any(valid.get(tag)!='隐私-公开' for doc in docs for tag in doc.tag_ids):raise SafetyStop('privacy_tag_not_verified')
+    for doc in docs:
+        expected=('隐私-公开','类型-'+SOURCES[doc.source][1])
+        if len(doc.tag_ids)!=2 or tuple(valid.get(tag) for tag in doc.tag_ids)!=expected:
+            raise SafetyStop('longtext_tags_not_verified')
     if any(client.config.api_key in doc.content for doc in docs):raise SafetyStop('credential_in_source_content')
 
 
