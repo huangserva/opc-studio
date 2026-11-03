@@ -283,6 +283,47 @@ class GrokBotTests(unittest.TestCase):
         (self.reports / 'alerts/knowledge_payloads_valid.json').unlink()
         self.assertEqual(api.load_reports()['skipped_aux_files'], 6)
 
+    def test_knowledge_results_auxiliary_all_report_directories(self):
+        self.write()
+        count = 0
+        for kind in api.KINDS:
+            for suffix, raw in (('array', '[{"id":"99"}]'),
+                                ('object', '{"posts":[{"id":"99"}],"collected_at":"2099-01-01T00:00:00Z"}'),
+                                ('partial', '{"unfinished":')):
+                with self.subTest(kind=kind, suffix=suffix):
+                    path = self.reports / kind / ('knowledge_results_' + suffix + '.json')
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(raw)
+                    count += 1
+                    result = api.load_reports()
+                    self.assertEqual(result['bad_files'], 0)
+                    self.assertEqual(result['report_count'], 1)
+                    self.assertEqual(result['skipped_aux_files'], count)
+                    self.assertEqual([post['id'] for post in result['posts']], ['1'])
+                    self.assertEqual(result['latest_report']['file'], 'daily/a.json')
+
+    def test_knowledge_results_coexists_with_original_prefixes(self):
+        self.write()
+        prefixes = ('knowledge_payloads', 'knowledge_post_results', '_post_results', 'knowledge_results_')
+        for prefix in prefixes:
+            path = self.reports / 'alerts' / (prefix + 'fixture.json')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('[]')
+        result = api.load_reports()
+        self.assertEqual((result['bad_files'], result['report_count'], result['skipped_aux_files']), (0, 1, 4))
+
+    def test_knowledge_results_does_not_mask_other_bad_reports(self):
+        self.write()
+        names = ('alerts/before_knowledge_results_x.json', 'alerts/knowledge_resultsx.json',
+                 'daily/knowledge_result_x.json', 'alerts/2026-11-03-0800.json')
+        for name in names:
+            path = self.reports / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('broken JSON')
+        (self.reports / 'alerts/knowledge_results_fixture.txt').write_text('not JSON')
+        result = api.load_reports()
+        self.assertEqual((result['bad_files'], result['report_count'], result['skipped_aux_files']), (4, 1, 0))
+
     def test_actual_bad_reports_and_middle_prefix_still_bad(self):
         self.write(rows=[self.row()])
         names = ('daily/2026-11-02.json', 'alerts/2026-11-02-1200.json',

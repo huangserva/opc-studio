@@ -97,7 +97,7 @@ def load_reports(directory=None):
             # Intermediate knowledge/fetch results are not post reports.
             # Keep malformed files outside these exact prefixes as bad_files.
             if path.suffix == '.json' and path.name.startswith(
-                ('knowledge_payloads', 'knowledge_post_results', '_post_results')
+                ('knowledge_payloads', 'knowledge_post_results', '_post_results', 'knowledge_results_')
             ):
                 ignored_files += 1
                 skipped_aux_files += 1
