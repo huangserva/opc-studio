@@ -4,3 +4,5 @@
 
 /* Grok 周报 Markdown：长表只在块内滚动，原文保留换行。 */
 .grok-markdown{min-width:0;overflow-wrap:anywhere;line-height:1.7}.grok-markdown .grok-verbatim{white-space:pre-wrap}.grok-markdown h3,.grok-markdown h4{margin:1.2em 0 .5em}.grok-markdown ul,.grok-markdown ol{padding-left:1.6em}.grok-table-scroll{max-width:100%;overflow-x:auto}.grok-markdown table{border-collapse:collapse;min-width:100%;font-size:13px}.grok-markdown td,.grok-markdown th{padding:8px;border:1px solid var(--border,#d9dee8);text-align:left;min-width:90px}.grok-markdown pre{max-width:100%;overflow:auto;white-space:pre-wrap}.grok-markdown blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #b7c3d5}.type-history{color:var(--muted,#667085);font-size:13px}
+
+.studio-grok-review{margin:22px 26px}.studio-alert{border-left:4px solid #b84a32;background:#fff1e9;padding:10px 14px;margin:10px 0}.studio-check h3{font-size:14px}.studio-check p{font-size:13px}.studio-facts{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:300px;overflow:auto}.studio-normal{margin:16px 0}.studio-copy{margin:8px 12px 8px 0;padding:8px 12px;cursor:pointer}@media(max-width:899px){.studio-grok-review{margin:18px}}

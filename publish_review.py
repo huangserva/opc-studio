@@ -445,6 +445,8 @@ class PublishReview:
                         result['review'] = read_json_string(note[0]) if note else {}
         if not detail_slug:
             result['grok'] = GrokReports().listing(self._grok_sources(rows))
+            from grok_daily_review import snapshot as studio_review
+            result['studio_grok_review'] = studio_review(self.workspace)
         return result
 
 
