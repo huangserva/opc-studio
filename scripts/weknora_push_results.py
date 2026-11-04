@@ -9,6 +9,9 @@ from datetime import datetime,timezone
 import fcntl
 import hashlib
 import json
+from contextlib import closing
+import os
+import tempfile
 from pathlib import Path
 import re
 import sqlite3
@@ -16,6 +19,11 @@ import sys
 import time
 
 ROOT=Path('/Users/huangzongning/development/article-studio')
+PUBLIC_KB_ID='82b87a9e-2154-4ac4-8615-55bb26e2a9dd'
+LEGACY_PRIVATE_KB_ID='cedb34b6-3cdd-461f-a3d5-e28b4739736c'
+REQUIRED_TAG_NAMES=({'类型-'+v for v in ('商单','待办','热点','工具','知识','人物','决定','进展','长文·作品','长文·外部参考')} |
+                    {'来源-'+v for v in ('微信私聊','微信群','邮件','GitHub','推特','linux.do','Agent会话','飞书')} |
+                    {'隐私-'+v for v in ('公开','群内','私密','内部')})
 STAGES={'contact':'建联','negotiating':'在谈','preparing':'做资料','writing':'待写','draft':'完成初稿','published':'已发布','closed':'结案','unknown':'进度待核对','cancelled':'已取消'}
 COLS=['result_number','knowledge_base_id','knowledge_id','content_sha256','tag_ids_json','last_pushed_at','remote_state']
 
@@ -238,43 +246,49 @@ def kb_id(value):
  if not re.fullmatch('[A-Za-z0-9_-]{1,128}',value):raise ValueError('Invalid remote id')
  return value
 
+def public_library(config):
+ # target remains a privacy classification, not a library selector.
+ library=config['knowledge_bases']['public']
+ if library['knowledge_base_id']!=PUBLIC_KB_ID:raise ValueError('Public library id differs from approved destination')
+ return library
+
+
+def destination(record,config):
+ library=public_library(config)
+ try:tags=[kb_id(library['tags'][name]) for name in record['tag_names']]
+ except (KeyError,TypeError):raise ValueError('Public library lacks required named tags') from None
+ if len(set(tags))!=len(tags):raise ValueError('Public tag ids are not distinct')
+ return library['knowledge_base_id'],tags
+
+
 def provision(args):
- client=client_for(args.root);path=Path(args.root)/'coordination/weknora-tags.json';config=load(path)
- public_id=config['knowledge_base_id'];public=client._request('GET','/knowledge-bases/'+kb_id(public_id))['data']
- libraries=client._request('GET','/knowledge-bases')['data']
- if isinstance(libraries,dict):libraries=libraries['data']
- matches=[x for x in libraries if x['name']=='huangserva的私密库']
- if len(matches)>1:raise ValueError('Multiple private libraries; manual resolution required')
- if matches:private_id=matches[0]['id']
- else:
-  # No implicit retry: a failed request must be reconciled by re-listing the
-  # exact library name on the next explicit provision invocation.
-  payload={'name':'huangserva的私密库','type':'document','embedding_model_id':public['embedding_model_id'],
-           'summary_model_id':public['summary_model_id'],'indexing_strategy':{'vector_enabled':True,'keyword_enabled':True,'wiki_enabled':False,'graph_enabled':False},
-           'extract_config':{'enabled':False},'question_generation_config':public.get('question_generation_config',{'enabled':True,'question_count':3})}
-  private_id=client._request('POST','/knowledge-bases',payload)['data']['id']
- private=client._request('GET','/knowledge-bases/'+kb_id(private_id))['data']
- if private['embedding_model_id']!=public['embedding_model_id'] or private['capabilities']['wiki'] or private['capabilities']['graph'] or private.get('extract_config',{}).get('enabled'):
-  raise ValueError('Private library model/features mismatch; stopped without editing library')
- tags={x['name']:x['id'] for x in tag_rows(client.list_tags(private_id))}
- for name in config['tags']:
-  if name not in tags:tags[name]=client.create_tag(name,private_id)['data']['id']
- if not set(config['tags'])<=set(tags):raise ValueError('Private tags incomplete')
- # Preserve the old root public aliases while the parallel longtext worker
- # uses them. The grouped entries are the canonical new format.
- config['schema_version']=2
- config['knowledge_bases']={'public':{'knowledge_base_id':public_id,'name':public['name'],'tags':config['tags']},
-                            'private':{'knowledge_base_id':private_id,'name':private['name'],'tags':{name:tags[name] for name in config['tags']}}}
- write_json(path,config)
- write_json(Path(args.evidence)/'provision.json',{'public_id':public_id,'private_id':private_id,'embedding_model_id':private['embedding_model_id'],'private_capabilities':private['capabilities'],'private_tags':len(tags),'root_public_aliases_preserved':True})
- print(json.dumps({'private_tags':len(tags),'features_verified':True}))
+ # Validation only: never create libraries/tags, change settings or rewrite config.
+ config=load(Path(args.root)/'coordination/weknora-tags.json');library=public_library(config)
+ if not REQUIRED_TAG_NAMES<=set(library['tags']):raise ValueError('Public tag configuration incomplete')
+ client=client_for(args.root);public=client._request('GET','/knowledge-bases/'+kb_id(PUBLIC_KB_ID))['data']
+ if public.get('id')!=PUBLIC_KB_ID:raise ValueError('Public library not confirmed')
+ tags={}
+ for page in range(1,101):
+  batch=tag_rows(client.list_tags(PUBLIC_KB_ID,page=page,page_size=50))
+  for tag in batch:
+   name,ident=tag['name'],tag['id']
+   if name in tags and tags[name]!=ident:raise ValueError('Ambiguous public tag name')
+   tags[name]=ident
+  if len(batch)<50:break
+ else:raise ValueError('Public tag pagination did not terminate')
+ if any(tags.get(name)!=ident for name,ident in library['tags'].items()):raise ValueError('Public remote tags missing or ids differ')
+ print(json.dumps({'public_id':PUBLIC_KB_ID,'public_tags':len(library['tags']),'readonly_verified':True}))
 
 
-def ledger_connect(path):
- if not Path(path).is_file():raise ValueError('Shared ledger missing; no database created')
- db=sqlite3.connect(path,timeout=30);db.row_factory=sqlite3.Row
+def ledger_connect(path,readonly=False):
+ path=Path(path).resolve()
+ if not path.is_file():raise ValueError('Shared ledger missing; no database created')
+ db=sqlite3.connect(path.as_uri()+('?mode=ro' if readonly else '?mode=rw'),uri=True,timeout=30);db.row_factory=sqlite3.Row
+ if readonly:db.execute('PRAGMA query_only=ON')
  if [r['name'] for r in db.execute('PRAGMA table_info(result_ledger)')]!=COLS:db.close();raise ValueError('Unexpected shared ledger schema; no DDL performed')
  return db
+
+
 
 def manual_payload(record):
  payload={'title':record['title'],'content':record['content'],'status':'publish'}
@@ -323,23 +337,109 @@ def push_one(client,db,record,kb,tags,journal,journal_path):
 
 
 def push(args):
- rows=load(args.manifest);validate(rows);client=client_for(args.root)
- if any(client.config.api_key in r['content'] for r in rows):raise ValueError('Credential detected in manifest')
- config=load(Path(args.root)/'coordination/weknora-tags.json');libraries=config['knowledge_bases']
+ rows=load(args.manifest);validate(rows)
+ config=load(Path(args.root)/'coordination/weknora-tags.json')
  if args.numbers:
   wanted=set(args.numbers.split(','));rows=[r for r in rows if r['result_number'] in wanted]
   if {r['result_number'] for r in rows}!=wanted:raise ValueError('Unknown requested result number')
+ # Resolve every named tag before sending the first write.
+ routes=[destination(record,config) for record in rows]
+ if getattr(args,'dry_run',False):
+  plans=[]
+  with closing(ledger_connect(Path(args.root)/'workspace/weknora/ledger.db',readonly=True)) as db:
+   for record,(kb,tags) in zip(rows,routes):
+    row=db.execute('SELECT * FROM result_ledger WHERE result_number=?',(record['result_number'],)).fetchone()
+    action=('create' if row is None else 'resolve-ledger-state' if row['remote_state']!='active' else
+            'relocate-private-first' if row['knowledge_base_id']==LEGACY_PRIVATE_KB_ID else
+            'resolve-library-mismatch' if row['knowledge_base_id']!=kb else
+            'update' if row['content_sha256']!=record['content_sha256'] else
+            'retag' if set(json.loads(row['tag_ids_json']))!=set(tags) else 'skip')
+    plans.append({'result_number':record['result_number'],'privacy_target':record['target'],'knowledge_base_id':kb,'tag_ids':tags,'action':action})
+  print(json.dumps({'dry_run':True,'processed':len(plans),'basis':'local ledger only; remote content not checked','rows':plans},ensure_ascii=False))
+  return
+ client=client_for(args.root)
+ if any(client.config.api_key in r['content'] for r in rows):raise ValueError('Credential detected in manifest')
  evidence=Path(args.evidence);journal_path=evidence/'write-journal.json';journal=load(journal_path) if journal_path.exists() else {}
  with (evidence/'push.lock').open('w') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-  with ledger_connect(Path(args.root)/'workspace/weknora/ledger.db') as db:
+  with closing(ledger_connect(Path(args.root)/'workspace/weknora/ledger.db')) as db,db:
    counts={}
-   for record in rows:
-    library=libraries[record['target']];tags=[library['tags'][name] for name in record['tag_names']]
-    result=push_one(client,db,record,library['knowledge_base_id'],tags,journal,journal_path)
+   for record,(kb,tags) in zip(rows,routes):
+    result=push_one(client,db,record,kb,tags,journal,journal_path)
     counts[result['action']]=counts.get(result['action'],0)+1
     with (evidence/'push-events.jsonl').open('a') as output:output.write(json.dumps(result)+'\n')
  print(json.dumps({'processed':len(rows),'actions':counts}))
+
+
+def _private_rows(db):
+ return [dict(row) for row in db.execute('SELECT * FROM result_ledger WHERE knowledge_base_id=? ORDER BY result_number',(LEGACY_PRIVATE_KB_ID,))]
+
+
+def relocation_plan(client,rows,config):
+ library=public_library(config)
+ legacy=config.get('knowledge_bases',{}).get('private',{})
+ if legacy.get('knowledge_base_id')!=LEGACY_PRIVATE_KB_ID:raise ValueError('Legacy private tag mapping missing')
+ by_id={}
+ for name,ident in legacy.get('tags',{}).items():
+  if ident in by_id:raise ValueError('Ambiguous legacy tag id')
+  by_id[ident]=name
+ plans=[]
+ for row in rows:
+  if not row['result_number'].startswith(('SD-','JD-')):raise ValueError('Legacy library contains unowned result prefix')
+  try:
+   old_tags=json.loads(row['tag_ids_json'])
+   if not isinstance(old_tags,list) or not old_tags or any(not isinstance(t,str) for t in old_tags) or len(set(old_tags))!=len(old_tags):raise ValueError('Invalid ledger tags')
+   tags=[kb_id(library['tags'][by_id[ident]]) for ident in old_tags]
+  except (KeyError,TypeError):raise ValueError('Tag name mapping missing; entire relocation stopped') from None
+  if len(set(tags))!=len(tags):raise ValueError('Mapped public tag ids are not distinct')
+  doc=client.get_knowledge(kb_id(row['knowledge_id']))['data']
+  if doc.get('id')!=row['knowledge_id'] or doc.get('knowledge_base_id')!=PUBLIC_KB_ID:
+   raise ValueError('Remote item has not moved to public library; entire relocation stopped')
+  plans.append({'result_number':row['result_number'],'knowledge_id':row['knowledge_id'],'knowledge_base_id':PUBLIC_KB_ID,'tag_ids':tags})
+ return plans
+
+
+def backup_ledger(path,evidence):
+ evidence=Path(evidence);evidence.mkdir(parents=True,exist_ok=True)
+ fd,name=tempfile.mkstemp(prefix='ledger-before-relocate-private-',suffix='.db',dir=evidence)
+ os.close(fd)
+ backup=Path(name)
+ # Separate read-only source connection: backup on a connection holding an
+ # active write transaction can wait indefinitely. BEGIN IMMEDIATE in caller
+ # keeps other writers out while this consistent SQLite backup is taken.
+ with closing(ledger_connect(path,readonly=True)) as source,closing(sqlite3.connect(backup)) as target:
+  source.backup(target)
+  if target.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Ledger backup failed integrity check')
+ return backup
+
+
+def relocate_private(args):
+ path=Path(args.root)/'workspace/weknora/ledger.db'
+ with closing(ledger_connect(path,readonly=True)) as db:rows=_private_rows(db)
+ if not rows:
+  print(json.dumps({'dry_run':bool(getattr(args,'dry_run',False)),'processed':0,'rows':[]}));return
+ config=load(Path(args.root)/'coordination/weknora-tags.json')
+ # Preflight the whole batch using GET only, before a backup or any UPDATE.
+ plans=relocation_plan(client_for(args.root),rows,config)
+ if getattr(args,'dry_run',False):
+  print(json.dumps({'dry_run':True,'processed':len(plans),'rows':plans},ensure_ascii=False));return
+ with closing(ledger_connect(path)) as db:
+  try:
+   db.execute('BEGIN IMMEDIATE')
+   if _private_rows(db)!=rows:raise ValueError('Ledger changed during preflight; no rows updated')
+   backup=backup_ledger(path,args.evidence)
+   for old,plan in zip(rows,plans):
+    encoded=json.dumps(plan['tag_ids'])
+    cursor=db.execute('UPDATE result_ledger SET knowledge_base_id=?,tag_ids_json=? WHERE result_number=? AND knowledge_base_id=?',(PUBLIC_KB_ID,encoded,old['result_number'],LEGACY_PRIVATE_KB_ID))
+    if cursor.rowcount!=1:raise ValueError('Ledger relocation row count mismatch')
+    actual=dict(db.execute('SELECT * FROM result_ledger WHERE result_number=?',(old['result_number'],)).fetchone())
+    if actual!={**old,'knowledge_base_id':PUBLIC_KB_ID,'tag_ids_json':encoded}:raise ValueError('Ledger relocation readback mismatch')
+   if _private_rows(db):raise ValueError('Legacy ledger rows remain; transaction rolled back')
+   db.commit()
+  except BaseException:
+   db.rollback();raise
+ print(json.dumps({'processed':len(plans),'backup':str(backup),'verified_rows':len(plans),'remote_write_requests':0}))
+
 
 
 def retag_jd_one(client,db,record,kb,tags):
@@ -394,7 +494,7 @@ def verify(args):
  if args.numbers:
   wanted=set(args.numbers.split(','));rows=[r for r in rows if r['result_number'] in wanted]
  checks=[]
- with ledger_connect(Path(args.root)/'workspace/weknora/ledger.db') as db:
+ with closing(ledger_connect(Path(args.root)/'workspace/weknora/ledger.db',readonly=True)) as db:
   for record in rows:
    row=db.execute('SELECT * FROM result_ledger WHERE result_number=?',(record['result_number'],)).fetchone()
    if row is None:raise ValueError('Result absent from ledger')
@@ -405,13 +505,18 @@ def verify(args):
     if not args.wait_index:break
     time.sleep(.5)
    else:raise ValueError('Remote indexing timeout')
-   lib=config['knowledge_bases'][record['target']];expected={lib['tags'][name] for name in record['tag_names']}
-   if digest(doc['metadata']['content'])!=record['content_sha256'] or doc['metadata']['status']!='publish' or doc['knowledge_base_id']!=lib['knowledge_base_id'] or {x['id'] for x in doc['tags']}!=expected:raise ValueError('Remote verification mismatch')
+   target_id,target_tags=destination(record,config);expected=set(target_tags)
+   if digest(doc['metadata']['content'])!=record['content_sha256'] or doc['metadata']['status']!='publish' or doc['knowledge_base_id']!=target_id or {x['id'] for x in doc['tags']}!=expected:raise ValueError('Remote verification mismatch')
    checks.append({'result_number':record['result_number'],'knowledge_id':doc['id'],'hash_match':True,'tags_match':True,'published':True,'parse_status':doc['parse_status']})
  write_json(Path(args.evidence)/('verify-'+('selected' if args.numbers else 'all')+'.json'),checks);print(json.dumps({'verified':len(checks),'hash_and_tags_match':True,'completed':sum(x['parse_status']=='completed' for x in checks),'background_pending':sum(x['parse_status']!='completed' for x in checks)}))
 
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('command',choices=['prepare','provision','push','verify','retag-jd']);p.add_argument('--root',default=str(ROOT));p.add_argument('--evidence',required=True);p.add_argument('--manifest',required=True);p.add_argument('--deals');p.add_argument('--decisions');p.add_argument('--sources');p.add_argument('--numbers');p.add_argument('--wait-index',action='store_true',help='Wait for all model processing; omit for approved overnight question generation')
- args=p.parse_args();globals()[args.command.replace('-','_')](args)
+ p=argparse.ArgumentParser();p.add_argument('command',choices=['prepare','provision','push','verify','retag-jd','relocate-private']);p.add_argument('--root',default=str(ROOT));p.add_argument('--evidence',required=True);p.add_argument('--manifest');p.add_argument('--deals');p.add_argument('--decisions');p.add_argument('--sources');p.add_argument('--numbers');p.add_argument('--wait-index',action='store_true',help='Wait for all model processing; omit for approved overnight question generation')
+ p.add_argument('--dry-run',action='store_true',help='Plan push/relocation without remote or ledger writes')
+ args=p.parse_args()
+ if args.command not in ('provision','relocate-private') and not args.manifest:p.error('--manifest is required for this command')
+ if args.dry_run and args.command not in ('push','relocate-private'):p.error('--dry-run supports push and relocate-private only')
+ if args.command=='relocate-private' and args.numbers:p.error('relocate-private processes the entire legacy batch; --numbers is not supported')
+ globals()[args.command.replace('-','_')](args)
 if __name__=='__main__':main()
