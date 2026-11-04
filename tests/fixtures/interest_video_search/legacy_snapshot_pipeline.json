@@ -1,0 +1,217 @@
+[
+  {
+    "id": "douyin:7703938638383533350",
+    "platform": "douyin",
+    "raw": {
+      "aweme_id": "7703938638383533350",
+      "aweme_type": 0,
+      "media_type": 4,
+      "desc": "11月comfyui超详细教程，手把手带你Ai视频制作！ comfyui#comfyui #comfyui教程 #comfyui工作流 #comfyui安装 #comfyui整合包",
+      "create_time": "2026-11-03T21:36:40+08:00",
+      "author": {
+        "nickname": "ComfyUI教程"
+      },
+      "statistics": {
+        "digg_count": 10
+      }
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6aea28b9000000000303b434",
+    "platform": "xhs",
+    "raw": {
+      "id": "6aea28b9000000000303b434",
+      "type": "video",
+      "title": "AI软件comfyUI新手入门教程：解压后如何使用",
+      "desc": "AI软件comfyUI新手入门教程：解压后如何使用\n下载便携版comfyUI解压后，如何使用默认工作流进行文生图 #AI  #教程  #图像生成  #AI新手入门  #AI",
+      "timestamp": "2026-11-04T02:32:25+08:00",
+      "user": {
+        "nickname": "被晒黑的鱼"
+      },
+      "liked_count": 6
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6aea10b4000000001e017da9",
+    "platform": "xhs",
+    "raw": {
+      "id": "6aea10b4000000001e017da9",
+      "type": "video",
+      "title": "ComfyUI人体姿态出图工作流！",
+      "desc": "ComfyUI人体姿态出图工作流！\n来自 Github aicg3d 大佬开源插件 内置第 5 期全套人体姿态素材，无需重复配置 上传背景图，点选人像、发饰",
+      "timestamp": "2026-11-04T07:01:00+08:00",
+      "user": {
+        "nickname": "苏苏AI工具集"
+      },
+      "liked_count": 3
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6ae9f9d9000000000300b71c",
+    "platform": "xhs",
+    "raw": {
+      "id": "6ae9f9d9000000000300b71c",
+      "type": "video",
+      "title": "ComfyTV 视频板块通过预设链接工作流",
+      "desc": "ComfyTV 视频板块通过预设链接工作流\n#H3  #comfyui",
+      "timestamp": "2026-11-03T23:12:25+08:00",
+      "user": {
+        "nickname": "左眼设计（AIGC）"
+      },
+      "liked_count": 1
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": false,
+    "verdict": "pending",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6ae9ac4500000000030219e5",
+    "platform": "xhs",
+    "raw": {
+      "id": "6ae9ac4500000000030219e5",
+      "type": "video",
+      "title": "11月1日，秋叶手搓工作流更新！ #comfyui #comfyui工作流 #m",
+      "desc": "11月1日，秋叶手搓工作流更新！ #comfyui #comfyui工作流 #m\n11月1日，秋叶手搓工作流更新！ #comfyui  #comfyui工作流  #minimaxh3  #工作流  #a",
+      "timestamp": "2026-11-03T17:41:25+08:00",
+      "user": {
+        "nickname": "秋叶ComfyUI"
+      },
+      "liked_count": 33
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": false,
+    "verdict": "reject",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6ae990bb0000000003004e0f",
+    "platform": "xhs",
+    "raw": {
+      "id": "6ae990bb0000000003004e0f",
+      "type": "video",
+      "title": "本地部署一起织布呀#ComfyUI #工作流",
+      "desc": "本地部署一起织布呀#ComfyUI #工作流\n本地部署一起织布呀#ComfyUI  #工作流",
+      "timestamp": "2026-11-03T15:43:55+08:00",
+      "user": {
+        "nickname": "時紀-📖."
+      },
+      "liked_count": 1
+    },
+    "direction": "本地部署与推理（llama.cpp、vLLM、MLX、4090 实测）",
+    "expected": false,
+    "verdict": "reject",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6ae9495b0000000003014255",
+    "platform": "xhs",
+    "raw": {
+      "id": "6ae9495b0000000003014255",
+      "type": "video",
+      "title": "免费开源！可溶图可打光这一套就够了！Qwen2.1心宝全能溶图打光大师｜18种光效×11种方向，附ComfyUI节点与工",
+      "desc": "免费开源！可溶图可打光这一套就够了！Qwen2.1心宝全能溶图打光大师｜18种光效×11种方向，附ComfyUI节点与工",
+      "timestamp": "2026-11-03T10:39:23+08:00",
+      "user": {
+        "nickname": "李心宝爱玩Ai"
+      },
+      "liked_count": 2
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "douyin:7703855201597377792",
+    "platform": "douyin",
+    "raw": {
+      "aweme_id": "7703855201597377792",
+      "aweme_type": 0,
+      "media_type": 4,
+      "desc": "|Vibe知识大赏|DSH保姆级入门教程 #本地部署 #DSH #deepseek #vibe知识大赏",
+      "create_time": "2026-11-03T19:00:00+08:00",
+      "author": {
+        "nickname": "单车酒吧搞机社"
+      },
+      "statistics": {
+        "digg_count": 236
+      }
+    },
+    "direction": "本地部署与推理（llama.cpp、vLLM、MLX、4090 实测）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "douyin:7703799219535107945",
+    "platform": "douyin",
+    "raw": {
+      "aweme_id": "7703799219535107945",
+      "aweme_type": 0,
+      "media_type": 4,
+      "desc": "Comfyui安装进度条卡67%使用教程 #confyui #ai视频制作 #ai本地部署 #视频剪辑 #ai工具教学",
+      "create_time": "2026-11-03T12:35:32+08:00",
+      "author": {
+        "nickname": "7书"
+      },
+      "statistics": {
+        "digg_count": 95
+      }
+    },
+    "direction": "本地部署与推理（llama.cpp、vLLM、MLX、4090 实测）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6ae9c79a0000000015023185",
+    "platform": "xhs",
+    "raw": {
+      "id": "6ae9c79a0000000015023185",
+      "type": "video",
+      "title": "AI本地部署保姆级教程丨开源模型MiniMaxH3",
+      "desc": "AI本地部署保姆级教程丨开源模型MiniMaxH3\n#华硕ProArt  #华硕显卡  #RTX5080  #双十一  #AI视频  #本地部署  #ComfyUI  #M",
+      "timestamp": "2026-11-03T20:32:53+08:00",
+      "user": {
+        "nickname": "AI张同学"
+      },
+      "liked_count": 43
+    },
+    "direction": "新模型发布（开源权重、量化版、MLX 版）",
+    "expected": true,
+    "verdict": "admit",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  },
+  {
+    "id": "xhs:6ae975e8000000001a020d86",
+    "platform": "xhs",
+    "raw": {
+      "id": "6ae975e8000000001a020d86",
+      "type": "video",
+      "title": "新手MiniMax-H3旋转穿搭换装",
+      "desc": "新手MiniMax-H3旋转穿搭换装\n#comfyui  #minimax  #ai视频  #ai视频生成  #comfyui工作流  #comfyui整合包",
+      "timestamp": "2026-11-03T13:49:28+08:00",
+      "user": {
+        "nickname": "AIGC 秋叶"
+      },
+      "liked_count": 0
+    },
+    "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+    "expected": false,
+    "verdict": "reject",
+    "provenance": "真实归一化快照字段重建平台输入形状；不是原始完整响应"
+  }
+]

@@ -350,6 +350,8 @@ def _cross_source_page(root, query, now=None):
     from wechat_tools_view import cards
     current,current_states=snapshot(root,now)
     current_states.update(sources.radar_states(root,now))
+    from scripts.interest_video_search import status as video_interest_status
+    current_states.update(video_interest_status(root))
     try:tool_cards=cards(root,include_filtered=True)
     except (OSError,ValueError,KeyError,TypeError,__import__('sqlite3').DatabaseError) as exc:
         __import__('logging').getLogger(__name__).warning('interest_tools_read_unavailable kind=%s',type(exc).__name__)

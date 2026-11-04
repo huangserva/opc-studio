@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "enabled": true,
+  "platforms": {
+    "douyin": true,
+    "xhs": true
+  },
+  "daily_call_limit": 80,
+  "per_query_limit": 20,
+  "max_age_hours": 168,
+  "request_timeout_seconds": 30,
+  "round_timeout_seconds": 1100,
+  "max_retries": 1,
+  "retry_codes": [
+    "http_500",
+    "http_502",
+    "http_503",
+    "http_504",
+    "request_timeout_or_transport",
+    "transport_28"
+  ],
+  "times": [
+    "10:20",
+    "22:20"
+  ],
+  "directions": [
+    {
+      "name": "新模型发布（开源权重、量化版、MLX 版）",
+      "keywords": [
+        "开源模型权重"
+      ]
+    },
+    {
+      "name": "本地部署与推理（llama.cpp、vLLM、MLX、4090 实测）",
+      "keywords": [
+        "大模型本地部署"
+      ]
+    },
+    {
+      "name": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+      "keywords": [
+        "ComfyUI 工作流"
+      ]
+    },
+    {
+      "name": "新 API / 推理引擎 / 模型网关（Maya、APXInf、sglang、vLLM、网关）",
+      "keywords": [
+        "模型网关部署"
+      ]
+    },
+    {
+      "name": "Agent 编程工具（Claude Code、Codex、MCP）",
+      "keywords": [
+        "Claude Code 教程"
+      ]
+    },
+    {
+      "name": "Agent Skill 安全扫描（SkillSpector 一类）",
+      "keywords": [
+        "智能体技能安全扫描"
+      ]
+    },
+    {
+      "name": "OpenCode / 本地 Agent 桌面插件生态",
+      "keywords": [
+        "OpenCode 插件教程"
+      ]
+    },
+    {
+      "name": "AI 内容生产自动化（选题雷达 / 剪映 / 批量出片）",
+      "keywords": [
+        "AI 剪映自动化"
+      ]
+    },
+    {
+      "name": "3D / 游戏 / 硬件 Agent 落地",
+      "keywords": [
+        "3D生成教程"
+      ]
+    }
+  ]
+}

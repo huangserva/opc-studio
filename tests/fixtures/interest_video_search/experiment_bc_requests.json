@@ -1,0 +1,97 @@
+{
+  "provenance": "I actual reserved experiment requests, extracted without modification; no response or credential",
+  "source": "/tmp/review-interest-video-fix2-I/experiment/budget.json",
+  "source_sha256": "7988d2526026ffcc4dedb6eff6b343bf8ea3bc4ac80bd76b61c24f297b0a9d32",
+  "requests": [
+    {
+      "n": 2,
+      "word": "vLLM部署教程",
+      "variant": "b",
+      "params": {
+        "keyword": "vLLM部署教程",
+        "cursor": 0,
+        "sort_type": "2",
+        "publish_time": "0",
+        "filter_duration": "0",
+        "content_type": "1",
+        "search_id": "",
+        "backtrace": ""
+      }
+    },
+    {
+      "n": 4,
+      "word": "Claude Code 教程",
+      "variant": "b",
+      "params": {
+        "keyword": "Claude Code 教程",
+        "cursor": 0,
+        "sort_type": "2",
+        "publish_time": "0",
+        "filter_duration": "0",
+        "content_type": "1",
+        "search_id": "",
+        "backtrace": ""
+      }
+    },
+    {
+      "n": 6,
+      "word": "AI 剪映自动化",
+      "variant": "b",
+      "params": {
+        "keyword": "AI 剪映自动化",
+        "cursor": 0,
+        "sort_type": "2",
+        "publish_time": "0",
+        "filter_duration": "0",
+        "content_type": "1",
+        "search_id": "",
+        "backtrace": ""
+      }
+    },
+    {
+      "n": 7,
+      "word": "vLLM部署教程",
+      "variant": "c",
+      "params": {
+        "keyword": "vLLM部署教程",
+        "cursor": 0,
+        "sort_type": "0",
+        "publish_time": "7",
+        "filter_duration": "0",
+        "content_type": "1",
+        "search_id": "",
+        "backtrace": ""
+      }
+    },
+    {
+      "n": 8,
+      "word": "Claude Code 教程",
+      "variant": "c",
+      "params": {
+        "keyword": "Claude Code 教程",
+        "cursor": 0,
+        "sort_type": "0",
+        "publish_time": "7",
+        "filter_duration": "0",
+        "content_type": "1",
+        "search_id": "",
+        "backtrace": ""
+      }
+    },
+    {
+      "n": 9,
+      "word": "AI 剪映自动化",
+      "variant": "c",
+      "params": {
+        "keyword": "AI 剪映自动化",
+        "cursor": 0,
+        "sort_type": "0",
+        "publish_time": "7",
+        "filter_duration": "0",
+        "content_type": "1",
+        "search_id": "",
+        "backtrace": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,4786 @@
+{
+  "now": "2026-11-04T12:43:42.283885+08:00",
+  "rows": [
+    {
+      "id": "douyin:7704137272739826980",
+      "platform": "douyin",
+      "direction": "本地部署与推理（llama.cpp、vLLM、MLX、4090 实测）",
+      "expected": false,
+      "raw": {
+        "aweme_id": "7704137272739826980",
+        "desc": "给团队搭一套自己的本地AI工作站，到底能做什么？ 这次我把两台英伟达Jetson Thor T5000 AI算力舱摆上桌，聊聊大模型私有化部署，怎么真正变成生产力。\n两台设备合计256GB统一内存资源，通过100Gb/s光口互联，配合模型分片与分布式推理，探索更大模型的本地运行。部署要看量化精度、推理引擎和实际任务，硬件、模型、软件得配合起来。\n这期聊到DeepSeek V4.1 Flash 1017、GLM和千问，也分享AI生图、视频生成、语音合成等应用方向。写代码、做素材、搭企业知识库、接AI智能体，按需配置内网调用和远程访问，把桌面算力接进自己的工作流。\n本地部署看什么？模型能不能装下、输出速度够不够、多人使用稳不稳，以及代码和资料能否留在内网。视频提到的100多Token/s，要结合具体模型、量化精度和上下文配置来看。\n同样的预算，你更想要代码助手、AIGC创作工具，还是企业知识库？评论区聊聊你的使用场景。我是阿豪，持续分享本地AI的部署和应用。\n#本地大模型   #私有化部署  #AI生产力  #AIGC  #企业知识库",
+        "create_time": 1793759245,
+        "author": {
+          "uid": "4034547020206250",
+          "short_id": "56066921392",
+          "nickname": "天宇玩AI",
+          "gender": 1,
+          "signature": "Linux内核工程师\nNAS丨算力舱丨本地大模型部署\n帮开发者和小团队搭建本地AI工作站\n本地大模型部署/商务🎶：TYAI2026",
+          "avatar_larger": {
+            "uri": "fixture_1",
+            "url_list": [
+              "https://example.invalid/fixture_2",
+              "https://example.invalid/fixture_3"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_thumb": {
+            "uri": "fixture_4",
+            "url_list": [
+              "https://example.invalid/fixture_5",
+              "https://example.invalid/fixture_6"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_medium": {
+            "uri": "fixture_7",
+            "url_list": [
+              "https://example.invalid/fixture_8",
+              "https://example.invalid/fixture_9"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "birthday": "1998-01-01",
+          "is_verified": true,
+          "follow_status": 0,
+          "aweme_count": 0,
+          "following_count": 0,
+          "follower_count": 0,
+          "favoriting_count": 0,
+          "total_favorited": 0,
+          "is_block": false,
+          "hide_search": false,
+          "constellation": 4,
+          "location": "",
+          "hide_location": false,
+          "weibo_verify": "",
+          "custom_verify": "",
+          "unique_id": "TYAI2026",
+          "bind_phone": "",
+          "special_lock": 1,
+          "need_recommend": 0,
+          "is_binded_weibo": false,
+          "weibo_name": "",
+          "weibo_schema": "",
+          "weibo_url": "",
+          "story_open": false,
+          "story_count": 0,
+          "has_facebook_token": false,
+          "has_twitter_token": false,
+          "fb_expire_time": 0,
+          "tw_expire_time": 0,
+          "has_youtube_token": false,
+          "youtube_expire_time": 0,
+          "room_id": 0,
+          "live_verify": 0,
+          "authority_status": 0,
+          "verify_info": "",
+          "shield_follow_notice": 0,
+          "shield_digg_notice": 0,
+          "shield_comment_notice": 0,
+          "school_name": "",
+          "school_poi_id": "",
+          "school_type": 0,
+          "share_info": {
+            "share_url": "",
+            "share_weibo_desc": "",
+            "share_desc": "",
+            "share_title": "",
+            "share_qrcode_url": {
+              "uri": "",
+              "url_list": [],
+              "width": 720,
+              "height": 720
+            },
+            "share_title_myself": "",
+            "share_title_other": "",
+            "share_desc_info": ""
+          },
+          "with_commerce_entry": false,
+          "verification_type": 1,
+          "enterprise_verify_reason": "",
+          "is_ad_fake": false,
+          "followers_detail": null,
+          "region": "CN",
+          "account_region": "",
+          "sync_to_toutiao": 0,
+          "commerce_user_level": 0,
+          "live_agreement": 0,
+          "platform_sync_info": null,
+          "with_shop_entry": false,
+          "is_discipline_member": false,
+          "has_orders": false,
+          "prevent_download": false,
+          "show_image_bubble": false,
+          "geofencing": [],
+          "unique_id_modify_time": 1793767263,
+          "video_icon": {
+            "uri": "",
+            "url_list": [],
+            "width": 720,
+            "height": 720
+          },
+          "ins_id": "",
+          "google_account": "",
+          "youtube_channel_id": "",
+          "youtube_channel_title": "",
+          "apple_account": 0,
+          "with_dou_entry": false,
+          "with_fusion_shop_entry": true,
+          "is_phone_binded": false,
+          "accept_private_policy": false,
+          "twitter_id": "",
+          "twitter_name": "",
+          "user_canceled": false,
+          "has_email": false,
+          "is_gov_media_vip": false,
+          "live_agreement_time": 0,
+          "status": 1,
+          "create_time": 0,
+          "avatar_uri": "fixture_10",
+          "follower_status": 0,
+          "neiguang_shield": 0,
+          "comment_setting": 0,
+          "duet_setting": 0,
+          "reflow_page_gid": 0,
+          "reflow_page_uid": 0,
+          "user_rate": 1,
+          "download_setting": -1,
+          "download_prompt_ts": 0,
+          "react_setting": 0,
+          "live_commerce": false,
+          "cover_url": [
+            {
+              "uri": "c8510002be9a3a61aad2",
+              "url_list": [
+                "https://example.invalid/fixture_11"
+              ],
+              "width": 720,
+              "height": 720
+            }
+          ],
+          "language": "zh-Hans",
+          "has_insights": false,
+          "share_qrcode_uri": "",
+          "item_list": null,
+          "user_mode": 0,
+          "user_period": 0,
+          "has_unread_story": false,
+          "new_story_cover": null,
+          "is_star": false,
+          "cv_level": "",
+          "type_label": null,
+          "ad_cover_url": null,
+          "comment_filter_status": 0,
+          "avatar_168x168": {
+            "uri": "fixture_12",
+            "url_list": [
+              "https://example.invalid/fixture_13",
+              "https://example.invalid/fixture_14"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_300x300": {
+            "uri": "fixture_15",
+            "url_list": [
+              "https://example.invalid/fixture_16",
+              "https://example.invalid/fixture_17"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "relative_users": null,
+          "cha_list": null,
+          "sec_uid": "fixture_18",
+          "need_points": null,
+          "homepage_bottom_toast": null,
+          "aweme_hotsoon_auth": 1,
+          "aweme_hotsoon_auth_relation": 1,
+          "can_set_geofencing": null,
+          "room_id_str": "0",
+          "white_cover_url": null,
+          "user_tags": null,
+          "stitch_setting": 0,
+          "is_mix_user": true,
+          "enable_nearby_visible": false,
+          "ban_user_functions": [],
+          "aweme_control": {
+            "can_forward": true,
+            "can_share": true,
+            "can_comment": true,
+            "can_show_comment": true
+          },
+          "user_not_show": 1,
+          "ky_only_predict": 0,
+          "user_not_see": 0,
+          "card_entries": null,
+          "signature_display_lines": 5,
+          "display_info": null,
+          "follower_request_status": 0,
+          "live_status": 0,
+          "is_not_show": false,
+          "card_entries_not_display": null,
+          "card_sort_priority": null,
+          "show_nearby_active": false,
+          "interest_tags": null,
+          "school_id": "",
+          "school_category": 0,
+          "search_impr": {
+            "entity_id": "4034547020206250"
+          },
+          "link_item_list": null,
+          "user_permissions": null,
+          "offline_info_list": null,
+          "is_cf": 0,
+          "is_blocking_v2": false,
+          "is_blocked_v2": false,
+          "close_friend_type": 0,
+          "signature_extra": null,
+          "max_follower_count": 0,
+          "personal_tag_list": null,
+          "cf_list": null,
+          "im_role_ids": null,
+          "not_seen_item_id_list": null,
+          "user_age": 28,
+          "contacts_status": 2,
+          "risk_notice_text": "",
+          "follower_list_secondary_information_struct": null,
+          "endorsement_info_list": null,
+          "text_extra": [],
+          "contrail_list": null,
+          "data_label_list": null,
+          "not_seen_item_id_list_v2": null,
+          "is_ban": false,
+          "special_people_labels": null,
+          "special_follow_status": 0,
+          "familiar_visitor_user": null,
+          "live_high_value": 0,
+          "awemehts_greet_info": "",
+          "avatar_schema_list": null,
+          "profile_mob_params": null,
+          "disable_image_comment_saved": 0,
+          "verification_permission_ids": null,
+          "batch_unfollow_relation_desc": null,
+          "batch_unfollow_contain_tabs": null,
+          "creator_tag_list": null,
+          "account_cert_info": "{}",
+          "private_relation_list": null,
+          "mate_relation": {
+            "mate_status": 0,
+            "mate_apply_forward": 0,
+            "mate_apply_reverse": 0
+          },
+          "mate_add_permission": 0,
+          "familiar_confidence": 0,
+          "mate_count": 0,
+          "social_real_relation_type": 0,
+          "identity_labels": null,
+          "profile_component_disabled": null,
+          "story_ttl": 7,
+          "story_interactive": 4,
+          "house_talent_info": 0,
+          "allow_story_normal_like": false,
+          "story25_comment": 1,
+          "profile_signature_components": null,
+          "webcast_preview_labels": null,
+          "follow_area": null
+        },
+        "music": {
+          "id": 7704137262690306870,
+          "id_str": "7704137262690306870",
+          "title": "@天宇玩AI创作的原声",
+          "author": "天宇玩AI",
+          "album": "",
+          "cover_hd": {
+            "uri": "fixture_19",
+            "url_list": [
+              "https://example.invalid/fixture_20",
+              "https://example.invalid/fixture_21"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "cover_large": {
+            "uri": "fixture_22",
+            "url_list": [
+              "https://example.invalid/fixture_23",
+              "https://example.invalid/fixture_24"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "cover_medium": {
+            "uri": "fixture_25",
+            "url_list": [
+              "https://example.invalid/fixture_26",
+              "https://example.invalid/fixture_27"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "cover_thumb": {
+            "uri": "fixture_28",
+            "url_list": [
+              "https://example.invalid/fixture_29",
+              "https://example.invalid/fixture_30"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "play_url": {
+            "uri": "https://example.invalid/fixture_31",
+            "url_list": [
+              "https://example.invalid/fixture_32",
+              "https://example.invalid/fixture_33"
+            ],
+            "width": 720,
+            "height": 720,
+            "url_key": "url_key_placeholder_1"
+          },
+          "schema_url": "",
+          "source_platform": 23,
+          "start_time": 0,
+          "end_time": 0,
+          "duration": 46,
+          "extra": "{\"aggregate_exempt_conf\":[],\"aigc_clip\":false,\"beats\":{},\"cover_colors\":null,\"douyin_beats_info\":{},\"dsp_switch\":0,\"extract_item_id\":7704137272739826980,\"has_edited\":0,\"hotsoon_review_time\":-1,\"is_aed_music\":0,\"is_red\":0,\"is_subsidy_exp\":false,\"long_pic_video_usable\":true,\"music_label_id\":null,\"music_tagging\":{\"AEDs\":null,\"Genres\":null,\"Instruments\":null,\"Languages\":null,\"Moods\":null,\"SingingVersions\":null,\"Themes\":null},\"review_unshelve_reason\":0,\"reviewed\":0,\"schedule_search_time\":0,\"uniqa_speech_score\":0.9,\"with_aed_model\":0}",
+          "user_count": 0,
+          "position": null,
+          "collect_stat": 0,
+          "status": 1,
+          "offline_desc": "",
+          "owner_id": "4034547020206250",
+          "owner_nickname": "天宇玩AI",
+          "is_original": false,
+          "mid": "7704137262690306870",
+          "binded_challenge_id": 0,
+          "redirect": false,
+          "is_restricted": false,
+          "author_deleted": false,
+          "is_del_video": false,
+          "is_video_self_see": false,
+          "owner_handle": "TYAI2026",
+          "author_position": null,
+          "prevent_download": false,
+          "unshelve_countries": null,
+          "prevent_item_download_status": 0,
+          "external_song_info": [],
+          "sec_uid": "fixture_35",
+          "avatar_thumb": {
+            "uri": "fixture_36",
+            "url_list": [
+              "https://example.invalid/fixture_37",
+              "https://example.invalid/fixture_38"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_medium": {
+            "uri": "fixture_39",
+            "url_list": [
+              "https://example.invalid/fixture_40",
+              "https://example.invalid/fixture_41"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_large": {
+            "uri": "fixture_42",
+            "url_list": [
+              "https://example.invalid/fixture_43",
+              "https://example.invalid/fixture_44"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "preview_start_time": 0,
+          "preview_end_time": 0,
+          "is_commerce_music": false,
+          "is_original_sound": true,
+          "audition_duration": 46,
+          "shoot_duration": 46,
+          "reason_type": 0,
+          "artists": [],
+          "lyric_short_position": null,
+          "mute_share": false,
+          "tag_list": null,
+          "dmv_auto_show": false,
+          "is_pgc": false,
+          "is_matched_metadata": false,
+          "music_chart_ranks": null,
+          "can_background_play": true,
+          "music_status": 1,
+          "video_duration": 46,
+          "pgc_music_type": 2,
+          "author_status": 1,
+          "search_impr": {
+            "entity_id": "7704137262690306870"
+          },
+          "artist_user_infos": null,
+          "dsp_status": 10,
+          "musician_user_infos": null,
+          "luna_info": {
+            "is_luna_user": false
+          },
+          "music_collect_count": 0,
+          "music_cover_atmosphere_color_value": "",
+          "show_origin_clip": false,
+          "talent_hashtag_name_list": null
+        },
+        "cha_list": [
+          {
+            "cid": "1678093214361614",
+            "cha_name": "私有化部署",
+            "desc": "",
+            "schema": "aweme://aweme/challenge/detail?cid=1678093214361614",
+            "author": {
+              "followers_detail": null,
+              "platform_sync_info": null,
+              "geofencing": null,
+              "cover_url": null,
+              "item_list": null,
+              "new_story_cover": null,
+              "type_label": null,
+              "ad_cover_url": null,
+              "relative_users": null,
+              "cha_list": null,
+              "need_points": null,
+              "homepage_bottom_toast": null,
+              "can_set_geofencing": null,
+              "white_cover_url": null,
+              "user_tags": null,
+              "ban_user_functions": null,
+              "card_entries": null,
+              "display_info": null,
+              "card_entries_not_display": null,
+              "card_sort_priority": null,
+              "interest_tags": null,
+              "link_item_list": null,
+              "user_permissions": null,
+              "offline_info_list": null,
+              "signature_extra": null,
+              "personal_tag_list": null,
+              "cf_list": null,
+              "im_role_ids": null,
+              "not_seen_item_id_list": null,
+              "follower_list_secondary_information_struct": null,
+              "endorsement_info_list": null,
+              "text_extra": null,
+              "contrail_list": null,
+              "data_label_list": null,
+              "not_seen_item_id_list_v2": null,
+              "special_people_labels": null,
+              "familiar_visitor_user": null,
+              "avatar_schema_list": null,
+              "profile_mob_params": null,
+              "verification_permission_ids": null,
+              "batch_unfollow_relation_desc": null,
+              "batch_unfollow_contain_tabs": null,
+              "creator_tag_list": null,
+              "private_relation_list": null,
+              "identity_labels": null,
+              "profile_component_disabled": null,
+              "profile_signature_components": null,
+              "webcast_preview_labels": null,
+              "follow_area": null
+            },
+            "user_count": 0,
+            "share_info": {
+              "share_url": "https://example.invalid/fixture_45",
+              "share_weibo_desc": "我在抖音参与话题讨论#私有化部署 ",
+              "share_desc": "在抖音，记录美好生活",
+              "share_title": "我在抖音参与话题讨论#私有化部署 ",
+              "bool_persist": 0,
+              "share_title_myself": "",
+              "share_title_other": "",
+              "share_signature_url": "",
+              "share_signature_desc": "",
+              "share_quote": "",
+              "share_desc_info": "我在抖音参与话题讨论#私有化部署 "
+            },
+            "connect_music": [],
+            "type": 1,
+            "sub_type": 0,
+            "is_pgcshow": false,
+            "collect_stat": 0,
+            "is_challenge": 0,
+            "view_count": 0,
+            "is_commerce": false,
+            "hashtag_profile": "fixture_46",
+            "cha_attrs": null,
+            "banner_list": null,
+            "extra_attr": {
+              "is_live": false
+            },
+            "show_items": null,
+            "search_impr": {
+              "entity_id": "1678093214361614"
+            },
+            "challenge_status": 1,
+            "from_ugc_hashtag_bank": "0",
+            "insert_template_category_list": null
+          }
+        ],
+        "video": {
+          "play_addr": {
+            "uri": "fixture_47",
+            "url_list": [
+              "https://example.invalid/fixture_48",
+              "https://example.invalid/fixture_49",
+              "https://example.invalid/fixture_50",
+              "https://example.invalid/fixture_51"
+            ],
+            "width": 720,
+            "height": 1280,
+            "url_key": "url_key_placeholder_2",
+            "data_size": 10116057,
+            "file_hash": "a3f39ced8714053c05d8531252f8db08",
+            "file_cs": "fixture_53"
+          },
+          "cover": {
+            "uri": "fixture_54",
+            "url_list": [
+              "https://example.invalid/fixture_55",
+              "https://example.invalid/fixture_56",
+              "https://example.invalid/fixture_57"
+            ],
+            "width": 1084,
+            "height": 1448
+          },
+          "height": 1280,
+          "width": 720,
+          "dynamic_cover": {
+            "uri": "fixture_58",
+            "url_list": [
+              "https://example.invalid/fixture_59",
+              "https://example.invalid/fixture_60"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "origin_cover": {
+            "uri": "fixture_61",
+            "url_list": [
+              "https://example.invalid/fixture_62",
+              "https://example.invalid/fixture_63",
+              "https://example.invalid/fixture_64"
+            ],
+            "width": 360,
+            "height": 640
+          },
+          "ratio": "720p",
+          "download_addr": {
+            "uri": "fixture_65",
+            "url_list": [
+              "https://example.invalid/fixture_66",
+              "https://example.invalid/fixture_67",
+              "https://example.invalid/fixture_68",
+              "https://example.invalid/fixture_69"
+            ],
+            "width": 720,
+            "height": 720,
+            "data_size": 14623809,
+            "file_cs": "fixture_70"
+          },
+          "has_watermark": true,
+          "bit_rate": [
+            {
+              "gear_name": "adapt_lowest_720_2",
+              "quality_type": 15,
+              "bit_rate": 384355,
+              "play_addr": {
+                "uri": "fixture_71",
+                "url_list": [
+                  "https://example.invalid/fixture_72",
+                  "https://example.invalid/fixture_73",
+                  "https://example.invalid/fixture_74",
+                  "https://example.invalid/fixture_75"
+                ],
+                "width": 720,
+                "height": 1280,
+                "url_key": "url_key_placeholder_3",
+                "data_size": 2219992,
+                "file_hash": "c1805cd9867947b7199b5735cb105af5",
+                "file_cs": "fixture_77"
+              },
+              "is_h265": 2,
+              "is_bytevc1": 2,
+              "HDR_type": "",
+              "HDR_bit": "",
+              "FPS": 30,
+              "video_extra": "fixture_78",
+              "format": "mp4"
+            },
+            {
+              "gear_name": "adapt_540_2",
+              "quality_type": 28,
+              "bit_rate": 356396,
+              "play_addr": {
+                "uri": "fixture_79",
+                "url_list": [
+                  "https://example.invalid/fixture_80",
+                  "https://example.invalid/fixture_81",
+                  "https://example.invalid/fixture_82",
+                  "https://example.invalid/fixture_83"
+                ],
+                "width": 576,
+                "height": 1024,
+                "url_key": "url_key_placeholder_4",
+                "data_size": 2058503,
+                "file_hash": "0d081e4c3efde4363cfb31fa7a439ca7",
+                "file_cs": "fixture_85"
+              },
+              "is_h265": 2,
+              "is_bytevc1": 2,
+              "HDR_type": "",
+              "HDR_bit": "",
+              "FPS": 30,
+              "video_extra": "fixture_86",
+              "format": "mp4"
+            },
+            {
+              "gear_name": "adapt_lower_540_2",
+              "quality_type": 21,
+              "bit_rate": 334392,
+              "play_addr": {
+                "uri": "fixture_87",
+                "url_list": [
+                  "https://example.invalid/fixture_88",
+                  "https://example.invalid/fixture_89",
+                  "https://example.invalid/fixture_90",
+                  "https://example.invalid/fixture_91"
+                ],
+                "width": 576,
+                "height": 1024,
+                "url_key": "url_key_placeholder_5",
+                "data_size": 1931408,
+                "file_hash": "ea610976d94d0386b8832d3e20c75e9f",
+                "file_cs": "fixture_93"
+              },
+              "is_h265": 2,
+              "is_bytevc1": 2,
+              "HDR_type": "",
+              "HDR_bit": "",
+              "FPS": 30,
+              "video_extra": "fixture_94",
+              "format": "mp4"
+            }
+          ],
+          "duration": 46207,
+          "play_addr_265": {
+            "uri": "fixture_95",
+            "url_list": [
+              "https://example.invalid/fixture_96",
+              "https://example.invalid/fixture_97",
+              "https://example.invalid/fixture_98",
+              "https://example.invalid/fixture_99"
+            ],
+            "width": 576,
+            "height": 1024,
+            "url_key": "url_key_placeholder_6",
+            "data_size": 2913464,
+            "file_hash": "00de41f1c52d15821bbb26294c6d61a4",
+            "file_cs": "fixture_101"
+          },
+          "is_h265": 0,
+          "play_addr_h264": {
+            "uri": "fixture_102",
+            "url_list": [
+              "https://example.invalid/fixture_103",
+              "https://example.invalid/fixture_104",
+              "https://example.invalid/fixture_105",
+              "https://example.invalid/fixture_106"
+            ],
+            "width": 720,
+            "height": 1280,
+            "url_key": "url_key_placeholder_7",
+            "data_size": 10116057,
+            "file_hash": "a3f39ced8714053c05d8531252f8db08",
+            "file_cs": "fixture_108"
+          },
+          "cdn_url_expired": 1793770909,
+          "animated_cover": {
+            "uri": "fixture_109",
+            "url_list": [
+              "https://example.invalid/fixture_110",
+              "https://example.invalid/fixture_111"
+            ]
+          },
+          "need_set_token": false,
+          "CoverTsp": 0,
+          "is_callback": true,
+          "tags": [],
+          "use_static_cover": true,
+          "big_thumbs": [
+            {
+              "img_num": 46,
+              "uri": "fixture_112",
+              "img_url": "https://example.invalid/fixture_113",
+              "img_x_size": 134,
+              "img_y_size": 240,
+              "img_x_len": 5,
+              "img_y_len": 5,
+              "duration": 46.2,
+              "interval": 1,
+              "fext": "jpg",
+              "uris": [
+                "fixture_114",
+                "fixture_115"
+              ],
+              "img_urls": [
+                "https://example.invalid/fixture_116",
+                "https://example.invalid/fixture_117"
+              ]
+            }
+          ],
+          "is_bytevc1": 0,
+          "meta": "{\"bright_ratio_mean\":\"0.215\",\"brightness_mean\":\"154.162\",\"diff_overexposure_ratio\":\"0.0029\",\"format\":\"mp4\",\"gear_vqm\":\"{\\\"1080p_720p\\\":-1,\\\"720p_540p\\\":-1}\",\"hrids\":\"101016283\",\"is_cdn_peak\":\"true\",\"is_spatial_video\":\"0\",\"isad\":\"0\",\"net_info\":\"{\\\"dns_list\\\":{},\\\"c_isp\\\":99}\",\"overexposure_ratio_mean\":\"0.0074\",\"qprf\":\"1.000\",\"sdgs\":\"[\\\"adapt_lowest_720_2\\\",\\\"adapt_540_2\\\",\\\"adapt_lower_540_2\\\"]\",\"sr_score\":\"0.000\",\"std_brightness\":\"8.2409\",\"strategy_tokens\":\"[\\\"online\\\",\\\"model01_0919\\\",\\\"model02_0919\\\"]\",\"title_info\":\"{\\\"avg_br_pc\\\":141,\\\"bottom_res_add\\\":[104.64,17.73,11.09,11.09,6.55,5.09,5.18,5.82,4,5,3.91,4,2.73,4.73,25.73],\\\"bullet_zone\\\":5.26,\\\"mean_br_l\\\":[130.25,135.94,139.2,140.05,139.95,140.62],\\\"pc60_br_l\\\":[146.47,150.9,152.9,153.25,152.44,150.34],\\\"progress_bar\\\":[51.68,95.07,117.05],\\\"ratio_br_l\\\":[140.56,143.4,150.47,148.2,146.78,145.74],\\\"ratio_br_l_thre220\\\":[0,0,0,0,0,0],\\\"ratio_edge_l\\\":[0.14,0.25,0.29,0.36,0.43,0.46],\\\"std_br_l\\\":[37.64,32.1,27.38,23.22,20.42,18.85],\\\"top_res_add\\\":[26.09,1.18,1.18,1.27,1.18,1,1.91],\\\"version\\\":\\\"v1.0\\\"}\",\"volume_info\":\"{\\\"MaximumMomentaryLoudness\\\":-4.1,\\\"Peak\\\":1,\\\"LoudnessRange\\\":1.5,\\\"LoudnessRangeEnd\\\":-6.7,\\\"MaximumShortTermLoudness\\\":-6.5,\\\"Metrics\\\":{\\\"Phase\\\":{\\\"RMSDownmixDiff\\\":-0.003},\\\"RMSStats\\\":{\\\"LRDiff\\\":0.001,\\\"LTotal\\\":-10.272,\\\"Peak\\\":1.049,\\\"RTotal\\\":-10.273},\\\"Version\\\":\\\"1.4.2\\\",\\\"Loudness\\\":{\\\"Integrated\\\":-7.618}},\\\"Version\\\":2,\\\"Loudness\\\":-7.6,\\\"LoudnessRangeStart\\\":-8.3}\"}",
+          "is_source_HDR": 0,
+          "audio": {
+            "original_sound_infos": null
+          },
+          "bit_rate_audio": null,
+          "format": "mp4",
+          "fuse_video_labels_v2": {
+            "Top1": [
+              {
+                "Level1": {
+                  "TagId": 615
+                },
+                "Level2": {
+                  "TagId": 61507
+                },
+                "Level3": {
+                  "TagId": 6150701
+                }
+              }
+            ]
+          }
+        },
+        "share_url": "https://example.invalid/fixture_118",
+        "user_digged": 0,
+        "statistics": {
+          "aweme_id": "7704137272739826980",
+          "comment_count": 0,
+          "digg_count": 17,
+          "download_count": 0,
+          "play_count": 0,
+          "share_count": 4,
+          "forward_count": 0,
+          "lose_count": 0,
+          "lose_comment_count": 0,
+          "whatsapp_share_count": 0,
+          "digest": "",
+          "exposure_count": 0,
+          "live_watch_count": 0,
+          "collect_count": 9,
+          "recommend_count": 0
+        },
+        "status": {
+          "aweme_id": "7704137272739826980",
+          "is_delete": false,
+          "allow_share": true,
+          "allow_comment": true,
+          "is_private": false,
+          "with_goods": false,
+          "private_status": 0,
+          "with_fusion_goods": false,
+          "in_reviewing": false,
+          "reviewed": 0,
+          "self_see": false,
+          "is_prohibited": false,
+          "download_status": 0,
+          "review_result": {
+            "review_status": 0
+          },
+          "dont_share_status": 0,
+          "video_hide_search": 0,
+          "aweme_edit_info": {
+            "button_status": 2,
+            "button_toast": ""
+          },
+          "part_see": 0,
+          "listen_video_status": 2,
+          "allow_friend_recommend": false,
+          "allow_self_recommend_to_friend": true,
+          "allow_friend_recommend_guide": true
+        },
+        "rate": 12,
+        "text_extra": [
+          {
+            "start": 434,
+            "end": 440,
+            "type": 1,
+            "hashtag_name": "本地大模型",
+            "hashtag_id": "1785516744043555",
+            "is_commerce": false,
+            "caption_start": 409,
+            "caption_end": 415
+          },
+          {
+            "start": 443,
+            "end": 449,
+            "type": 1,
+            "hashtag_name": "私有化部署",
+            "hashtag_id": "1678093214361614",
+            "is_commerce": false,
+            "caption_start": 418,
+            "caption_end": 424
+          },
+          {
+            "start": 451,
+            "end": 457,
+            "type": 1,
+            "hashtag_name": "AI生产力",
+            "hashtag_id": "1747577350976527",
+            "is_commerce": false,
+            "caption_start": 426,
+            "caption_end": 432
+          },
+          {
+            "start": 459,
+            "end": 464,
+            "type": 1,
+            "hashtag_name": "AIGC",
+            "hashtag_id": "1722895911293971",
+            "is_commerce": false,
+            "caption_start": 434,
+            "caption_end": 439
+          },
+          {
+            "start": 466,
+            "end": 472,
+            "type": 1,
+            "hashtag_name": "企业知识库",
+            "hashtag_id": "1660823764753420",
+            "is_commerce": false,
+            "caption_start": 441,
+            "caption_end": 447
+          }
+        ],
+        "is_top": 0,
+        "share_info": {
+          "share_url": "https://example.invalid/fixture_119",
+          "share_weibo_desc": "#在抖音，记录美好生活#给团队搭一套自己的本地AI工作站，到底能做什么？ 这次我把两台英伟达Jetson Thor T5000 AI算力舱摆上桌，聊聊大模型私有化部署，怎么真正变成生产力。\n两台设备合计256GB统一内存资源，通过100Gb/s光口互联，配合模型分片与分布式推理，探索更大模型的本地运行。部署要看量化精度、推理引擎和实际任务，硬件、模型、软件得配合起来。\n这期聊到DeepSeek V4.1 Flash 1017、GLM和千问，也分享AI生图、视频生成、语音合成等应用方向。写代码、做素材、搭企业知识库、接AI智能体，按需配置内网调用和远程访问，把桌面算力接进自己的工作流。\n本地部署看什么？模型能不能装下、输出速度够不够、多人使用稳不稳，以及代码和资料能否留在内网。视频提到的100多Token/s，要结合具体模型、量化精度和上下文配置来看。\n同样的预算，你更想要代码助手、AIGC创作工具，还是企业知识库？评论区聊聊你的使用场景。我是阿豪，持续分享本地AI的部署和应用。\n#本地大模型   #私有化部署  #AI生产力  #AIGC  #企业知识库",
+          "share_desc": "在抖音，记录美好生活",
+          "share_title": "给团队搭一套自己的本地AI工作站，到底能做什么？ 这次我把两台英伟达Jetson Thor T5000 AI算力舱摆上桌，聊聊大模型私有化部署，怎么真正变成生产力。\n两台设备合计256GB统一内存资源，通过100Gb/s光口互联，配合模型分片与分布式推理，探索更大模型的本地运行。部署要看量化精度、推理引擎和实际任务，硬件、模型、软件得配合起来。\n这期聊到DeepSeek V4.1 Flash 1017、GLM和千问，也分享AI生图、视频生成、语音合成等应用方向。写代码、做素材、搭企业知识库、接AI智能体，按需配置内网调用和远程访问，把桌面算力接进自己的工作流。\n本地部署看什么？模型能不能装下、输出速度够不够、多人使用稳不稳，以及代码和资料能否留在内网。视频提到的100多Token/s，要结合具体模型、量化精度和上下文配置来看。\n同样的预算，你更想要代码助手、AIGC创作工具，还是企业知识库？评论区聊聊你的使用场景。我是阿豪，持续分享本地AI的部署和应用。\n#本地大模型   #私有化部署  #AI生产力  #AIGC  #企业知识库",
+          "bool_persist": 0,
+          "share_title_myself": "",
+          "share_title_other": "",
+          "share_link_desc": "6.12 复制打开AI抖音，看看【天宇玩AI的作品】给团队搭一套自己的本地AI工作站，到底能做什么？ ... %s sre:/ :4pm 09/25 L@j.PX ",
+          "share_signature_url": "",
+          "share_signature_desc": "",
+          "share_quote": "",
+          "share_desc_info": "#在抖音，记录美好生活#给团队搭一套自己的本地AI工作站，到底能做什么？ 这次我把两台英伟达Jetson Thor T5000 AI算力舱摆上桌，聊聊大模型私有化部署，怎么真正变成生产力。\n两台设备合计256GB统一内存资源，通过100Gb/s光口互联，配合模型分片与分布式推理，探索更大模型的本地运行。部署要看量化精度、推理引擎和实际任务，硬件、模型、软件得配合起来。\n这期聊到DeepSeek V4.1 Flash 1017、GLM和千问，也分享AI生图、视频生成、语音合成等应用方向。写代码、做素材、搭企业知识库、接AI智能体，按需配置内网调用和远程访问，把桌面算力接进自己的工作流。\n本地部署看什么？模型能不能装下、输出速度够不够、多人使用稳不稳，以及代码和资料能否留在内网。视频提到的100多Token/s，要结合具体模型、量化精度和上下文配置来看。\n同样的预算，你更想要代码助手、AIGC创作工具，还是企业知识库？评论区聊聊你的使用场景。我是阿豪，持续分享本地AI的部署和应用。\n#本地大模型   #私有化部署  #AI生产力  #AIGC  #企业知识库"
+        },
+        "distance": "",
+        "video_labels": null,
+        "is_vr": false,
+        "duration": 46207,
+        "aweme_type": 0,
+        "is_fantasy": false,
+        "cmt_swt": false,
+        "image_infos": null,
+        "risk_infos": {
+          "vote": false,
+          "warn": true,
+          "risk_sink": false,
+          "type": 336,
+          "content": "作者声明：个人观点，仅供参考",
+          "warn_level": 0,
+          "icon_url": "https://example.invalid/fixture_120"
+        },
+        "is_relieve": false,
+        "sort_label": "",
+        "position": null,
+        "uniqid_position": null,
+        "comment_list": null,
+        "author_user_id": 4034547020206250,
+        "bodydance_score": 0,
+        "geofencing": [],
+        "is_hash_tag": 1,
+        "is_pgcshow": false,
+        "region": "",
+        "video_text": [],
+        "vr_type": 0,
+        "collect_stat": 0,
+        "label_top_text": null,
+        "promotions": [],
+        "group_id": "7704137272739826980",
+        "prevent_download": false,
+        "nickname_position": null,
+        "challenge_position": null,
+        "item_comment_settings": 0,
+        "with_promotional_music": false,
+        "xigua_task": {
+          "is_xigua_task": false
+        },
+        "long_video": null,
+        "item_duet": 0,
+        "item_react": 0,
+        "without_watermark": false,
+        "desc_language": "zh",
+        "interaction_stickers": null,
+        "misc_info": "{\"common_business_mob\":\"{}\",\"is_teen_video\":0}",
+        "origin_comment_ids": null,
+        "commerce_config_data": null,
+        "distribute_type": 1,
+        "video_control": {
+          "allow_download": true,
+          "share_type": 1,
+          "show_progress_bar": 1,
+          "draft_progress_bar": 1,
+          "allow_duet": true,
+          "allow_react": true,
+          "prevent_download_type": 0,
+          "allow_dynamic_wallpaper": true,
+          "timer_status": 1,
+          "allow_music": true,
+          "allow_stitch": true,
+          "allow_douplus": true,
+          "allow_share": true,
+          "share_grayed": false,
+          "download_ignore_visibility": false,
+          "duet_ignore_visibility": false,
+          "share_ignore_visibility": false,
+          "download_info": {
+            "level": 2,
+            "fail_info": {
+              "code": 200001,
+              "reason": "risk_info"
+            }
+          },
+          "duet_info": {
+            "level": 0
+          },
+          "allow_record": true,
+          "disable_record_reason": "",
+          "timer_info": {
+            "timer_status": 0
+          },
+          "show_ai_corner": false,
+          "show_watermark": false
+        },
+        "aweme_control": {
+          "can_forward": true,
+          "can_share": true,
+          "can_comment": true,
+          "can_show_comment": true
+        },
+        "has_vs_entry": false,
+        "commerce_info": {
+          "ad_type": 0,
+          "is_ad": false
+        },
+        "need_vs_entry": true,
+        "is_preview": 0,
+        "anchors": null,
+        "hybrid_label": null,
+        "geofencing_regions": null,
+        "have_dashboard": false,
+        "search_extra": {
+          "optimize_text_extra": null,
+          "card_btm": {
+            "btm": "c58056.d0",
+            "bcm": {
+              "search_id": "fixture_121",
+              "search_result_id": "7704137272739826980",
+              "author_id": "4034547020206250",
+              "video_id": "7704137272739826980",
+              "summary_track_id": ""
+            },
+            "area_btm": {
+              "author_area": "c58056.d04158",
+              "author_avatar_living_area": "c58056.d30934",
+              "video_area": "c58056.d60920",
+              "shopping_area": "c58056.d278936"
+            }
+          },
+          "double_columns_card_btm": {
+            "btm": "c094390.d0",
+            "bcm": {
+              "search_id": "fixture_122",
+              "search_result_id": "7704137272739826980"
+            },
+            "area_btm": {
+              "author_area": "c094390.d58755",
+              "video_area": "c094390.d270200",
+              "shopping_area": "c094390.d75544",
+              "digg_area": "c094390.d82327",
+              "comment_area": "c106634.d0",
+              "collect_area": "c106633.d0"
+            }
+          },
+          "suggest_info": {
+            "ecom_item_id": "7704137272739826980",
+            "product_ids": null
+          },
+          "recall_from_ecom": false
+        },
+        "poi_patch_info": {
+          "item_patch_poi_prompt_mark": 0,
+          "extra": ""
+        },
+        "is_story": 0,
+        "report_action": false,
+        "item_stitch": 0,
+        "story_ttl": 0,
+        "city": "420100",
+        "cover_labels": null,
+        "is_first_video": false,
+        "nearby_level": 0,
+        "guide_btn_type": 0,
+        "is_in_scope": false,
+        "poi_biz": {},
+        "images": null,
+        "relation_labels": null,
+        "is_karaoke": false,
+        "impression_data": {
+          "group_id_list_a": [],
+          "group_id_list_b": [],
+          "similar_id_list_a": null,
+          "similar_id_list_b": null,
+          "group_id_list_c": [],
+          "group_id_list_d": null
+        },
+        "item_share": 0,
+        "social_tag_list": null,
+        "suggest_words": {
+          "suggest_words": [
+            {
+              "words": [
+                {
+                  "word": "AI硬件概念股",
+                  "word_id": "6987987896347940127",
+                  "info": "{\"End\":0,\"Start\":0,\"ecpm_boost_tag\":false,\"log_pb\":\"\",\"qrec_for_search\":\"{}\"}"
+                }
+              ],
+              "scene": "image_relate_rec",
+              "icon_url": "",
+              "hint_text": "大家都在搜：",
+              "extra_info": "{\"resp_from\":\"normal\"}"
+            },
+            {
+              "words": [
+                {
+                  "word": "AI硬件概念股",
+                  "word_id": "6987987896347940127",
+                  "info": "{\"End\":0,\"Start\":0,\"ecpm_boost_tag\":false,\"log_pb\":\"\",\"qrec_for_search\":\"{}\"}"
+                }
+              ],
+              "scene": "comment_top_rec",
+              "icon_url": "",
+              "hint_text": "大家都在搜：",
+              "extra_info": "{\"resp_from\":\"normal\"}"
+            },
+            {
+              "words": [
+                {
+                  "word": "AI硬件概念股",
+                  "word_id": "6987987896347940127",
+                  "info": "{\"End\":0,\"Start\":0,\"ecpm_boost_tag\":false,\"log_pb\":\"\",\"qrec_for_search\":\"{}\"}"
+                }
+              ],
+              "scene": "detail_inbox_rex",
+              "icon_url": "",
+              "hint_text": "",
+              "extra_info": "{\"resp_from\":\"normal\"}"
+            }
+          ],
+          "disable_display_bar_inner": 0
+        },
+        "show_follow_button": {},
+        "duet_aggregate_in_music_tab": false,
+        "is_duet_sing": false,
+        "search_impr": {
+          "entity_id": "7704137272739826980",
+          "entity_type": "GENERAL"
+        },
+        "comment_permission_info": {
+          "comment_permission_status": 0,
+          "can_comment": true,
+          "item_detail_entry": true,
+          "press_entry": true,
+          "toast_guide": false
+        },
+        "create_time_config": {
+          "font_color": "TextTertiary",
+          "position": 2
+        },
+        "original_images": null,
+        "series_paid_info": {
+          "series_paid_status": 0,
+          "item_price": 0
+        },
+        "img_bitrate": null,
+        "comment_gid": 7704137272739826980,
+        "image_album_music_info": {
+          "begin_time": -1,
+          "end_time": -1,
+          "volume": -1
+        },
+        "video_tag": [
+          {
+            "tag_id": 2026,
+            "tag_name": "科技",
+            "level": 1
+          },
+          {
+            "tag_id": 2026004,
+            "tag_name": "科技周边",
+            "level": 2
+          },
+          {
+            "tag_id": 2026004005,
+            "tag_name": "其他",
+            "level": 3
+          }
+        ],
+        "is_collects_selected": 0,
+        "chapter_list": null,
+        "ip_attribution": "湖北",
+        "should_open_ad_report": false,
+        "feed_comment_config": {
+          "input_config_text": "善语结善缘，恶言伤人心",
+          "common_flags": "{\"api_ab\":\"0\",\"hashtag\":\"[{\\\"name\\\":\\\"私有化部署\\\",\\\"id\\\":1678093214361614},{\\\"name\\\":\\\"ai生产力\\\",\\\"id\\\":1747577350976527},{\\\"name\\\":\\\"企业知识库\\\",\\\"id\\\":1660823764753420},{\\\"name\\\":\\\"aigc\\\",\\\"id\\\":1722895911293971},{\\\"name\\\":\\\"本地大模型\\\",\\\"id\\\":1785516744043555}]\",\"item_author_nickname\":\"天宇玩AI\",\"need_personal_rec\":\"1\",\"video_labels_v2_tag1\":\"科技\",\"video_labels_v2_tag2\":\"数码产品\",\"video_type\":\"all\"}",
+          "audio_comment_permission": 0,
+          "double_publish_limit": 1
+        },
+        "is_image_beat": false,
+        "dislike_dimension_list": null,
+        "standard_bar_info_list": null,
+        "photo_search_entrance": {
+          "ecom_type": 0
+        },
+        "is_life_item": false,
+        "image_list": null,
+        "component_info_v2": "{\"desc_lines_limit\":0,\"hide_marquee\":false}",
+        "common_bar_info": "fixture_123",
+        "item_warn_notification": {
+          "type": 0,
+          "show": false,
+          "content": ""
+        },
+        "origin_text_extra": [],
+        "preview_title": "给团队搭一套自己的本地AI工作站，到底能做什么？ 这次我把两台英伟达Jetson Thor T5000 AI算力舱摆上桌",
+        "preview_video_status": 1,
+        "guide_scene_info": {
+          "guide_scene_type": 0,
+          "feed_origin_gid_info_str": "",
+          "diamond_expose_info_str": ""
+        },
+        "disable_relation_bar": 0,
+        "packed_clips": null,
+        "vtag_search": {
+          "vtag_enable": true,
+          "vtag_delay_ts": 56207,
+          "default_vtag_data": "",
+          "default_vtag_enable": false,
+          "inspiration_vtag_enable": false
+        },
+        "author_mask_tag": 0,
+        "dcm_info": {
+          "dcm": "fixture_124"
+        },
+        "user_recommend_status": 0,
+        "collection_corner_mark": 0,
+        "is_share_post": false,
+        "image_comment": {},
+        "visual_search_info": {
+          "is_show_entrance": false,
+          "extra": "",
+          "visual_search_longpress": 1,
+          "is_ecom_img": false,
+          "is_high_accuracy_ecom": false,
+          "is_high_recall_ecom": true,
+          "panel_entrance_text": "",
+          "panel_entrance_intent": "",
+          "tag_space": ""
+        },
+        "tts_id_list": null,
+        "ref_tts_id_list": null,
+        "voice_modify_id_list": null,
+        "ref_voice_modify_id_list": null,
+        "book_bar": {},
+        "authentication_token": "fixture_125",
+        "video_game_data_channel_config": {},
+        "dislike_dimension_list_v2": [
+          {
+            "icon": "https://example.invalid/fixture_126",
+            "text": "我不想看",
+            "entitys": [
+              {
+                "dimension_id": 1,
+                "pre_text": "作者",
+                "sub_text": "天宇玩AI",
+                "server_extra": "{\"author_id\":4034547020206250}",
+                "en_name": "author"
+              },
+              {
+                "dimension_id": 2,
+                "pre_text": "音乐",
+                "sub_text": "@天宇玩AI创作的原声",
+                "server_extra": "{\"music_id\":7704137262690306870}",
+                "en_name": "music"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "本地大模型",
+                "server_extra": "{\"challenge_id\":1785516744043555}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "私有化部署",
+                "server_extra": "{\"challenge_id\":1678093214361614}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "AI生产力",
+                "server_extra": "{\"challenge_id\":1747577350976527}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "AIGC",
+                "server_extra": "{\"challenge_id\":1722895911293971}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "企业知识库",
+                "server_extra": "{\"challenge_id\":1660823764753420}",
+                "en_name": "hashtag"
+              }
+            ]
+          },
+          {
+            "icon": "https://example.invalid/fixture_127",
+            "text": "反馈内容问题",
+            "entitys": [
+              {
+                "dimension_id": 12,
+                "pre_text": "相似过多",
+                "server_extra": "{\"subjective_id\":1001}",
+                "en_name": "repeat"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "广告营销",
+                "server_extra": "{\"subjective_id\":1002}",
+                "en_name": "ad"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "恶心恐怖",
+                "server_extra": "{\"subjective_id\":1003}",
+                "en_name": "disgust"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "色情低俗",
+                "server_extra": "{\"subjective_id\":1004}",
+                "en_name": "porn"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "虚假夸张",
+                "server_extra": "{\"subjective_id\":1005}",
+                "en_name": "fake"
+              }
+            ]
+          }
+        ],
+        "distribute_circle": {
+          "distribute_type": 0,
+          "campus_block_interaction": false,
+          "is_campus": false
+        },
+        "comment_words_recommend": {
+          "zero_comment": null
+        },
+        "image_crop_ctrl": 0,
+        "yumme_recreason": null,
+        "slides_music_beats": null,
+        "is_ecom_aweme": 1,
+        "jump_tab_info_list": null,
+        "media_type": 4,
+        "reply_smart_emojis": null,
+        "activity_video_type": -1,
+        "boost_status": 0,
+        "create_scale_type": null,
+        "live_appointment_info": {},
+        "entertainment_product_info": {
+          "sub_title": null,
+          "market_info": {
+            "limit_free": {
+              "in_free": false
+            },
+            "marketing_tag": null
+          },
+          "biz": 0
+        },
+        "caption": "这次我把两台英伟达Jetson Thor T5000 AI算力舱摆上桌，聊聊大模型私有化部署，怎么真正变成生产力。\n两台设备合计256GB统一内存资源，通过100Gb/s光口互联，配合模型分片与分布式推理，探索更大模型的本地运行。部署要看量化精度、推理引擎和实际任务，硬件、模型、软件得配合起来。\n这期聊到DeepSeek V4.1 Flash 1017、GLM和千问，也分享AI生图、视频生成、语音合成等应用方向。写代码、做素材、搭企业知识库、接AI智能体，按需配置内网调用和远程访问，把桌面算力接进自己的工作流。\n本地部署看什么？模型能不能装下、输出速度够不够、多人使用稳不稳，以及代码和资料能否留在内网。视频提到的100多Token/s，要结合具体模型、量化精度和上下文配置来看。\n同样的预算，你更想要代码助手、AIGC创作工具，还是企业知识库？评论区聊聊你的使用场景。我是阿豪，持续分享本地AI的部署和应用。\n#本地大模型   #私有化部署  #AI生产力  #AIGC  #企业知识库",
+        "item_title": "给团队搭一套自己的本地AI工作站，到底能做什么？",
+        "is_use_music": false,
+        "share_rec_extra": "",
+        "original": 0,
+        "xigua_base_info": {
+          "status": 0,
+          "star_altar_order_id": 0,
+          "star_altar_type": 0
+        },
+        "mark_largely_following": false,
+        "friend_recommend_info": {
+          "friend_recommend_source": 11,
+          "label_user_list": null,
+          "disable_friend_recommend_guide_label": false
+        },
+        "enable_comment_sticker_rec": false,
+        "fall_card_struct": {
+          "recommend_reason_v2": "[]"
+        },
+        "video_share_edit_status": 0,
+        "is_24_story": 0,
+        "cf_recheck_ts": 0,
+        "common_button": {
+          "button_list": []
+        },
+        "trends_infos": null,
+        "unified_music_group": {
+          "medium_cover_url": {
+            "url_list": null
+          },
+          "ug_id": 7704137527522754611
+        },
+        "chapter_bar_color": null,
+        "flash_mob_trends": 0,
+        "ent_log_extra": {
+          "log_extra": "{\"global_log_extra\":null,\"page_log_extra\":null,\"aweme_log_extra\":{\"ce_current_group_id\":\"7704137272739826980\",\"author_id\":\"4034547020206250\"},\"extra_log_extra\":null}"
+        },
+        "personal_page_botton_diagnose_style": 2,
+        "aweme_type_tags": "",
+        "origin_duet_resource_uri": "",
+        "ecom_comment_atmosphere_type": 0,
+        "can_cache_to_local": true,
+        "mv_info": null,
+        "publish_plus_alienation": {
+          "alienation_type": 0
+        },
+        "game_tag_info": {
+          "is_game": false
+        },
+        "aweme_listen_struct": {
+          "trace_info": "{\"copyright_not_speech\":\"false\",\"copyright_reason\":\"has_listen_cp_new\",\"copyright_tag_hit\":\"\",\"copyright_use_aed_default\":\"false\",\"copyright_use_tag_default\":\"false\",\"cp_ab\":\"true\",\"desc\":\"\",\"duration_over\":\"false\",\"hit_high_risk\":\"false\",\"media_type\":\"4\",\"reason\":\"hit_ab_0\",\"show\":\"false\"}"
+        },
+        "shoot_way": "",
+        "ai_search_struct": {
+          "show_ai_entrance": true
+        },
+        "entertainment_video_type": 3,
+        "entertainment_video_paid_way": {
+          "paid_ways": null,
+          "paid_type": 0,
+          "enable_use_new_ent_data": false
+        },
+        "is_moment_story": 0,
+        "is_moment_history": 0,
+        "cf_assets_type": 0,
+        "series_basic_info": {},
+        "is_new_text_mode": 0,
+        "interest_points": null,
+        "douplus_user_type": 0,
+        "nearby_hot_comment": null,
+        "follow_shoot_clip_info": {
+          "clip_video_all": 7704137262690306870,
+          "clip_from_user": 7704137262690306870
+        },
+        "is_25_story": 0,
+        "ai_follow_images": null,
+        "follow_shot_assets": null,
+        "effect_inflow_effects": null,
+        "douyin_pc_video_extra_seo": "",
+        "product_genre_info": {
+          "product_genre_type": 2,
+          "material_genre_sub_type_set": [
+            4
+          ],
+          "special_info": {
+            "recommend_group_name": 0
+          }
+        },
+        "item_aigc_follow_shot": 1,
+        "image_follow_shot_assets": null,
+        "enable_decorated_emoji": true,
+        "pack_usage_scene_by_req_path": "/aweme/v2/search/multi/query/",
+        "diversion_bar_info": null,
+        "encrypt_interest_point_list": null,
+        "encrypt_key_phrase_list": null,
+        "common_left_top_labels": null
+      },
+      "source_file": "/tmp/review-interest-video-fix1-I/live/response-01.json",
+      "source_sha256": "2b362f18db8491fbd71c1b9b1980ae7194e3a41ce5b9ee983c7143541ac0ec95",
+      "source_index": 1
+    },
+    {
+      "id": "douyin:7703887285028244745",
+      "platform": "douyin",
+      "direction": "AI 视频与图像模型（H3、ComfyUI 工作流、LoRA）",
+      "expected": true,
+      "raw": {
+        "aweme_id": "7703887285028244745",
+        "desc": "云端H3导演台，从零开始做AI视频 人物、场景、道具、声音准备好，接下来怎么生成视频？这期从素材制作讲到导演台分段生成，跟着操作走一遍。 \n#ComfyUI  #H3导演台  #AI视频  #视频制作 \n",
+        "create_time": 1793701041,
+        "author": {
+          "uid": "2402887178143227",
+          "short_id": "82933463317",
+          "nickname": "熊猫怪兽AI日记",
+          "gender": 0,
+          "signature": "🌟ComfyUI小白干货｜每周稳定更新\n图文号 @熊猫怪兽ai日记 图文版 \n❤️资源：comfyui99.com\n🌴星球：熊猫怪兽ai日记\n👉H3远程本地部署（99） 👇（制定工作流）\n☘️绿👀 comfyui13048901435🍀\n💬有问题欢迎评论区交流",
+          "avatar_larger": {
+            "uri": "fixture_128",
+            "url_list": [
+              "https://example.invalid/fixture_129",
+              "https://example.invalid/fixture_130"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_thumb": {
+            "uri": "fixture_131",
+            "url_list": [
+              "https://example.invalid/fixture_132",
+              "https://example.invalid/fixture_133"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_medium": {
+            "uri": "fixture_134",
+            "url_list": [
+              "https://example.invalid/fixture_135",
+              "https://example.invalid/fixture_136"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "birthday": "",
+          "is_verified": true,
+          "follow_status": 0,
+          "aweme_count": 0,
+          "following_count": 0,
+          "follower_count": 0,
+          "favoriting_count": 0,
+          "total_favorited": 0,
+          "is_block": false,
+          "hide_search": true,
+          "constellation": 10,
+          "location": "",
+          "hide_location": false,
+          "weibo_verify": "",
+          "custom_verify": "",
+          "unique_id": "82933463317",
+          "bind_phone": "",
+          "special_lock": 1,
+          "need_recommend": 0,
+          "is_binded_weibo": false,
+          "weibo_name": "",
+          "weibo_schema": "",
+          "weibo_url": "",
+          "story_open": false,
+          "story_count": 0,
+          "has_facebook_token": false,
+          "has_twitter_token": false,
+          "fb_expire_time": 0,
+          "tw_expire_time": 0,
+          "has_youtube_token": false,
+          "youtube_expire_time": 0,
+          "room_id": 0,
+          "live_verify": 0,
+          "authority_status": 0,
+          "verify_info": "",
+          "shield_follow_notice": 0,
+          "shield_digg_notice": 0,
+          "shield_comment_notice": 0,
+          "school_name": "",
+          "school_poi_id": "",
+          "school_type": 0,
+          "share_info": {
+            "share_url": "",
+            "share_weibo_desc": "",
+            "share_desc": "",
+            "share_title": "",
+            "share_qrcode_url": {
+              "uri": "",
+              "url_list": [],
+              "width": 720,
+              "height": 720
+            },
+            "share_title_myself": "",
+            "share_title_other": "",
+            "share_desc_info": ""
+          },
+          "with_commerce_entry": false,
+          "verification_type": 1,
+          "enterprise_verify_reason": "",
+          "is_ad_fake": false,
+          "followers_detail": null,
+          "region": "CN",
+          "account_region": "",
+          "sync_to_toutiao": 0,
+          "commerce_user_level": 0,
+          "live_agreement": 0,
+          "platform_sync_info": null,
+          "with_shop_entry": false,
+          "is_discipline_member": false,
+          "has_orders": false,
+          "prevent_download": false,
+          "show_image_bubble": false,
+          "geofencing": [],
+          "unique_id_modify_time": 1793767271,
+          "video_icon": {
+            "uri": "",
+            "url_list": [],
+            "width": 720,
+            "height": 720
+          },
+          "ins_id": "",
+          "google_account": "",
+          "youtube_channel_id": "",
+          "youtube_channel_title": "",
+          "apple_account": 0,
+          "with_dou_entry": false,
+          "with_fusion_shop_entry": false,
+          "is_phone_binded": false,
+          "accept_private_policy": false,
+          "twitter_id": "",
+          "twitter_name": "",
+          "user_canceled": false,
+          "has_email": false,
+          "is_gov_media_vip": false,
+          "live_agreement_time": 0,
+          "status": 1,
+          "create_time": 0,
+          "avatar_uri": "fixture_137",
+          "follower_status": 0,
+          "neiguang_shield": 0,
+          "comment_setting": 0,
+          "duet_setting": 0,
+          "reflow_page_gid": 0,
+          "reflow_page_uid": 0,
+          "user_rate": 1,
+          "download_setting": -1,
+          "download_prompt_ts": 0,
+          "react_setting": 0,
+          "live_commerce": false,
+          "cover_url": [
+            {
+              "uri": "c8510002be9a3a61aad2",
+              "url_list": [
+                "https://example.invalid/fixture_138"
+              ],
+              "width": 720,
+              "height": 720
+            }
+          ],
+          "language": "zh-Hans",
+          "has_insights": false,
+          "share_qrcode_uri": "",
+          "item_list": null,
+          "user_mode": 0,
+          "user_period": 0,
+          "has_unread_story": false,
+          "new_story_cover": null,
+          "is_star": false,
+          "cv_level": "",
+          "type_label": null,
+          "ad_cover_url": null,
+          "comment_filter_status": 0,
+          "avatar_168x168": {
+            "uri": "fixture_139",
+            "url_list": [
+              "https://example.invalid/fixture_140",
+              "https://example.invalid/fixture_141"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_300x300": {
+            "uri": "fixture_142",
+            "url_list": [
+              "https://example.invalid/fixture_143",
+              "https://example.invalid/fixture_144"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "relative_users": null,
+          "cha_list": null,
+          "sec_uid": "fixture_145",
+          "need_points": null,
+          "homepage_bottom_toast": null,
+          "aweme_hotsoon_auth": 1,
+          "aweme_hotsoon_auth_relation": 1,
+          "can_set_geofencing": null,
+          "room_id_str": "0",
+          "white_cover_url": null,
+          "user_tags": null,
+          "stitch_setting": 0,
+          "is_mix_user": true,
+          "enable_nearby_visible": false,
+          "ban_user_functions": [],
+          "aweme_control": {
+            "can_forward": true,
+            "can_share": true,
+            "can_comment": true,
+            "can_show_comment": true
+          },
+          "user_not_show": 1,
+          "ky_only_predict": 0,
+          "user_not_see": 0,
+          "card_entries": null,
+          "signature_display_lines": 5,
+          "display_info": null,
+          "follower_request_status": 0,
+          "live_status": 0,
+          "is_not_show": false,
+          "card_entries_not_display": null,
+          "card_sort_priority": null,
+          "show_nearby_active": false,
+          "interest_tags": null,
+          "school_id": "",
+          "school_category": 0,
+          "search_impr": {
+            "entity_id": "2402887178143227"
+          },
+          "link_item_list": null,
+          "user_permissions": null,
+          "offline_info_list": null,
+          "is_cf": 0,
+          "is_blocking_v2": false,
+          "is_blocked_v2": false,
+          "close_friend_type": 0,
+          "signature_extra": null,
+          "max_follower_count": 0,
+          "personal_tag_list": null,
+          "cf_list": null,
+          "im_role_ids": null,
+          "not_seen_item_id_list": null,
+          "user_age": -1,
+          "contacts_status": 2,
+          "risk_notice_text": "",
+          "follower_list_secondary_information_struct": null,
+          "endorsement_info_list": null,
+          "text_extra": [],
+          "contrail_list": null,
+          "data_label_list": null,
+          "not_seen_item_id_list_v2": null,
+          "is_ban": false,
+          "special_people_labels": null,
+          "special_follow_status": 0,
+          "familiar_visitor_user": null,
+          "live_high_value": 0,
+          "awemehts_greet_info": "",
+          "avatar_schema_list": null,
+          "profile_mob_params": null,
+          "disable_image_comment_saved": 0,
+          "verification_permission_ids": null,
+          "batch_unfollow_relation_desc": null,
+          "batch_unfollow_contain_tabs": null,
+          "creator_tag_list": null,
+          "account_cert_info": "{}",
+          "private_relation_list": null,
+          "mate_relation": {
+            "mate_status": 0,
+            "mate_apply_forward": 0,
+            "mate_apply_reverse": 0
+          },
+          "mate_add_permission": 0,
+          "familiar_confidence": 0,
+          "mate_count": 0,
+          "social_real_relation_type": 0,
+          "identity_labels": null,
+          "profile_component_disabled": null,
+          "story_ttl": 0,
+          "story_interactive": 0,
+          "house_talent_info": 0,
+          "allow_story_normal_like": false,
+          "story25_comment": 0,
+          "profile_signature_components": null,
+          "webcast_preview_labels": null,
+          "follow_area": null
+        },
+        "music": {
+          "id": 7703887460996123442,
+          "id_str": "7703887460996123442",
+          "title": "@熊猫怪兽AI日记创作的原声",
+          "author": "熊猫怪兽AI日记",
+          "album": "",
+          "cover_hd": {
+            "uri": "fixture_146",
+            "url_list": [
+              "https://example.invalid/fixture_147",
+              "https://example.invalid/fixture_148"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "cover_large": {
+            "uri": "fixture_149",
+            "url_list": [
+              "https://example.invalid/fixture_150",
+              "https://example.invalid/fixture_151"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "cover_medium": {
+            "uri": "fixture_152",
+            "url_list": [
+              "https://example.invalid/fixture_153",
+              "https://example.invalid/fixture_154"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "cover_thumb": {
+            "uri": "fixture_155",
+            "url_list": [
+              "https://example.invalid/fixture_156",
+              "https://example.invalid/fixture_157"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "play_url": {
+            "uri": "https://example.invalid/fixture_158",
+            "url_list": [
+              "https://example.invalid/fixture_159",
+              "https://example.invalid/fixture_160"
+            ],
+            "width": 720,
+            "height": 720,
+            "url_key": "url_key_placeholder_8"
+          },
+          "schema_url": "",
+          "source_platform": 23,
+          "start_time": 0,
+          "end_time": 0,
+          "duration": 343,
+          "extra": "{\"aed_music_score\":0.04,\"aed_singing_score\":0.01,\"aggregate_exempt_conf\":[],\"aigc_clip\":false,\"beats\":{},\"cover_colors\":null,\"douyin_beats_info\":{},\"dsp_switch\":0,\"extract_item_id\":7703887285028244745,\"has_edited\":0,\"hotsoon_review_time\":-1,\"is_aed_music\":0,\"is_red\":0,\"is_subsidy_exp\":false,\"long_pic_video_usable\":true,\"music_label_id\":null,\"music_tagging\":{\"AEDs\":null,\"Genres\":null,\"Instruments\":null,\"Languages\":null,\"Moods\":null,\"SingingVersions\":null,\"Themes\":null},\"review_unshelve_reason\":0,\"reviewed\":0,\"schedule_search_time\":0,\"uniqa_speech_score\":0.92,\"with_aed_model\":1}",
+          "user_count": 0,
+          "position": null,
+          "collect_stat": 0,
+          "status": 1,
+          "offline_desc": "",
+          "owner_id": "2402887178143227",
+          "owner_nickname": "熊猫怪兽AI日记",
+          "is_original": false,
+          "mid": "7703887460996123442",
+          "binded_challenge_id": 0,
+          "redirect": false,
+          "is_restricted": false,
+          "author_deleted": false,
+          "is_del_video": false,
+          "is_video_self_see": false,
+          "owner_handle": "82933463317",
+          "author_position": null,
+          "prevent_download": false,
+          "unshelve_countries": null,
+          "prevent_item_download_status": 0,
+          "external_song_info": [],
+          "sec_uid": "fixture_162",
+          "avatar_thumb": {
+            "uri": "fixture_163",
+            "url_list": [
+              "https://example.invalid/fixture_164",
+              "https://example.invalid/fixture_165"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_medium": {
+            "uri": "fixture_166",
+            "url_list": [
+              "https://example.invalid/fixture_167",
+              "https://example.invalid/fixture_168"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "avatar_large": {
+            "uri": "fixture_169",
+            "url_list": [
+              "https://example.invalid/fixture_170",
+              "https://example.invalid/fixture_171"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "preview_start_time": 0,
+          "preview_end_time": 0,
+          "is_commerce_music": false,
+          "is_original_sound": true,
+          "audition_duration": 343,
+          "shoot_duration": 343,
+          "reason_type": 0,
+          "artists": [],
+          "lyric_short_position": null,
+          "mute_share": false,
+          "tag_list": null,
+          "dmv_auto_show": false,
+          "is_pgc": false,
+          "is_matched_metadata": false,
+          "music_chart_ranks": null,
+          "can_background_play": true,
+          "music_status": 1,
+          "video_duration": 343,
+          "pgc_music_type": 2,
+          "author_status": 1,
+          "search_impr": {
+            "entity_id": "7703887460996123442"
+          },
+          "artist_user_infos": null,
+          "dsp_status": 10,
+          "musician_user_infos": null,
+          "luna_info": {
+            "is_luna_user": false
+          },
+          "music_collect_count": 0,
+          "music_cover_atmosphere_color_value": "",
+          "show_origin_clip": false,
+          "talent_hashtag_name_list": null
+        },
+        "cha_list": [
+          {
+            "cid": "1761991736108043",
+            "cha_name": "comfyui",
+            "desc": "",
+            "schema": "aweme://aweme/challenge/detail?cid=1761991736108043",
+            "author": {
+              "followers_detail": null,
+              "platform_sync_info": null,
+              "geofencing": null,
+              "cover_url": null,
+              "item_list": null,
+              "new_story_cover": null,
+              "type_label": null,
+              "ad_cover_url": null,
+              "relative_users": null,
+              "cha_list": null,
+              "need_points": null,
+              "homepage_bottom_toast": null,
+              "can_set_geofencing": null,
+              "white_cover_url": null,
+              "user_tags": null,
+              "ban_user_functions": null,
+              "card_entries": null,
+              "display_info": null,
+              "card_entries_not_display": null,
+              "card_sort_priority": null,
+              "interest_tags": null,
+              "link_item_list": null,
+              "user_permissions": null,
+              "offline_info_list": null,
+              "signature_extra": null,
+              "personal_tag_list": null,
+              "cf_list": null,
+              "im_role_ids": null,
+              "not_seen_item_id_list": null,
+              "follower_list_secondary_information_struct": null,
+              "endorsement_info_list": null,
+              "text_extra": null,
+              "contrail_list": null,
+              "data_label_list": null,
+              "not_seen_item_id_list_v2": null,
+              "special_people_labels": null,
+              "familiar_visitor_user": null,
+              "avatar_schema_list": null,
+              "profile_mob_params": null,
+              "verification_permission_ids": null,
+              "batch_unfollow_relation_desc": null,
+              "batch_unfollow_contain_tabs": null,
+              "creator_tag_list": null,
+              "private_relation_list": null,
+              "identity_labels": null,
+              "profile_component_disabled": null,
+              "profile_signature_components": null,
+              "webcast_preview_labels": null,
+              "follow_area": null
+            },
+            "user_count": 0,
+            "share_info": {
+              "share_url": "https://example.invalid/fixture_172",
+              "share_weibo_desc": "我在抖音参与话题讨论#comfyui ",
+              "share_desc": "在抖音，记录美好生活",
+              "share_title": "我在抖音参与话题讨论#comfyui ",
+              "bool_persist": 0,
+              "share_title_myself": "",
+              "share_title_other": "",
+              "share_signature_url": "",
+              "share_signature_desc": "",
+              "share_quote": "",
+              "share_desc_info": "我在抖音参与话题讨论#comfyui "
+            },
+            "connect_music": [],
+            "type": 1,
+            "sub_type": 0,
+            "is_pgcshow": false,
+            "collect_stat": 0,
+            "is_challenge": 0,
+            "view_count": 0,
+            "is_commerce": false,
+            "hashtag_profile": "fixture_173",
+            "cha_attrs": null,
+            "banner_list": null,
+            "extra_attr": {
+              "is_live": false
+            },
+            "show_items": null,
+            "search_impr": {
+              "entity_id": "1761991736108043"
+            },
+            "challenge_status": 1,
+            "from_ugc_hashtag_bank": "0",
+            "insert_template_category_list": null
+          }
+        ],
+        "video": {
+          "play_addr": {
+            "uri": "fixture_174",
+            "url_list": [
+              "https://example.invalid/fixture_175",
+              "https://example.invalid/fixture_176",
+              "https://example.invalid/fixture_177",
+              "https://example.invalid/fixture_178"
+            ],
+            "width": 1280,
+            "height": 720,
+            "url_key": "url_key_placeholder_9",
+            "data_size": 21339004,
+            "file_hash": "e29adbaa727cce58fe7d6cd4af1abd10",
+            "file_cs": "fixture_180"
+          },
+          "cover": {
+            "uri": "fixture_181",
+            "url_list": [
+              "https://example.invalid/fixture_182",
+              "https://example.invalid/fixture_183",
+              "https://example.invalid/fixture_184"
+            ],
+            "width": 1200,
+            "height": 1600
+          },
+          "height": 720,
+          "width": 1280,
+          "dynamic_cover": {
+            "uri": "fixture_185",
+            "url_list": [
+              "https://example.invalid/fixture_186",
+              "https://example.invalid/fixture_187"
+            ],
+            "width": 720,
+            "height": 720
+          },
+          "origin_cover": {
+            "uri": "fixture_188",
+            "url_list": [
+              "https://example.invalid/fixture_189",
+              "https://example.invalid/fixture_190",
+              "https://example.invalid/fixture_191"
+            ],
+            "width": 640,
+            "height": 360
+          },
+          "ratio": "720p",
+          "download_addr": {
+            "uri": "fixture_192",
+            "url_list": [
+              "https://example.invalid/fixture_193",
+              "https://example.invalid/fixture_194",
+              "https://example.invalid/fixture_195",
+              "https://example.invalid/fixture_196"
+            ],
+            "width": 720,
+            "height": 720,
+            "data_size": 30086140,
+            "file_cs": "fixture_197"
+          },
+          "has_watermark": true,
+          "bit_rate": [
+            {
+              "gear_name": "adapt_540_1",
+              "quality_type": 28,
+              "bit_rate": 207417,
+              "play_addr": {
+                "uri": "fixture_198",
+                "url_list": [
+                  "https://example.invalid/fixture_199",
+                  "https://example.invalid/fixture_200",
+                  "https://example.invalid/fixture_201",
+                  "https://example.invalid/fixture_202"
+                ],
+                "width": 1024,
+                "height": 576,
+                "url_key": "url_key_placeholder_10",
+                "data_size": 8896790,
+                "file_hash": "48bdb294adf2da5808099bcbb6005135",
+                "file_cs": "fixture_204"
+              },
+              "is_h265": 1,
+              "is_bytevc1": 1,
+              "HDR_type": "",
+              "HDR_bit": "",
+              "FPS": 30,
+              "video_extra": "fixture_205",
+              "format": "mp4"
+            },
+            {
+              "gear_name": "adapt_lower_540_1",
+              "quality_type": 21,
+              "bit_rate": 187411,
+              "play_addr": {
+                "uri": "fixture_206",
+                "url_list": [
+                  "https://example.invalid/fixture_207",
+                  "https://example.invalid/fixture_208",
+                  "https://example.invalid/fixture_209",
+                  "https://example.invalid/fixture_210"
+                ],
+                "width": 1024,
+                "height": 576,
+                "url_key": "url_key_placeholder_11",
+                "data_size": 8038681,
+                "file_hash": "cfb48ebb68a737ce3164bfe26f64fca9",
+                "file_cs": "fixture_212"
+              },
+              "is_h265": 1,
+              "is_bytevc1": 1,
+              "HDR_type": "",
+              "HDR_bit": "",
+              "FPS": 30,
+              "video_extra": "fixture_213",
+              "format": "mp4"
+            },
+            {
+              "gear_name": "adapt_lowest_540_1",
+              "quality_type": 29,
+              "bit_rate": 140444,
+              "play_addr": {
+                "uri": "fixture_214",
+                "url_list": [
+                  "https://example.invalid/fixture_215",
+                  "https://example.invalid/fixture_216",
+                  "https://example.invalid/fixture_217",
+                  "https://example.invalid/fixture_218"
+                ],
+                "width": 960,
+                "height": 540,
+                "url_key": "url_key_placeholder_12",
+                "data_size": 6024120,
+                "file_hash": "1b60ac9d123d7f517f620d50bcfbc047",
+                "file_cs": "fixture_220"
+              },
+              "is_h265": 1,
+              "is_bytevc1": 1,
+              "HDR_type": "",
+              "HDR_bit": "",
+              "FPS": 30,
+              "video_extra": "fixture_221",
+              "format": "mp4"
+            }
+          ],
+          "duration": 343145,
+          "play_addr_265": {
+            "uri": "fixture_222",
+            "url_list": [
+              "https://example.invalid/fixture_223",
+              "https://example.invalid/fixture_224",
+              "https://example.invalid/fixture_225",
+              "https://example.invalid/fixture_226"
+            ],
+            "width": 1024,
+            "height": 576,
+            "url_key": "url_key_placeholder_13",
+            "data_size": 8896790,
+            "file_hash": "48bdb294adf2da5808099bcbb6005135",
+            "file_cs": "fixture_228"
+          },
+          "is_h265": 0,
+          "play_addr_h264": {
+            "uri": "fixture_229",
+            "url_list": [
+              "https://example.invalid/fixture_230",
+              "https://example.invalid/fixture_231",
+              "https://example.invalid/fixture_232",
+              "https://example.invalid/fixture_233"
+            ],
+            "width": 1280,
+            "height": 720,
+            "url_key": "url_key_placeholder_14",
+            "data_size": 21339004,
+            "file_hash": "e29adbaa727cce58fe7d6cd4af1abd10",
+            "file_cs": "fixture_235"
+          },
+          "cdn_url_expired": 1793771214,
+          "is_long_video": 1,
+          "animated_cover": {
+            "uri": "fixture_236",
+            "url_list": [
+              "https://example.invalid/fixture_237",
+              "https://example.invalid/fixture_238"
+            ]
+          },
+          "need_set_token": false,
+          "CoverTsp": 0,
+          "misc_download_addrs": "fixture_239",
+          "is_callback": true,
+          "video_model": "fixture_240",
+          "tags": [],
+          "use_static_cover": true,
+          "big_thumbs": [
+            {
+              "img_num": 114,
+              "uri": "fixture_241",
+              "img_url": "https://example.invalid/fixture_242",
+              "img_x_size": 240,
+              "img_y_size": 136,
+              "img_x_len": 5,
+              "img_y_len": 5,
+              "duration": 343.1,
+              "interval": 3.003,
+              "fext": "jpg",
+              "uris": [
+                "fixture_243",
+                "fixture_244",
+                "fixture_245",
+                "fixture_246",
+                "fixture_247"
+              ],
+              "img_urls": [
+                "https://example.invalid/fixture_248",
+                "https://example.invalid/fixture_249",
+                "https://example.invalid/fixture_250",
+                "https://example.invalid/fixture_251",
+                "https://example.invalid/fixture_252"
+              ]
+            }
+          ],
+          "is_bytevc1": 0,
+          "meta": "{\"bright_ratio_mean\":\"0.0315\",\"brightness_mean\":\"79.9091\",\"diff_overexposure_ratio\":\"0.0507\",\"format\":\"mp4\",\"gear_vqm\":\"{\\\"1080p_720p\\\":-1,\\\"720p_540p\\\":-1}\",\"hrids\":\"101005722\",\"is_cdn_peak\":\"true\",\"is_spatial_video\":\"0\",\"isad\":\"0\",\"net_info\":\"{\\\"dns_list\\\":{},\\\"c_isp\\\":99}\",\"overexposure_ratio_mean\":\"0.0312\",\"qprf\":\"1.000\",\"sdgs\":\"[\\\"adapt_540_1\\\",\\\"adapt_lower_540_1\\\",\\\"adapt_lowest_540_1\\\"]\",\"sr_score\":\"0.000\",\"std_brightness\":\"28.7604\",\"strategy_tokens\":\"[\\\"online\\\",\\\"model01_0919\\\",\\\"nosla01_0818\\\",\\\"nosla02_0818\\\",\\\"model02_0919\\\"]\",\"title_info\":\"{\\\"avg_br_pc\\\":39,\\\"bottom_res_add\\\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\\\"bullet_zone\\\":0,\\\"mean_br_l\\\":[0,0,0,0,0,0],\\\"pc60_br_l\\\":[0,0,0,0,0,0],\\\"progress_bar\\\":[0,0,0],\\\"ratio_br_l\\\":[0,0,0,0,0,0],\\\"ratio_br_l_thre220\\\":[0,0,0,0,0,0],\\\"ratio_edge_l\\\":[0,0,0,0,0,0],\\\"std_br_l\\\":[0,0,0,0,0,0],\\\"top_res_add\\\":[0,0,0,0,0,0,0],\\\"version\\\":\\\"v1.0\\\"}\",\"volume_info\":\"{\\\"MaximumMomentaryLoudness\\\":-8.6,\\\"Version\\\":2,\\\"Loudness\\\":-17,\\\"LoudnessRangeEnd\\\":-15.3,\\\"LoudnessRangeStart\\\":-20.8,\\\"Peak\\\":1,\\\"LoudnessRange\\\":5.6,\\\"MaximumShortTermLoudness\\\":-13.8,\\\"Metrics\\\":{\\\"Loudness\\\":{\\\"Integrated\\\":-17.026},\\\"Phase\\\":{\\\"RMSDownmixDiff\\\":-0.011},\\\"RMSStats\\\":{\\\"LTotal\\\":-20.162,\\\"Peak\\\":0.062,\\\"RTotal\\\":-20.147,\\\"LRDiff\\\":-0.015},\\\"Version\\\":\\\"1.4.2\\\"}}\"}",
+          "is_source_HDR": 0,
+          "horizontal_type": 1,
+          "audio": {
+            "original_sound_infos": null
+          },
+          "bit_rate_audio": null,
+          "format": "mp4",
+          "fuse_video_labels_v2": {
+            "Top1": [
+              {
+                "Level1": {
+                  "TagId": 627
+                },
+                "Level2": {
+                  "TagId": 62706
+                },
+                "Level3": {
+                  "TagId": 6270604
+                }
+              }
+            ]
+          }
+        },
+        "share_url": "https://example.invalid/fixture_253",
+        "user_digged": 0,
+        "statistics": {
+          "aweme_id": "7703887285028244745",
+          "comment_count": 18,
+          "digg_count": 67,
+          "download_count": 0,
+          "play_count": 0,
+          "share_count": 6,
+          "forward_count": 0,
+          "lose_count": 0,
+          "lose_comment_count": 0,
+          "whatsapp_share_count": 0,
+          "digest": "",
+          "exposure_count": 0,
+          "live_watch_count": 0,
+          "collect_count": 35,
+          "recommend_count": 1
+        },
+        "status": {
+          "aweme_id": "7703887285028244745",
+          "is_delete": false,
+          "allow_share": true,
+          "allow_comment": true,
+          "is_private": false,
+          "with_goods": false,
+          "private_status": 0,
+          "with_fusion_goods": false,
+          "in_reviewing": false,
+          "reviewed": 0,
+          "self_see": false,
+          "is_prohibited": false,
+          "download_status": 0,
+          "review_result": {
+            "review_status": 0
+          },
+          "dont_share_status": 0,
+          "video_hide_search": 0,
+          "aweme_edit_info": {
+            "button_status": 2,
+            "button_toast": ""
+          },
+          "part_see": 0,
+          "listen_video_status": 2,
+          "allow_friend_recommend": false,
+          "allow_self_recommend_to_friend": true,
+          "allow_friend_recommend_guide": true
+        },
+        "rate": 12,
+        "text_extra": [
+          {
+            "start": 70,
+            "end": 78,
+            "type": 1,
+            "hashtag_name": "ComfyUI",
+            "hashtag_id": "1761991736108043",
+            "is_commerce": false,
+            "caption_start": 52,
+            "caption_end": 60
+          },
+          {
+            "start": 80,
+            "end": 86,
+            "type": 1,
+            "hashtag_name": "H3导演台",
+            "hashtag_id": "7676075994540673060",
+            "is_commerce": false,
+            "caption_start": 62,
+            "caption_end": 68
+          },
+          {
+            "start": 88,
+            "end": 93,
+            "type": 1,
+            "hashtag_name": "AI视频",
+            "hashtag_id": "1617402745256973",
+            "is_commerce": false,
+            "caption_start": 70,
+            "caption_end": 75
+          },
+          {
+            "start": 95,
+            "end": 100,
+            "type": 1,
+            "hashtag_name": "视频制作",
+            "hashtag_id": "1571890916364305",
+            "is_commerce": false,
+            "caption_start": 77,
+            "caption_end": 82
+          }
+        ],
+        "is_top": 0,
+        "share_info": {
+          "share_url": "https://example.invalid/fixture_254",
+          "share_weibo_desc": "#在抖音，记录美好生活#云端H3导演台，从零开始做AI视频 人物、场景、道具、声音准备好，接下来怎么生成视频？这期从素材制作讲到导演台分段生成，跟着操作走一遍。\n\n#ComfyUI  #H3导演台  #AI视频  #视频制作 \n",
+          "share_desc": "在抖音，记录美好生活",
+          "share_title": "云端H3导演台，从零开始做AI视频 人物、场景、道具、声音准备好，接下来怎么生成视频？这期从素材制作讲到导演台分段生成，跟着操作走一遍。\n\n#ComfyUI  #H3导演台  #AI视频  #视频制作 \n",
+          "bool_persist": 0,
+          "share_title_myself": "",
+          "share_title_other": "",
+          "share_link_desc": "2.82 复制打开AI抖音，看看【熊猫怪兽AI日记的作品】云端H3导演台，从零开始做AI视频 人物、场景、道... %s 01/12 :1pm s@R.kc ytE:/ ",
+          "share_signature_url": "",
+          "share_signature_desc": "",
+          "share_quote": "",
+          "share_desc_info": "#在抖音，记录美好生活#云端H3导演台，从零开始做AI视频 人物、场景、道具、声音准备好，接下来怎么生成视频？这期从素材制作讲到导演台分段生成，跟着操作走一遍。\n\n#ComfyUI  #H3导演台  #AI视频  #视频制作 \n"
+        },
+        "distance": "",
+        "video_labels": null,
+        "is_vr": false,
+        "duration": 343145,
+        "aweme_type": 0,
+        "is_fantasy": false,
+        "cmt_swt": false,
+        "image_infos": null,
+        "risk_infos": {
+          "vote": false,
+          "warn": true,
+          "risk_sink": false,
+          "type": 44,
+          "content": "作者声明：内容由 AI 生成",
+          "warn_level": 0,
+          "icon_url": "https://example.invalid/fixture_255"
+        },
+        "is_relieve": false,
+        "sort_label": "",
+        "position": null,
+        "uniqid_position": null,
+        "comment_list": null,
+        "author_user_id": 2402887178143227,
+        "bodydance_score": 0,
+        "geofencing": [],
+        "is_hash_tag": 1,
+        "is_pgcshow": false,
+        "region": "",
+        "video_text": [],
+        "vr_type": 0,
+        "collect_stat": 0,
+        "label_top_text": null,
+        "promotions": [],
+        "group_id": "7703887285028244745",
+        "prevent_download": false,
+        "nickname_position": null,
+        "challenge_position": null,
+        "item_comment_settings": 0,
+        "with_promotional_music": false,
+        "xigua_task": {
+          "is_xigua_task": false
+        },
+        "long_video": null,
+        "item_duet": 0,
+        "item_react": 0,
+        "without_watermark": false,
+        "desc_language": "zh",
+        "interaction_stickers": null,
+        "misc_info": "{\"common_business_mob\":\"{}\",\"is_teen_video\":0}",
+        "origin_comment_ids": null,
+        "commerce_config_data": null,
+        "distribute_type": 2,
+        "video_control": {
+          "allow_download": false,
+          "share_type": 0,
+          "show_progress_bar": 1,
+          "draft_progress_bar": 1,
+          "allow_duet": true,
+          "allow_react": false,
+          "prevent_download_type": 1,
+          "allow_dynamic_wallpaper": false,
+          "timer_status": 1,
+          "allow_music": true,
+          "allow_stitch": false,
+          "allow_douplus": true,
+          "allow_share": true,
+          "share_grayed": false,
+          "download_ignore_visibility": false,
+          "duet_ignore_visibility": false,
+          "share_ignore_visibility": false,
+          "download_info": {
+            "level": 1,
+            "fail_info": {
+              "code": 200142,
+              "reason": "aigc_forbidden",
+              "msg": "作品含AI生成内容暂不可下载"
+            }
+          },
+          "duet_info": {
+            "level": 2,
+            "fail_info": {
+              "code": 100014,
+              "reason": "video_duration"
+            }
+          },
+          "allow_record": true,
+          "disable_record_reason": "",
+          "timer_info": {
+            "timer_status": 0
+          },
+          "show_ai_corner": false,
+          "show_watermark": false
+        },
+        "aweme_control": {
+          "can_forward": true,
+          "can_share": true,
+          "can_comment": true,
+          "can_show_comment": true
+        },
+        "has_vs_entry": false,
+        "commerce_info": {
+          "ad_type": 0,
+          "is_ad": false
+        },
+        "need_vs_entry": true,
+        "is_preview": 0,
+        "anchors": null,
+        "hybrid_label": null,
+        "geofencing_regions": null,
+        "have_dashboard": false,
+        "search_extra": {
+          "optimize_text_extra": null,
+          "card_btm": {
+            "btm": "c58056.d0",
+            "bcm": {
+              "search_id": "fixture_256",
+              "search_result_id": "7703887285028244745",
+              "author_id": "2402887178143227",
+              "video_id": "7703887285028244745",
+              "summary_track_id": ""
+            },
+            "area_btm": {
+              "author_area": "c58056.d04158",
+              "author_avatar_living_area": "c58056.d30934",
+              "video_area": "c58056.d60920",
+              "shopping_area": "c58056.d278936"
+            }
+          },
+          "double_columns_card_btm": {
+            "btm": "c094390.d0",
+            "bcm": {
+              "search_id": "fixture_257",
+              "search_result_id": "7703887285028244745"
+            },
+            "area_btm": {
+              "author_area": "c094390.d58755",
+              "video_area": "c094390.d270200",
+              "shopping_area": "c094390.d75544",
+              "digg_area": "c094390.d82327",
+              "comment_area": "c106634.d0",
+              "collect_area": "c106633.d0"
+            }
+          },
+          "general_abstract": "fixture_258",
+          "doc_rank": 0,
+          "video_panel_prefix": {
+            "text": "AI 解析",
+            "icon_url": "https://example.invalid/fixture_259",
+            "panel_icon_url": "https://example.invalid/fixture_260",
+            "panel_icon_url_dark": "https://example.invalid/fixture_261"
+          },
+          "video_panel_suffix": {
+            "text": "部分内容可能由AI生成，仅供参考",
+            "panel_icon_url": "https://example.invalid/fixture_262",
+            "panel_icon_url_dark": "https://example.invalid/fixture_263"
+          },
+          "suggest_info": {
+            "ecom_item_id": "7703887285028244745",
+            "product_ids": null
+          },
+          "caption_general_abstract": "fixture_264",
+          "recall_from_ecom": false
+        },
+        "poi_patch_info": {
+          "item_patch_poi_prompt_mark": 0,
+          "extra": ""
+        },
+        "is_story": 0,
+        "report_action": false,
+        "item_stitch": 0,
+        "story_ttl": 0,
+        "city": "440300",
+        "cover_labels": null,
+        "is_first_video": false,
+        "nearby_level": 0,
+        "guide_btn_type": 0,
+        "is_in_scope": false,
+        "poi_biz": {},
+        "images": null,
+        "relation_labels": null,
+        "horizontal_type": 1,
+        "is_karaoke": false,
+        "impression_data": {
+          "group_id_list_a": [],
+          "group_id_list_b": [],
+          "similar_id_list_a": null,
+          "similar_id_list_b": null,
+          "group_id_list_c": [],
+          "group_id_list_d": null
+        },
+        "item_share": 0,
+        "social_tag_list": null,
+        "suggest_words": {
+          "suggest_words": [
+            {
+              "words": [
+                {
+                  "word": "minimaxh3音色制作工作流",
+                  "word_id": "7703889473230869819",
+                  "info": "{\"End\":0,\"Start\":0,\"ecpm_boost_tag\":false,\"log_pb\":\"\",\"qrec_for_search\":\"{}\"}"
+                }
+              ],
+              "scene": "detail_inbox_rex",
+              "icon_url": "",
+              "hint_text": "",
+              "extra_info": "{\"resp_from\":\"normal\"}"
+            },
+            {
+              "words": [
+                {
+                  "word": "minimaxh3音色制作工作流",
+                  "word_id": "7703889473230869819",
+                  "info": "{\"End\":0,\"Start\":0,\"ecpm_boost_tag\":false,\"log_pb\":\"\",\"qrec_for_search\":\"{}\"}"
+                }
+              ],
+              "scene": "image_relate_rec",
+              "icon_url": "",
+              "hint_text": "大家都在搜：",
+              "extra_info": "{\"resp_from\":\"normal\"}"
+            },
+            {
+              "words": [
+                {
+                  "word": "minimaxh3音色制作工作流",
+                  "word_id": "7703889473230869819",
+                  "info": "{\"End\":0,\"Start\":0,\"ecpm_boost_tag\":false,\"log_pb\":\"\",\"qrec_for_search\":\"{}\"}"
+                }
+              ],
+              "scene": "comment_top_rec",
+              "icon_url": "",
+              "hint_text": "大家都在搜：",
+              "extra_info": "{\"resp_from\":\"normal\"}"
+            }
+          ],
+          "disable_display_bar_inner": 0
+        },
+        "show_follow_button": {},
+        "duet_aggregate_in_music_tab": false,
+        "is_duet_sing": false,
+        "search_impr": {
+          "entity_id": "7703887285028244745",
+          "entity_type": "GENERAL"
+        },
+        "comment_permission_info": {
+          "comment_permission_status": 0,
+          "can_comment": true,
+          "item_detail_entry": true,
+          "press_entry": true,
+          "toast_guide": false
+        },
+        "create_time_config": {
+          "font_color": "TextTertiary",
+          "position": 2
+        },
+        "original_images": null,
+        "series_paid_info": {
+          "series_paid_status": 0,
+          "item_price": 0
+        },
+        "img_bitrate": null,
+        "comment_gid": 7703887285028244745,
+        "image_album_music_info": {
+          "begin_time": -1,
+          "end_time": -1,
+          "volume": -1
+        },
+        "video_tag": [
+          {
+            "tag_id": 2011,
+            "tag_name": "个人管理",
+            "level": 1
+          },
+          {
+            "tag_id": 2011002,
+            "tag_name": "职场技能",
+            "level": 2
+          },
+          {
+            "tag_id": 2011002004,
+            "tag_name": "办公效率",
+            "level": 3
+          }
+        ],
+        "is_collects_selected": 0,
+        "chapter_list": [
+          {
+            "desc": "引言",
+            "timestamp": 2000,
+            "desc_for_search": "1. 引言",
+            "detail": "",
+            "end_time": 40000,
+            "points": null
+          },
+          {
+            "desc": "制作人物",
+            "timestamp": 40000,
+            "desc_for_search": "2. 制作人物",
+            "detail": "使用工作流制作人物，选择提示词，生成三视图并下载。",
+            "end_time": 108000,
+            "points": null
+          },
+          {
+            "desc": "制作场景和道具",
+            "timestamp": 108000,
+            "desc_for_search": "3. 制作场景和道具",
+            "detail": "选择分辨率生成场景图和道具图。",
+            "end_time": 134000,
+            "points": null
+          },
+          {
+            "desc": "制作人物音色",
+            "timestamp": 134000,
+            "desc_for_search": "4. 制作人物音色",
+            "detail": "使用工作流制作人物音色。",
+            "end_time": 158000,
+            "points": null
+          },
+          {
+            "desc": "整合素材生成视频",
+            "timestamp": 158000,
+            "desc_for_search": "5. 整合素材生成视频",
+            "detail": "整合素材，设定分辨率，调整百万像素和框高比，屏蔽logo，使用AI写题词，设置二彩，分析导入全段，完成视频生成。",
+            "end_time": 343145,
+            "points": null
+          }
+        ],
+        "ip_attribution": "广东",
+        "should_open_ad_report": false,
+        "feed_comment_config": {
+          "input_config_text": "善语结善缘，恶言伤人心",
+          "common_flags": "{\"api_ab\":\"0\",\"hashtag\":\"[{\\\"name\\\":\\\"comfyui\\\",\\\"id\\\":1761991736108043},{\\\"name\\\":\\\"h3导演台\\\",\\\"id\\\":7676075994540673060},{\\\"name\\\":\\\"ai视频\\\",\\\"id\\\":1617402745256973},{\\\"name\\\":\\\"视频制作\\\",\\\"id\\\":1571890916364305}]\",\"item_author_nickname\":\"熊猫怪兽AI日记\",\"need_personal_rec\":\"1\",\"video_labels_v2_tag1\":\"摄影摄像\",\"video_labels_v2_tag2\":\"摄影摄像技巧\",\"video_type\":\"all\"}",
+          "audio_comment_permission": 0,
+          "double_publish_limit": 1
+        },
+        "is_image_beat": false,
+        "dislike_dimension_list": null,
+        "standard_bar_info_list": null,
+        "photo_search_entrance": {
+          "ecom_type": 0
+        },
+        "is_life_item": false,
+        "image_list": null,
+        "component_info_v2": "{\"desc_lines_limit\":0,\"hide_marquee\":false}",
+        "common_bar_info": "fixture_265",
+        "item_warn_notification": {
+          "type": 0,
+          "show": false,
+          "content": ""
+        },
+        "origin_text_extra": [],
+        "preview_title": "云端H3导演台，从零开始做AI视频 人物、场景、道具、声音准备好，接下来怎么生成视频？这期从素材制作讲到导演台分段生成，",
+        "preview_video_status": 1,
+        "guide_scene_info": {
+          "guide_scene_type": 0,
+          "feed_origin_gid_info_str": "",
+          "diamond_expose_info_str": ""
+        },
+        "disable_relation_bar": 0,
+        "packed_clips": null,
+        "author_mask_tag": 0,
+        "dcm_info": {
+          "dcm": "fixture_266"
+        },
+        "user_recommend_status": 1,
+        "collection_corner_mark": 0,
+        "is_share_post": false,
+        "image_comment": {},
+        "visual_search_info": {
+          "is_show_entrance": false,
+          "extra": "",
+          "visual_search_longpress": 0,
+          "is_ecom_img": false,
+          "is_high_accuracy_ecom": false,
+          "is_high_recall_ecom": false,
+          "panel_entrance_text": "",
+          "panel_entrance_intent": "",
+          "tag_space": ""
+        },
+        "tts_id_list": null,
+        "ref_tts_id_list": null,
+        "voice_modify_id_list": null,
+        "ref_voice_modify_id_list": null,
+        "book_bar": {},
+        "authentication_token": "fixture_267",
+        "video_game_data_channel_config": {},
+        "dislike_dimension_list_v2": [
+          {
+            "icon": "https://example.invalid/fixture_268",
+            "text": "我不想看",
+            "entitys": [
+              {
+                "dimension_id": 1,
+                "pre_text": "作者",
+                "sub_text": "熊猫怪兽AI日记",
+                "server_extra": "{\"author_id\":2402887178143227}",
+                "en_name": "author"
+              },
+              {
+                "dimension_id": 2,
+                "pre_text": "音乐",
+                "sub_text": "@熊猫怪兽AI日记创作的原声",
+                "server_extra": "{\"music_id\":7703887460996123442}",
+                "en_name": "music"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "ComfyUI",
+                "server_extra": "{\"challenge_id\":1761991736108043}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "H3导演台",
+                "server_extra": "{\"challenge_id\":7676075994540673060}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "AI视频",
+                "server_extra": "{\"challenge_id\":1617402745256973}",
+                "en_name": "hashtag"
+              },
+              {
+                "dimension_id": 4,
+                "pre_text": "话题",
+                "sub_text": "视频制作",
+                "server_extra": "{\"challenge_id\":1571890916364305}",
+                "en_name": "hashtag"
+              }
+            ]
+          },
+          {
+            "icon": "https://example.invalid/fixture_269",
+            "text": "反馈内容问题",
+            "entitys": [
+              {
+                "dimension_id": 12,
+                "pre_text": "相似过多",
+                "server_extra": "{\"subjective_id\":1001}",
+                "en_name": "repeat"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "广告营销",
+                "server_extra": "{\"subjective_id\":1002}",
+                "en_name": "ad"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "恶心恐怖",
+                "server_extra": "{\"subjective_id\":1003}",
+                "en_name": "disgust"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "色情低俗",
+                "server_extra": "{\"subjective_id\":1004}",
+                "en_name": "porn"
+              },
+              {
+                "dimension_id": 12,
+                "pre_text": "虚假夸张",
+                "server_extra": "{\"subjective_id\":1005}",
+                "en_name": "fake"
+              }
+            ]
+          }
+        ],
+        "distribute_circle": {
+          "distribute_type": 0,
+          "campus_block_interaction": false,
+          "is_campus": false
+        },
+        "comment_words_recommend": {
+          "zero_comment": null
+        },
+        "image_crop_ctrl": 0,
+        "yumme_recreason": null,
+        "slides_music_beats": null,
+        "is_ecom_aweme": 0,
+        "jump_tab_info_list": null,
+        "media_type": 4,
+        "reply_smart_emojis": null,
+        "activity_video_type": -1,
+        "boost_status": 0,
+        "create_scale_type": null,
+        "live_appointment_info": {},
+        "entertainment_product_info": {
+          "sub_title": null,
+          "market_info": {
+            "limit_free": {
+              "in_free": false
+            },
+            "marketing_tag": null
+          },
+          "biz": 0
+        },
+        "caption": "人物、场景、道具、声音准备好，接下来怎么生成视频？这期从素材制作讲到导演台分段生成，跟着操作走一遍。\n\n#ComfyUI  #H3导演台  #AI视频  #视频制作 \n",
+        "item_title": "云端H3导演台，从零开始做AI视频",
+        "is_use_music": false,
+        "share_rec_extra": "",
+        "original": 0,
+        "chapter_type": 0,
+        "xigua_base_info": {
+          "status": 0,
+          "star_altar_order_id": 0,
+          "star_altar_type": 0
+        },
+        "mark_largely_following": false,
+        "chapter_gen_type": 0,
+        "friend_recommend_info": {
+          "friend_recommend_source": 11,
+          "label_user_list": null,
+          "disable_friend_recommend_guide_label": false
+        },
+        "enable_comment_sticker_rec": false,
+        "fall_card_struct": {
+          "recommend_reason_v2": "[]",
+          "cover_bg_color": {
+            "for_white": "#B2AF7C",
+            "for_dark": "#B2AF7C"
+          }
+        },
+        "video_share_edit_status": 0,
+        "is_24_story": 0,
+        "cf_recheck_ts": 0,
+        "chapter_abstract": "如何使用云端H3导演台制作AI视频，包括制作人物、场景、道具和声音，以及如何整合素材、设置分辨率、使用AI写题词和进行二彩处理。通过学习本视频，观众可以逐步掌握从素材制作到视频生成的全过程。",
+        "chapter_review_status": 2,
+        "common_button": {
+          "button_list": [
+            {
+              "basic_info": {
+                "btn_name": "video_chapter",
+                "exemptions": null,
+                "btn_type": "search",
+                "buttons": null,
+                "btn_datas": null
+              },
+              "priority": 200810
+            }
+          ]
+        },
+        "trends_infos": null,
+        "chapter_bar_color": null,
+        "flash_mob_trends": 0,
+        "ent_log_extra": {
+          "log_extra": "{\"global_log_extra\":null,\"page_log_extra\":null,\"aweme_log_extra\":{\"ce_current_group_id\":\"7703887285028244745\",\"author_id\":\"2402887178143227\"},\"extra_log_extra\":null}"
+        },
+        "personal_page_botton_diagnose_style": 2,
+        "aweme_type_tags": "",
+        "origin_duet_resource_uri": "",
+        "ecom_comment_atmosphere_type": 0,
+        "can_cache_to_local": true,
+        "mv_info": null,
+        "publish_plus_alienation": {
+          "alienation_type": 0
+        },
+        "game_tag_info": {
+          "is_game": false
+        },
+        "aweme_listen_struct": {
+          "trace_info": "{\"copyright_not_speech\":\"false\",\"copyright_reason\":\"has_listen_cp_new\",\"copyright_tag_hit\":\"\",\"copyright_use_aed_default\":\"false\",\"copyright_use_tag_default\":\"false\",\"cp_ab\":\"true\",\"desc\":\"\",\"duration_over\":\"true\",\"hit_high_risk\":\"false\",\"media_type\":\"4\",\"reason\":\"hit_ab_0\",\"show\":\"false\"}"
+        },
+        "shoot_way": "",
+        "chapter_data": {
+          "recommend_type": "1",
+          "ad_chapter_index_list": null,
+          "ad_chapter_auto_skip_index_list": null
+        },
+        "ai_search_struct": {
+          "show_ai_entrance": true
+        },
+        "entertainment_video_type": 3,
+        "entertainment_video_paid_way": {
+          "paid_ways": null,
+          "paid_type": 0,
+          "enable_use_new_ent_data": false
+        },
+        "is_moment_story": 0,
+        "is_moment_history": 0,
+        "cf_assets_type": 0,
+        "series_basic_info": {},
+        "is_new_text_mode": 0,
+        "interest_points": null,
+        "douplus_user_type": 0,
+        "nearby_hot_comment": null,
+        "follow_shoot_clip_info": {
+          "clip_video_all": 7703887460996123442,
+          "clip_from_user": 7703887460996123442
+        },
+        "is_25_story": 0,
+        "ai_follow_images": null,
+        "follow_shot_assets": null,
+        "effect_inflow_effects": null,
+        "douyin_pc_video_extra_seo": "",
+        "product_genre_info": {
+          "product_genre_type": 2,
+          "material_genre_sub_type_set": [
+            4
+          ],
+          "special_info": {
+            "recommend_group_name": 0
+          }
+        },
+        "item_aigc_follow_shot": 1,
+        "image_follow_shot_assets": null,
+        "enable_decorated_emoji": true,
+        "pack_usage_scene_by_req_path": "/aweme/v2/search/multi/query/",
+        "diversion_bar_info": null,
+        "encrypt_interest_point_list": null,
+        "encrypt_key_phrase_list": null,
+        "common_left_top_labels": null
+      },
+      "source_file": "/tmp/review-interest-video-fix1-I/live/response-03.json",
+      "source_sha256": "79e1fac805834ba869f1287b4fed03cdec3ec4f948258fcf88f5ce84d0380acf",
+      "source_index": 1
+    },
+    {
+      "id": "xhs:6ae1d6460000000023006a26",
+      "platform": "xhs",
+      "direction": "Agent 编程工具（Claude Code、Codex、MCP）",
+      "expected": true,
+      "raw": {
+        "update_time": 1793419331000,
+        "corner_tag_info": [
+          {
+            "text_en": "",
+            "icon": "",
+            "style": 0,
+            "type": "ubt_sig_token",
+            "location": -1,
+            "text": "fixture_270"
+          },
+          {
+            "text_en": "4 days ago",
+            "icon": "https://example.invalid/fixture_271",
+            "style": 0,
+            "type": "publish_time",
+            "location": 5,
+            "text": "4 day(s) ago"
+          }
+        ],
+        "id": "6ae1d6460000000023006a26",
+        "last_update_time": 0,
+        "extract_text_enabled": 0,
+        "cover_image_index": 0,
+        "advanced_widgets_groups": {
+          "groups": [
+            {
+              "mode": 1,
+              "fetch_types": [
+                "guos_test",
+                "note_next_step",
+                "second_jump_bar",
+                "note_collection",
+                "cooperate_binds",
+                "rec_next_infos",
+                "video_marks",
+                "product_review",
+                "related_search",
+                "video_goods_cards",
+                "cooperate_comment_component",
+                "ads_goods_cards",
+                "ads_comment_component",
+                "goods_card_v2",
+                "video_recommend_tag",
+                "buyable_goods_card_v2",
+                "cooperate_search_component",
+                "ads_engage_bar",
+                "challenge_card",
+                "cooperate_engage_bar",
+                "pgy_comment_component",
+                "pgy_engage_bar",
+                "related_recommend",
+                "next_note_guide",
+                "widgets_ndb",
+                "pgy_bbc_exp",
+                "brand_max_trailer",
+                "super_activity",
+                "note_nice_guide",
+                "pin_search_highlights",
+                "widgets_enhance",
+                "packed_goods",
+                "packed_buyable_goods",
+                "widgets_ncb",
+                "note_nice_compound",
+                "live_shooting_flag",
+                "widgets_nbb",
+                "poi_declare",
+                "async_group"
+              ]
+            },
+            {
+              "mode": 0,
+              "fetch_types": [
+                "guos_test",
+                "vote_stickers",
+                "bullet_comment_lead",
+                "note_search_box",
+                "interact_pk",
+                "interact_vote",
+                "guide_heuristic",
+                "guide_post",
+                "video_foot_bar",
+                "follow_guide",
+                "share_to_msg",
+                "note_share_prompt_v1",
+                "note_share_prompt_v2",
+                "group_share",
+                "share_guide_bubble",
+                "goods_enhance_component",
+                "guide_navigator",
+                "sync_group"
+              ]
+            }
+          ]
+        },
+        "has_music": false,
+        "type": "video",
+        "tag_info": {
+          "title": "",
+          "type": ""
+        },
+        "collected_count": 18,
+        "niced": false,
+        "user": {
+          "red_id": "753452738",
+          "images": "https://example.invalid/fixture_272",
+          "red_official_verified": false,
+          "userid": "5e016ab90000000001005e30",
+          "followed": false,
+          "nickname": "超前观察",
+          "red_official_verify_type": 0,
+          "show_red_official_verify_icon": false,
+          "track_duration": 0
+        },
+        "shared_count": 6,
+        "comments_count": 0,
+        "video_duration": "25:35",
+        "liked": false,
+        "widgets_context": "fixture_273",
+        "debug_info_str": "",
+        "nice_count": 0,
+        "note_attributes": [],
+        "video_info_v2": {
+          "capa": {
+            "is_user_select": false,
+            "is_upload": false,
+            "frame_ts": 0,
+            "duration": 1535
+          },
+          "consumer": {
+            "can_super_resolution": false
+          },
+          "image": {
+            "thumbnail_dim": "https://example.invalid/fixture_274",
+            "thumbnail": "https://example.invalid/fixture_275"
+          },
+          "media": {
+            "user_level": 0,
+            "audio_info": {
+              "stream_types": [
+                103,
+                102,
+                101
+              ]
+            },
+            "video": {
+              "height": 1440,
+              "biz_id": "282286237086935590",
+              "stream_types": [
+                258,
+                3090,
+                3091,
+                3092
+              ],
+              "bound": [
+                {
+                  "y": 0,
+                  "w": 0,
+                  "x": 0,
+                  "h": 0
+                }
+              ],
+              "md5": "fixture_276",
+              "width": 2560,
+              "duration": 1536,
+              "opaque1": {
+                "hasHumanVoice": "true",
+                "videoLanguage": "[\"zh-CN\"]",
+                "insertSubtitleLanguages": "[\"zh-CN\"]",
+                "amend_4k": "26",
+                "amend_2k": "26",
+                "amend": "18",
+                "supportAbr": "1",
+                "taxonomy_level3": "c00000000000000000000284",
+                "loudnorm": "{\"lpf\":11000.0,\"thrs\":-31.16,\"htp\":-1.73,\"hldns\":-20.13,\"lras\":3.7,\"version\":1.0,\"ldns\":-20.71,\"tps\":-0.21,\"ldn\":-14.07,\"lra\":2.7,\"tp\":-0.86,\"hldn\":-13.29,\"htps\":-4.11,\"hpf\":500.0,\"thr\":-24.51}",
+                "supported_quality_types": "[\"720p\",\"1080p\",\"2k\"]",
+                "default_screencast_stream": "https://example.invalid/fixture_277",
+                "publish_over_threshold": "1",
+                "bottomAvgLuma": "166",
+                "isSupportSubtitle": "true",
+                "audioLevInfo": "{\"audio_quality_level\":\"G+\",\"mos_overall\":3.7202,\"version\":\"3.0\"}",
+                "topAvgLuma": "187",
+                "amend_mobile": "40",
+                "support_dolby_audio": "false",
+                "support_hdr": "false",
+                "audioClsInfo": "{\"music_ratio\":0.9994921537863845,\"freesound_ratio\":2.604336218110335E-5,\"speech_ratio\":0.9969854801764532}",
+                "taxonomy_level1": "5ab094be481d26b8ef904606",
+                "support_dolby_version": "false",
+                "raw_size_byte": "195585949",
+                "taxonomy_level2": "c00000000000000000000811",
+                "domestic": "0",
+                "rightAvgLuma": "136"
+              },
+              "drm_type": 0,
+              "biz_name": 110,
+              "hdr_type": 0
+            },
+            "audio_stream": {
+              "AAC": [
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_278",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_279"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 59,
+                  "audio_duration": 1535914,
+                  "avg_bitrate": 193577,
+                  "default_stream": 0,
+                  "size": 37164767,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 193577,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 103
+                },
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_280",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_281"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 60,
+                  "audio_duration": 1535914,
+                  "avg_bitrate": 129576,
+                  "default_stream": 0,
+                  "size": 24877324,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 129576,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 102
+                },
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_282",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_283"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 69,
+                  "audio_duration": 1535914,
+                  "avg_bitrate": 97576,
+                  "default_stream": 1,
+                  "size": 18733603,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 97576,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 101
+                }
+              ]
+            },
+            "stream": {
+              "h265": [
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3090,
+                  "weight": 48,
+                  "master_url": "https://example.invalid/fixture_284",
+                  "volume": 0,
+                  "video_duration": 1535900,
+                  "duration": 1535900,
+                  "vmaf": -1,
+                  "psnr": 55.946998596191406,
+                  "audio_channels": 0,
+                  "video_codec": "hevc",
+                  "default_stream": 1,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_285"
+                  ],
+                  "video_bitrate": 158061,
+                  "opaque1": {
+                    "roiWeight": "84.24908500000001",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "pcdn_302_flag": "false",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"1.4999999999999999E-5\",\"mvmaf\":\"86.62\"}",
+                    "stream_index": "9999",
+                    "use_pcdn": "1",
+                    "pcdn_supplier": "",
+                    "quality_grade": "HD_720P",
+                    "quality_index": "130",
+                    "quality_grade_name": "720p HD"
+                  },
+                  "fps": 30,
+                  "size": 30345916,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "audio_duration": 0,
+                  "stream_desc": "H265_FMP4_720P_3090_ios",
+                  "width": 1280,
+                  "quality_type": "HD",
+                  "height": 720,
+                  "avg_bitrate": 158061,
+                  "hdr_type": 0,
+                  "ssim": 0
+                },
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3091,
+                  "weight": 49,
+                  "master_url": "https://example.invalid/fixture_286",
+                  "volume": 0,
+                  "video_duration": 1535900,
+                  "duration": 1535900,
+                  "vmaf": -1,
+                  "psnr": 53.07699966430664,
+                  "video_codec": "hevc",
+                  "audio_channels": 0,
+                  "default_stream": 0,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_287"
+                  ],
+                  "video_bitrate": 178401,
+                  "opaque1": {
+                    "roiWeight": "87.653985",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "pcdn_302_flag": "false",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"1.4999999999999999E-5\",\"mvmaf\":\"90.33\"}",
+                    "use_pcdn": "1",
+                    "stream_index": "9998",
+                    "pcdn_supplier": "",
+                    "quality_grade": "HD_1080P",
+                    "quality_index": "110",
+                    "quality_grade_name": "1080p HD"
+                  },
+                  "fps": 30,
+                  "size": 34250863,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "audio_duration": 0,
+                  "stream_desc": "H265_FMP4_1080P_3091_ios",
+                  "width": 1920,
+                  "quality_type": "FHD",
+                  "height": 1080,
+                  "avg_bitrate": 178401,
+                  "hdr_type": 0,
+                  "ssim": 0
+                },
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3092,
+                  "weight": 50,
+                  "master_url": "https://example.invalid/fixture_288",
+                  "volume": 0,
+                  "video_duration": 1535900,
+                  "duration": 1535900,
+                  "vmaf": -1,
+                  "psnr": 56.792999267578125,
+                  "video_codec": "hevc",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_289"
+                  ],
+                  "default_stream": 0,
+                  "audio_channels": 0,
+                  "video_bitrate": 333967,
+                  "opaque1": {
+                    "roiWeight": "86.90049499999999",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "pcdn_302_flag": "false",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"1.4999999999999999E-5\",\"mvmaf\":\"91.91\"}",
+                    "stream_index": "9997",
+                    "use_pcdn": "1",
+                    "pcdn_supplier": "",
+                    "quality_grade": "FHD_2K",
+                    "quality_index": "80",
+                    "quality_grade_name": "2K Ultra HD"
+                  },
+                  "fps": 30,
+                  "size": 64117566,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "stream_desc": "H265_FMP4_2K_3092_ios",
+                  "audio_duration": 0,
+                  "width": 2560,
+                  "quality_type": "QHD",
+                  "height": 1440,
+                  "avg_bitrate": 333967,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ],
+              "h266": [],
+              "av1": [],
+              "h264": [
+                {
+                  "audio_bitrate": 56000,
+                  "stream_type": 258,
+                  "weight": 47,
+                  "master_url": "https://example.invalid/fixture_290",
+                  "video_duration": 1535899,
+                  "volume": 0,
+                  "duration": 1535915,
+                  "vmaf": -1,
+                  "psnr": 0,
+                  "video_codec": "h264",
+                  "audio_channels": 2,
+                  "default_stream": 0,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_291"
+                  ],
+                  "video_bitrate": 81965,
+                  "fps": 30,
+                  "opaque1": {
+                    "didLoudnorm": "false",
+                    "encode_stream": "0",
+                    "stream_index": "10000",
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "0",
+                    "pcdn_supplier": ""
+                  },
+                  "size": 27714664,
+                  "audio_codec": "aac",
+                  "rotate": 0,
+                  "format": "mp4",
+                  "sr": 0,
+                  "audio_duration": 1535914,
+                  "stream_desc": "X264_MP4",
+                  "width": 1280,
+                  "quality_type": "HD",
+                  "height": 720,
+                  "avg_bitrate": 144355,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ]
+            },
+            "video_id": 138171046964634342
+          }
+        },
+        "result_from": "",
+        "liked_count": 18,
+        "collected": false,
+        "click_score": 0,
+        "xsec_token": "fixture_292",
+        "desc": "Claude Code 装好了，怎样让它少绕弯路、真正把事情做完？ 这期整理了12个实用技巧，从思考强度、上下文、规则和",
+        "interaction_area": {
+          "type": 1,
+          "status": false,
+          "text": "18"
+        },
+        "images_list": [
+          {
+            "fileid": "fixture_293",
+            "height": 2020,
+            "trace_id": "fixture_294",
+            "width": 1515,
+            "original": "",
+            "url_size_large": "https://example.invalid/fixture_295",
+            "need_load_original_image": false,
+            "url": "https://example.invalid/fixture_296"
+          }
+        ],
+        "title": "Claude Code实用技巧合集",
+        "geo_info": {
+          "distance": ""
+        },
+        "timestamp": 1793419331
+      },
+      "source_file": "/tmp/review-interest-video-fix1-I/live/response-18.json",
+      "source_sha256": "3733a43f2266a6928b078b7ba264139d4ab5a27a85b891bb5019b30adfa5973a",
+      "source_index": 2
+    },
+    {
+      "id": "xhs:6aeab171000000000e0257f7",
+      "platform": "xhs",
+      "direction": "OpenCode / 本地 Agent 桌面插件生态",
+      "expected": true,
+      "raw": {
+        "update_time": 1793766047000,
+        "corner_tag_info": [
+          {
+            "text_en": "",
+            "style": 0,
+            "icon": "",
+            "type": "ubt_sig_token",
+            "location": -1,
+            "text": "fixture_297"
+          },
+          {
+            "text_en": "27 mins ago",
+            "icon": "https://example.invalid/fixture_298",
+            "style": 0,
+            "type": "publish_time",
+            "location": 5,
+            "text": "27 minute(s) ago"
+          }
+        ],
+        "extract_text_enabled": 0,
+        "id": "6aeab171000000000e0257f7",
+        "last_update_time": 0,
+        "cover_image_index": 0,
+        "advanced_widgets_groups": {
+          "groups": [
+            {
+              "mode": 1,
+              "fetch_types": [
+                "guos_test",
+                "note_next_step",
+                "second_jump_bar",
+                "note_collection",
+                "cooperate_binds",
+                "rec_next_infos",
+                "video_marks",
+                "product_review",
+                "related_search",
+                "video_goods_cards",
+                "cooperate_comment_component",
+                "ads_goods_cards",
+                "ads_comment_component",
+                "goods_card_v2",
+                "video_recommend_tag",
+                "buyable_goods_card_v2",
+                "cooperate_search_component",
+                "ads_engage_bar",
+                "challenge_card",
+                "cooperate_engage_bar",
+                "pgy_comment_component",
+                "pgy_engage_bar",
+                "related_recommend",
+                "next_note_guide",
+                "widgets_ndb",
+                "pgy_bbc_exp",
+                "brand_max_trailer",
+                "super_activity",
+                "note_nice_guide",
+                "pin_search_highlights",
+                "widgets_enhance",
+                "packed_goods",
+                "packed_buyable_goods",
+                "widgets_ncb",
+                "note_nice_compound",
+                "live_shooting_flag",
+                "widgets_nbb",
+                "poi_declare",
+                "async_group"
+              ]
+            },
+            {
+              "mode": 0,
+              "fetch_types": [
+                "guos_test",
+                "vote_stickers",
+                "bullet_comment_lead",
+                "note_search_box",
+                "interact_pk",
+                "interact_vote",
+                "guide_heuristic",
+                "guide_post",
+                "video_foot_bar",
+                "follow_guide",
+                "share_to_msg",
+                "note_share_prompt_v1",
+                "note_share_prompt_v2",
+                "group_share",
+                "share_guide_bubble",
+                "goods_enhance_component",
+                "guide_navigator",
+                "sync_group"
+              ]
+            }
+          ]
+        },
+        "has_music": false,
+        "type": "video",
+        "tag_info": {
+          "type": "",
+          "title": ""
+        },
+        "collected_count": 0,
+        "niced": false,
+        "user": {
+          "red_id": "27498753526",
+          "userid": "6842df1e000000001e00962e",
+          "images": "https://example.invalid/fixture_299",
+          "nickname": "普通人ai工作台",
+          "red_official_verify_type": 0,
+          "show_red_official_verify_icon": false,
+          "red_official_verified": false,
+          "track_duration": 0,
+          "followed": false
+        },
+        "shared_count": 0,
+        "comments_count": 0,
+        "video_duration": "0:35",
+        "liked": false,
+        "widgets_context": "fixture_300",
+        "debug_info_str": "",
+        "nice_count": 0,
+        "note_attributes": [],
+        "video_info_v2": {
+          "capa": {
+            "is_user_select": false,
+            "is_upload": false,
+            "frame_ts": 0,
+            "duration": 35
+          },
+          "consumer": {
+            "can_super_resolution": false
+          },
+          "image": {
+            "thumbnail_dim": "https://example.invalid/fixture_301",
+            "thumbnail": "https://example.invalid/fixture_302"
+          },
+          "media": {
+            "user_level": 0,
+            "audio_info": {
+              "stream_types": [
+                103,
+                102,
+                101
+              ]
+            },
+            "audio_stream": {
+              "AAC": [
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_303",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_304"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 59,
+                  "audio_duration": 35605,
+                  "avg_bitrate": 193871,
+                  "default_stream": 0,
+                  "size": 862856,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 193871,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 103
+                },
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_305",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_306"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 60,
+                  "audio_duration": 35605,
+                  "avg_bitrate": 129863,
+                  "default_stream": 0,
+                  "size": 577978,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 129863,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 102
+                },
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_307",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_308"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 69,
+                  "audio_duration": 35605,
+                  "avg_bitrate": 97908,
+                  "default_stream": 1,
+                  "size": 435759,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 97908,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 101
+                }
+              ]
+            },
+            "video": {
+              "biz_id": "282295974493837303",
+              "md5": "fixture_309",
+              "stream_types": [
+                258,
+                3090,
+                3091
+              ],
+              "bound": [
+                {
+                  "y": 0,
+                  "w": 0,
+                  "x": 0,
+                  "h": 0
+                }
+              ],
+              "height": 1080,
+              "width": 1920,
+              "duration": 36,
+              "opaque1": {
+                "amend_4k": "1",
+                "supported_quality_types": "[\"720p\",\"1080p\"]",
+                "insertSubtitleLanguages": "[\"zh-CN\",\"en-US\"]",
+                "hasHumanVoice": "true",
+                "amend_2k": "26",
+                "amend": "18",
+                "supportAbr": "1",
+                "default_screencast_stream": "https://example.invalid/fixture_310",
+                "loudnorm": "{\"lpf\":11000.0,\"thrs\":-29.61,\"htp\":-1.91,\"hldns\":-17.34,\"lras\":5.7,\"version\":1.0,\"ldns\":-18.54,\"tps\":-1.27,\"ldn\":-15.51,\"lra\":4.3,\"tp\":-1.91,\"hldn\":-14.01,\"htps\":-1.27,\"hpf\":500.0,\"thr\":-26.31}",
+                "publish_over_threshold": "1",
+                "isSupportSubtitle": "false",
+                "audioLevInfo": "{\"audio_quality_level\":\"E\",\"mos_overall\":3.8957,\"version\":\"3.0\"}",
+                "amend_mobile": "40",
+                "support_dolby_audio": "false",
+                "support_hdr": "false",
+                "audioClsInfo": "{\"music_ratio\":0.8674157059714689,\"freesound_ratio\":0.0,\"speech_ratio\":0.981460646588184}",
+                "taxonomy_level1": "5ab094be481d26b8ef904606",
+                "support_dolby_version": "false",
+                "raw_size_byte": "11631540",
+                "taxonomy_level2": "c00000000000000000000327",
+                "domestic": "0"
+              },
+              "biz_name": 110,
+              "drm_type": 0,
+              "hdr_type": 0
+            },
+            "stream": {
+              "h265": [
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3090,
+                  "weight": 49,
+                  "master_url": "https://example.invalid/fixture_311",
+                  "video_duration": 35600,
+                  "volume": 0,
+                  "duration": 35600,
+                  "vmaf": -1,
+                  "psnr": 48.1349983215332,
+                  "video_codec": "hevc",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_312"
+                  ],
+                  "audio_channels": 0,
+                  "default_stream": 1,
+                  "video_bitrate": 495862,
+                  "fps": 25,
+                  "opaque1": {
+                    "roiWeight": "85.380345",
+                    "quality_grade_fallback": "720P",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback_with_desc": "720p HD",
+                    "pcdn_302_flag": "false",
+                    "quality_grade_name_v2": "720P",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"2.5E-6\",\"mvmaf\":\"86.62\"}",
+                    "use_pcdn": "1",
+                    "stream_index": "9999",
+                    "pcdn_supplier": "",
+                    "quality_grade": "HD_720P",
+                    "quality_index": "130",
+                    "quality_grade_name": "720p HD"
+                  },
+                  "size": 2206587,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "stream_desc": "H265_FMP4_720P_3090_ios",
+                  "height": 720,
+                  "audio_duration": 0,
+                  "quality_type": "HD",
+                  "width": 1280,
+                  "avg_bitrate": 495862,
+                  "hdr_type": 0,
+                  "ssim": 0
+                },
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3091,
+                  "weight": 50,
+                  "master_url": "https://example.invalid/fixture_313",
+                  "volume": 0,
+                  "video_duration": 35600,
+                  "duration": 35600,
+                  "vmaf": -1,
+                  "psnr": 46.32400131225586,
+                  "video_codec": "hevc",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_314"
+                  ],
+                  "audio_channels": 0,
+                  "default_stream": 0,
+                  "video_bitrate": 603394,
+                  "opaque1": {
+                    "quality_grade_fallback": "1080P",
+                    "roiWeight": "88.821515",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback_with_desc": "1080p HD",
+                    "pcdn_302_flag": "false",
+                    "quality_grade_name_v2": "1080P",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"2.5E-6\",\"mvmaf\":\"90.33\"}",
+                    "stream_index": "9998",
+                    "use_pcdn": "1",
+                    "pcdn_supplier": "",
+                    "quality_grade": "HD_1080P",
+                    "quality_index": "110",
+                    "quality_grade_name": "1080p HD"
+                  },
+                  "fps": 25,
+                  "size": 2685105,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "height": 1080,
+                  "audio_duration": 0,
+                  "stream_desc": "H265_FMP4_1080P_3091_ios",
+                  "quality_type": "FHD",
+                  "width": 1920,
+                  "avg_bitrate": 603394,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ],
+              "av1": [],
+              "h264": [
+                {
+                  "audio_bitrate": 56081,
+                  "master_url": "https://example.invalid/fixture_315",
+                  "weight": 48,
+                  "stream_type": 258,
+                  "volume": 0,
+                  "video_duration": 35600,
+                  "duration": 35606,
+                  "vmaf": -1,
+                  "psnr": 0,
+                  "audio_channels": 2,
+                  "video_codec": "h264",
+                  "default_stream": 0,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_316"
+                  ],
+                  "video_bitrate": 457329,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "stream_index": "10000",
+                    "use_pcdn": "0",
+                    "didLoudnorm": "false",
+                    "encode_stream": "0",
+                    "quality_grade_fallback": "720P",
+                    "pcdn_supplier": "",
+                    "quality_grade_fallback_with_desc": "720p HD"
+                  },
+                  "fps": 25,
+                  "size": 2309075,
+                  "audio_codec": "aac",
+                  "rotate": 0,
+                  "format": "mp4",
+                  "sr": 0,
+                  "stream_desc": "X264_MP4",
+                  "height": 720,
+                  "width": 1280,
+                  "audio_duration": 35605,
+                  "quality_type": "HD",
+                  "avg_bitrate": 518805,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ],
+              "h266": []
+            },
+            "video_id": 138180781672400045
+          }
+        },
+        "result_from": "",
+        "collected": false,
+        "xsec_token": "fixture_317",
+        "click_score": 0,
+        "liked_count": 0,
+        "desc": "还没开始写代码，先别急着买套餐。打开OpenCode模型列表，找后面带Free的DeepSeek和GLM，拿手头一件小事",
+        "interaction_area": {
+          "type": 1,
+          "text": "0",
+          "status": false
+        },
+        "images_list": [
+          {
+            "fileid": "fixture_318",
+            "height": 1684,
+            "url": "https://example.invalid/fixture_319",
+            "width": 1263,
+            "original": "",
+            "url_size_large": "https://example.invalid/fixture_320",
+            "trace_id": "fixture_321",
+            "need_load_original_image": false
+          }
+        ],
+        "title": "两个AI牛马，免费上岗",
+        "geo_info": {
+          "distance": ""
+        },
+        "timestamp": 1793765745
+      },
+      "source_file": "/tmp/review-interest-video-fix1-I/live/response-29.json",
+      "source_sha256": "35fcea07f30f1fffbd1e95cb32742f927df4b40dc1348e353f08adf1ae771f74",
+      "source_index": 2
+    },
+    {
+      "id": "xhs:6ae9c9ec000000000e02d15d",
+      "platform": "xhs",
+      "direction": "AI 内容生产自动化（选题雷达 / 剪映 / 批量出片）",
+      "expected": true,
+      "raw": {
+        "update_time": 1793706777000,
+        "corner_tag_info": [
+          {
+            "text_en": "",
+            "style": 0,
+            "icon": "",
+            "type": "ubt_sig_token",
+            "location": -1,
+            "text": "fixture_322"
+          },
+          {
+            "text_en": "Yesterday 19:47",
+            "style": 0,
+            "icon": "https://example.invalid/fixture_323",
+            "type": "publish_time",
+            "location": 5,
+            "text": "Yesterday 19:47"
+          }
+        ],
+        "extract_text_enabled": 0,
+        "id": "6ae9c9ec000000000e02d15d",
+        "last_update_time": 0,
+        "cover_image_index": 0,
+        "advanced_widgets_groups": {
+          "groups": [
+            {
+              "mode": 1,
+              "fetch_types": [
+                "guos_test",
+                "note_next_step",
+                "second_jump_bar",
+                "note_collection",
+                "cooperate_binds",
+                "rec_next_infos",
+                "video_marks",
+                "product_review",
+                "related_search",
+                "video_goods_cards",
+                "cooperate_comment_component",
+                "ads_goods_cards",
+                "ads_comment_component",
+                "goods_card_v2",
+                "video_recommend_tag",
+                "buyable_goods_card_v2",
+                "cooperate_search_component",
+                "ads_engage_bar",
+                "challenge_card",
+                "cooperate_engage_bar",
+                "pgy_comment_component",
+                "pgy_engage_bar",
+                "related_recommend",
+                "next_note_guide",
+                "widgets_ndb",
+                "pgy_bbc_exp",
+                "brand_max_trailer",
+                "super_activity",
+                "note_nice_guide",
+                "pin_search_highlights",
+                "widgets_enhance",
+                "packed_goods",
+                "packed_buyable_goods",
+                "widgets_ncb",
+                "note_nice_compound",
+                "live_shooting_flag",
+                "widgets_nbb",
+                "poi_declare",
+                "async_group"
+              ]
+            },
+            {
+              "mode": 0,
+              "fetch_types": [
+                "guos_test",
+                "vote_stickers",
+                "bullet_comment_lead",
+                "note_search_box",
+                "interact_pk",
+                "interact_vote",
+                "guide_heuristic",
+                "guide_post",
+                "video_foot_bar",
+                "follow_guide",
+                "share_to_msg",
+                "note_share_prompt_v1",
+                "note_share_prompt_v2",
+                "group_share",
+                "share_guide_bubble",
+                "goods_enhance_component",
+                "guide_navigator",
+                "sync_group"
+              ]
+            }
+          ]
+        },
+        "has_music": false,
+        "type": "video",
+        "tag_info": {
+          "title": "",
+          "type": ""
+        },
+        "collected_count": 0,
+        "user": {
+          "red_id": "27499080919",
+          "images": "https://example.invalid/fixture_324",
+          "red_official_verified": false,
+          "red_official_verify_type": 0,
+          "followed": false,
+          "show_red_official_verify_icon": false,
+          "nickname": "Ai艾星野",
+          "userid": "683ed165000000001d008437",
+          "track_duration": 0
+        },
+        "niced": false,
+        "shared_count": 0,
+        "comments_count": 0,
+        "video_duration": "1:47",
+        "liked": false,
+        "widgets_context": "fixture_325",
+        "debug_info_str": "",
+        "nice_count": 0,
+        "note_attributes": [],
+        "video_info_v2": {
+          "capa": {
+            "is_user_select": false,
+            "is_upload": false,
+            "frame_ts": 0,
+            "duration": 107
+          },
+          "consumer": {
+            "can_super_resolution": false
+          },
+          "image": {
+            "thumbnail_dim": "https://example.invalid/fixture_326",
+            "thumbnail": "https://example.invalid/fixture_327"
+          },
+          "media": {
+            "user_level": 0,
+            "audio_info": {
+              "stream_types": [
+                101,
+                102,
+                103
+              ]
+            },
+            "video_id": 138179786024368379,
+            "video": {
+              "biz_id": "282294980125053277",
+              "md5": "fixture_328",
+              "stream_types": [
+                258,
+                3090,
+                3091
+              ],
+              "height": 2160,
+              "bound": [
+                {
+                  "y": 0,
+                  "w": 0,
+                  "x": 0,
+                  "h": 0
+                }
+              ],
+              "width": 3840,
+              "duration": 108,
+              "opaque1": {
+                "loudnorm": "{\"lpf\":11000.0,\"thrs\":-26.26,\"htp\":-0.46,\"hldns\":-17.8,\"lras\":3.7,\"version\":1.0,\"ldns\":-16.17,\"tps\":2.09,\"ldn\":-14.15,\"lra\":2.8,\"tp\":0.17,\"hldn\":-15.93,\"htps\":0.24,\"hpf\":500.0,\"thr\":-24.18}",
+                "supportAbr": "1",
+                "hasHumanVoice": "true",
+                "isSupportSubtitle": "true",
+                "audioClsInfo": "{\"music_ratio\":0.9905441643594682,\"freesound_ratio\":0.08834708363449445,\"speech_ratio\":0.999999990729582}",
+                "support_hdr": "false",
+                "rightAvgLuma": "58",
+                "support_dolby_version": "false",
+                "domestic": "0",
+                "audioLevInfo": "{\"audio_quality_level\":\"E\",\"mos_overall\":3.9032,\"version\":\"3.0\"}",
+                "bottomAvgLuma": "59",
+                "videoLanguage": "[\"zh-CN\"]",
+                "insertSubtitleLanguages": "[\"zh-CN\"]",
+                "supported_quality_types": "[\"720p\",\"1080p\"]",
+                "support_dolby_audio": "false",
+                "amend_mobile": "40",
+                "topAvgLuma": "62"
+              },
+              "biz_name": 110,
+              "drm_type": 0,
+              "hdr_type": 0
+            },
+            "stream": {
+              "h265": [
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3090,
+                  "weight": 62,
+                  "master_url": "https://example.invalid/fixture_329",
+                  "video_duration": 107880,
+                  "volume": 0,
+                  "duration": 107880,
+                  "vmaf": -1,
+                  "psnr": 45.72200012207031,
+                  "video_codec": "hevc",
+                  "audio_channels": 0,
+                  "default_stream": 1,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_330"
+                  ],
+                  "video_bitrate": 567299,
+                  "fps": 25,
+                  "opaque1": {
+                    "quality_grade_fallback": "720P",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback_with_desc": "720p HD",
+                    "pcdn_302_flag": "false",
+                    "quality_grade_name_v2": "720P",
+                    "stream_index": "9999",
+                    "use_pcdn": "0",
+                    "pcdn_supplier": "",
+                    "quality_grade": "HD_720P",
+                    "quality_index": "130",
+                    "quality_grade_name": "720p HD"
+                  },
+                  "size": 7650031,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "audio_duration": 0,
+                  "height": 720,
+                  "stream_desc": "H265_FMP4_720P_3090_ios",
+                  "quality_type": "HD",
+                  "width": 1280,
+                  "avg_bitrate": 567299,
+                  "hdr_type": 0,
+                  "ssim": 0
+                },
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3091,
+                  "weight": 70,
+                  "master_url": "https://example.invalid/fixture_331",
+                  "volume": 0,
+                  "video_duration": 107880,
+                  "duration": 107880,
+                  "vmaf": -1,
+                  "psnr": 46.138999938964844,
+                  "audio_channels": 0,
+                  "video_codec": "hevc",
+                  "default_stream": 0,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_332"
+                  ],
+                  "video_bitrate": 677656,
+                  "opaque1": {
+                    "quality_grade_fallback": "720P",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback_with_desc": "720p HD",
+                    "pcdn_302_flag": "false",
+                    "quality_grade_name_v2": "1080P",
+                    "use_pcdn": "0",
+                    "stream_index": "9998",
+                    "quality_grade": "HD_1080P",
+                    "pcdn_supplier": "",
+                    "quality_index": "110",
+                    "quality_grade_name": "1080p HD"
+                  },
+                  "fps": 25,
+                  "size": 9138200,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "height": 1080,
+                  "audio_duration": 0,
+                  "stream_desc": "H265_FMP4_1080P_3091_ios",
+                  "quality_type": "FHD",
+                  "width": 1920,
+                  "avg_bitrate": 677656,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ],
+              "h266": [],
+              "av1": [],
+              "h264": [
+                {
+                  "audio_bitrate": 56022,
+                  "master_url": "https://example.invalid/fixture_333",
+                  "weight": 59,
+                  "stream_type": 258,
+                  "volume": 0,
+                  "video_duration": 107880,
+                  "duration": 107881,
+                  "vmaf": -1,
+                  "psnr": 0,
+                  "video_codec": "h264",
+                  "audio_channels": 2,
+                  "default_stream": 0,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_334"
+                  ],
+                  "video_bitrate": 762004,
+                  "fps": 25,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "stream_index": "10000",
+                    "use_pcdn": "0",
+                    "encode_stream": "0",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback": "720P",
+                    "pcdn_supplier": "",
+                    "quality_grade_fallback_with_desc": "720p HD"
+                  },
+                  "size": 11101447,
+                  "audio_codec": "aac",
+                  "rotate": 0,
+                  "format": "mp4",
+                  "sr": 0,
+                  "audio_duration": 107880,
+                  "height": 720,
+                  "stream_desc": "X264_MP4",
+                  "width": 1280,
+                  "quality_type": "HD",
+                  "avg_bitrate": 823236,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ]
+            },
+            "audio_stream": {
+              "AAC": [
+                {
+                  "loudnorm": "",
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_335",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_336"
+                  ],
+                  "audio_bit_depth": 0,
+                  "audio_lev_info": "",
+                  "opaque1": {
+                    "pcdn_302_flag": "false"
+                  },
+                  "audio_duration": 107880,
+                  "avg_bitrate": 98256,
+                  "default_stream": 1,
+                  "size": 1324987,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 98256,
+                  "audio_cls_info": "",
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 101,
+                  "weight": 59
+                },
+                {
+                  "loudnorm": "",
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_337",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_338"
+                  ],
+                  "audio_bit_depth": 0,
+                  "audio_lev_info": "",
+                  "opaque1": {
+                    "pcdn_302_flag": "false"
+                  },
+                  "audio_duration": 107880,
+                  "avg_bitrate": 130245,
+                  "default_stream": 0,
+                  "size": 1756360,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 130245,
+                  "audio_cls_info": "",
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 102,
+                  "weight": 60
+                },
+                {
+                  "loudnorm": "",
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_339",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_340"
+                  ],
+                  "audio_bit_depth": 0,
+                  "audio_lev_info": "",
+                  "opaque1": {
+                    "pcdn_302_flag": "false"
+                  },
+                  "audio_duration": 107880,
+                  "avg_bitrate": 194218,
+                  "default_stream": 0,
+                  "size": 2619045,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 194218,
+                  "audio_cls_info": "",
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 103,
+                  "weight": 61
+                }
+              ]
+            }
+          }
+        },
+        "result_from": "",
+        "collected": false,
+        "xsec_token": "fixture_341",
+        "click_score": 0,
+        "liked_count": 1,
+        "desc": "#howto驯服AI剪视频  #vibe知识大赏  #剪映  #双十一  #AI工具",
+        "interaction_area": {
+          "type": 1,
+          "status": false,
+          "text": "1"
+        },
+        "title": "双11直播切片太累？ 教你用剪映PC批量成片",
+        "images_list": [
+          {
+            "fileid": "fixture_342",
+            "height": 1684,
+            "url": "https://example.invalid/fixture_343",
+            "width": 1263,
+            "original": "",
+            "url_size_large": "https://example.invalid/fixture_344",
+            "trace_id": "fixture_345",
+            "need_load_original_image": false
+          }
+        ],
+        "geo_info": {
+          "distance": ""
+        },
+        "timestamp": 1793706476
+      },
+      "source_file": "/tmp/review-interest-video-fix1-I/live/response-35.json",
+      "source_sha256": "a74f275c81c3c7c97bb899cab88515c9a01bae2fe1a97df30614e97c6b567940",
+      "source_index": 1
+    },
+    {
+      "id": "xhs:6aea9da3000000001f017776",
+      "platform": "xhs",
+      "direction": "AI 内容生产自动化（选题雷达 / 剪映 / 批量出片）",
+      "expected": true,
+      "raw": {
+        "last_update_time": 0,
+        "geo_info": {
+          "distance": ""
+        },
+        "liked": false,
+        "video_info_v2": {
+          "capa": {
+            "is_user_select": false,
+            "is_upload": false,
+            "frame_ts": 0,
+            "duration": 90
+          },
+          "consumer": {
+            "can_super_resolution": false
+          },
+          "image": {
+            "thumbnail": "https://example.invalid/fixture_346",
+            "thumbnail_dim": "https://example.invalid/fixture_347",
+            "first_frame": "https://example.invalid/fixture_348"
+          },
+          "media": {
+            "audio_info": {
+              "stream_types": [
+                103,
+                102,
+                101
+              ]
+            },
+            "stream": {
+              "h265": [
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3117,
+                  "weight": 49,
+                  "master_url": "https://example.invalid/fixture_349",
+                  "video_duration": 90500,
+                  "volume": 0,
+                  "duration": 90500,
+                  "vmaf": -1,
+                  "psnr": 41.60599899291992,
+                  "audio_channels": 0,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_350",
+                    "https://example.invalid/fixture_351"
+                  ],
+                  "default_stream": 1,
+                  "video_codec": "hevc",
+                  "video_bitrate": 676613,
+                  "fps": 30,
+                  "opaque1": {
+                    "roiWeight": "84.92846750000001",
+                    "quality_grade_fallback": "720P",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback_with_desc": "720p HD",
+                    "pcdn_302_flag": "false",
+                    "quality_grade_name_v2": "720P",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"2.5E-6\",\"mvmaf\":\"86.62\"}",
+                    "use_pcdn": "1",
+                    "stream_index": "9999",
+                    "pcdn_supplier": "",
+                    "quality_grade": "HD_720P",
+                    "quality_index": "130",
+                    "quality_grade_name": "720p HD"
+                  },
+                  "size": 7654195,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "stream_desc": "H265_FMP4_720P_3117_ios",
+                  "height": 720,
+                  "width": 1280,
+                  "quality_type": "HD",
+                  "audio_duration": 0,
+                  "avg_bitrate": 676613,
+                  "hdr_type": 0,
+                  "ssim": 0
+                },
+                {
+                  "audio_bitrate": 0,
+                  "stream_type": 3118,
+                  "master_url": "https://example.invalid/fixture_352",
+                  "weight": 50,
+                  "volume": 0,
+                  "video_duration": 90500,
+                  "duration": 90500,
+                  "vmaf": -1,
+                  "psnr": 40.22200012207031,
+                  "video_codec": "hevc",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_353",
+                    "https://example.invalid/fixture_354"
+                  ],
+                  "audio_channels": 0,
+                  "default_stream": 0,
+                  "video_bitrate": 903593,
+                  "fps": 30,
+                  "opaque1": {
+                    "quality_grade_fallback": "1080P",
+                    "roiWeight": "88.0710175",
+                    "encode_stream": "0",
+                    "prefer_audio": "101",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback_with_desc": "1080p HD",
+                    "pcdn_302_flag": "false",
+                    "quality_grade_name_v2": "1080P",
+                    "roi_info": "{\"alpha\":\"1.0\",\"gamma\":\"0.0\",\"lambda\":\"2.5E-6\",\"mvmaf\":\"90.33\"}",
+                    "stream_index": "9998",
+                    "use_pcdn": "1",
+                    "quality_grade": "HD_1080P",
+                    "pcdn_supplier": "",
+                    "quality_index": "110",
+                    "quality_grade_name": "1080p HD"
+                  },
+                  "size": 10221897,
+                  "rotate": 0,
+                  "format": "fmp4",
+                  "sr": 0,
+                  "height": 1080,
+                  "audio_duration": 0,
+                  "stream_desc": "H265_FMP4_1080P_3118_ios",
+                  "quality_type": "FHD",
+                  "width": 1920,
+                  "avg_bitrate": 903593,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ],
+              "h266": [],
+              "h264": [
+                {
+                  "audio_bitrate": 56013,
+                  "master_url": "https://example.invalid/fixture_355",
+                  "weight": 48,
+                  "stream_type": 258,
+                  "volume": 0,
+                  "video_duration": 90500,
+                  "duration": 90560,
+                  "vmaf": -1,
+                  "psnr": 0,
+                  "video_codec": "h264",
+                  "audio_channels": 2,
+                  "backup_urls": [
+                    "https://example.invalid/fixture_356",
+                    "https://example.invalid/fixture_357"
+                  ],
+                  "default_stream": 0,
+                  "video_bitrate": 1083576,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "stream_index": "10000",
+                    "use_pcdn": "0",
+                    "encode_stream": "0",
+                    "didLoudnorm": "false",
+                    "quality_grade_fallback": "720P",
+                    "pcdn_supplier": "",
+                    "quality_grade_fallback_with_desc": "720p HD"
+                  },
+                  "fps": 30,
+                  "size": 12965972,
+                  "audio_codec": "aac",
+                  "rotate": 0,
+                  "format": "mp4",
+                  "sr": 0,
+                  "audio_duration": 90560,
+                  "stream_desc": "X264_MP4",
+                  "width": 1280,
+                  "quality_type": "HD",
+                  "height": 720,
+                  "avg_bitrate": 1145403,
+                  "hdr_type": 0,
+                  "ssim": 0
+                }
+              ],
+              "av1": []
+            },
+            "user_level": 0,
+            "audio_stream": {
+              "AAC": [
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_358",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_359",
+                    "https://example.invalid/fixture_360"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 59,
+                  "audio_duration": 90560,
+                  "avg_bitrate": 193700,
+                  "default_stream": 0,
+                  "size": 2192688,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 193700,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 103
+                },
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_361",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_362",
+                    "https://example.invalid/fixture_363"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 60,
+                  "audio_duration": 90560,
+                  "avg_bitrate": 129685,
+                  "default_stream": 0,
+                  "size": 1468039,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 129685,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 102
+                },
+                {
+                  "audio_channels": 2,
+                  "master_url": "https://example.invalid/fixture_364",
+                  "backup_urls": [
+                    "https://example.invalid/fixture_365",
+                    "https://example.invalid/fixture_366"
+                  ],
+                  "audio_bit_depth": 0,
+                  "opaque1": {
+                    "pcdn_302_flag": "false",
+                    "use_pcdn": "1"
+                  },
+                  "weight": 69,
+                  "audio_duration": 90560,
+                  "avg_bitrate": 97678,
+                  "default_stream": 1,
+                  "size": 1105715,
+                  "audio_samplerate": 44100,
+                  "audio_codec": "aac",
+                  "audio_bitrate": 97678,
+                  "audio_profile": "LC",
+                  "format": "FMP4",
+                  "stream_type": 101
+                }
+              ]
+            },
+            "video": {
+              "height": 1080,
+              "biz_id": "282295889437751158",
+              "md5": "fixture_367",
+              "stream_types": [
+                258,
+                3117,
+                3118
+              ],
+              "bound": [
+                {
+                  "y": 0,
+                  "w": 0,
+                  "x": 0,
+                  "h": 0
+                }
+              ],
+              "width": 1920,
+              "duration": 91,
+              "opaque1": {
+                "hasHumanVoice": "true",
+                "supported_quality_types": "[\"720p\",\"1080p\"]",
+                "videoLanguage": "[\"zh-CN\"]",
+                "amend_4k": "1",
+                "amend_2k": "26",
+                "amend": "18",
+                "supportAbr": "1",
+                "default_screencast_stream": "https://example.invalid/fixture_368",
+                "loudnorm": "{\"lpf\":11000.0,\"thrs\":-29.1,\"htp\":-1.5,\"hldns\":-18.41,\"lras\":4.1,\"version\":1.0,\"ldns\":-18.81,\"tps\":0.31,\"ldn\":-16.86,\"lra\":3.3,\"tp\":-0.66,\"hldn\":-17.03,\"htps\":-0.54,\"hpf\":500.0,\"thr\":-27.03}",
+                "insertSubtitleLanguages": "[\"zh-CN\"]",
+                "taxonomy_level3": "c00000000000000000000706",
+                "publish_over_threshold": "1",
+                "bottomAvgLuma": "106",
+                "isSupportSubtitle": "true",
+                "audioLevInfo": "{\"audio_quality_level\":\"G+\",\"mos_overall\":3.4215,\"version\":\"3.0\"}",
+                "topAvgLuma": "144",
+                "amend_mobile": "40",
+                "support_dolby_audio": "false",
+                "audioClsInfo": "{\"music_ratio\":0.9898164616179895,\"freesound_ratio\":0.086839748356762,\"speech_ratio\":0.9998880819170985}",
+                "taxonomy_level1": "c00000000000000000000551",
+                "support_hdr": "false",
+                "support_dolby_version": "false",
+                "raw_size_byte": "88489178",
+                "taxonomy_level2": "c00000000000000000000761",
+                "domestic": "0",
+                "rightAvgLuma": "97"
+              },
+              "drm_type": 0,
+              "biz_name": 110,
+              "hdr_type": 0
+            },
+            "video_id": 138180701103609646
+          }
+        },
+        "video_duration": "1:30",
+        "click_score": 0,
+        "result_from": "",
+        "collected_count": 4,
+        "collected": false,
+        "comments_count": 0,
+        "nice_count": 0,
+        "niced": false,
+        "cover_image_index": 0,
+        "tag_info": {
+          "title": "",
+          "type": ""
+        },
+        "type": "video",
+        "images_list": [
+          {
+            "height": 1448,
+            "need_load_original_image": false,
+            "fileid": "fixture_369",
+            "width": 1086,
+            "original": "",
+            "url_size_large": "https://example.invalid/fixture_370",
+            "trace_id": "fixture_371",
+            "url": "https://example.invalid/fixture_372"
+          }
+        ],
+        "note_attributes": [],
+        "corner_tag_info": [
+          {
+            "text_en": "",
+            "icon": "",
+            "style": 0,
+            "type": "ubt_sig_token",
+            "location": -1,
+            "text": "fixture_373"
+          },
+          {
+            "text_en": "1 hrs ago",
+            "icon": "https://example.invalid/fixture_374",
+            "style": 0,
+            "type": "publish_time",
+            "location": 5,
+            "text": "1 hour(s) ago"
+          }
+        ],
+        "id": "6aea9da3000000001f017776",
+        "user": {
+          "red_id": "427494376",
+          "red_official_verified": false,
+          "userid": "5892b743a9b2ed7934207d79",
+          "red_official_verify_type": 0,
+          "track_duration": 0,
+          "followed": false,
+          "nickname": "小樱学姐聊AI",
+          "images": "https://example.invalid/fixture_375",
+          "show_red_official_verify_icon": false
+        },
+        "timestamp": 1793760675,
+        "extract_text_enabled": 0,
+        "debug_info_str": "",
+        "interaction_area": {
+          "type": 1,
+          "status": false,
+          "text": "2"
+        },
+        "update_time": 1793760977000,
+        "liked_count": 2,
+        "widgets_context": "fixture_376",
+        "xsec_token": "fixture_377",
+        "desc": "自动混剪！4步搭建电商视频生产线 核心不是找一个万能剪辑Skill，而是先搭建产品素材库，再通过爆款结构拆解、镜头匹配",
+        "shared_count": 0,
+        "advanced_widgets_groups": {
+          "groups": [
+            {
+              "mode": 1,
+              "fetch_types": [
+                "guos_test",
+                "note_next_step",
+                "second_jump_bar",
+                "note_collection",
+                "cooperate_binds",
+                "rec_next_infos",
+                "video_marks",
+                "product_review",
+                "related_search",
+                "video_goods_cards",
+                "cooperate_comment_component",
+                "ads_goods_cards",
+                "ads_comment_component",
+                "goods_card_v2",
+                "video_recommend_tag",
+                "buyable_goods_card_v2",
+                "cooperate_search_component",
+                "ads_engage_bar",
+                "challenge_card",
+                "cooperate_engage_bar",
+                "pgy_comment_component",
+                "pgy_engage_bar",
+                "related_recommend",
+                "next_note_guide",
+                "widgets_ndb",
+                "pgy_bbc_exp",
+                "brand_max_trailer",
+                "super_activity",
+                "note_nice_guide",
+                "pin_search_highlights",
+                "widgets_enhance",
+                "packed_goods",
+                "packed_buyable_goods",
+                "widgets_ncb",
+                "note_nice_compound",
+                "live_shooting_flag",
+                "widgets_nbb",
+                "poi_declare",
+                "async_group"
+              ]
+            },
+            {
+              "mode": 0,
+              "fetch_types": [
+                "guos_test",
+                "vote_stickers",
+                "bullet_comment_lead",
+                "note_search_box",
+                "interact_pk",
+                "interact_vote",
+                "guide_heuristic",
+                "guide_post",
+                "video_foot_bar",
+                "follow_guide",
+                "share_to_msg",
+                "note_share_prompt_v1",
+                "note_share_prompt_v2",
+                "group_share",
+                "share_guide_bubble",
+                "goods_enhance_component",
+                "guide_navigator",
+                "sync_group"
+              ]
+            }
+          ]
+        },
+        "has_music": false
+      },
+      "source_file": "/tmp/review-interest-video-fix1-I/live/response-36.json",
+      "source_sha256": "63815582ca22464858363584e09e7daa201fe547887da3d2eb70a69e02145cd0",
+      "source_index": 0
+    }
+  ]
+}

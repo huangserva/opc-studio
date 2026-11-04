@@ -79,7 +79,7 @@ def cached_file(root,path,kind):
   for old in [k for k in FILE_CACHE if k[0]==str(path) and k!=key]:FILE_CACHE.pop(old,None)
   FILE_CACHE[key]=rows
  return rows
-SOURCE_TRUST={'Grok 兴趣':5,'微信群工具':5,'X 书签':4,'Grok 推特雷达':4,'Grok 日报':4,'Grok 快报':4,'Grok 周报':4,'GitHub API':4,'公众号文章':4,'外部文章收藏':3,'微信线索摘要':3,'AIsa 线索摘要':3,'AIsa X':2,'AIsa 手动取数':2,'linux.do':2,'抖音视频榜':1,'小红书灵感榜':1,'X 榜单':1,'读者问题':3}
+SOURCE_TRUST={'Grok 兴趣':5,'微信群工具':5,'X 书签':4,'Grok 推特雷达':4,'Grok 日报':4,'Grok 快报':4,'Grok 周报':4,'GitHub API':4,'公众号文章':4,'外部文章收藏':3,'微信线索摘要':3,'AIsa 线索摘要':3,'AIsa X':2,'AIsa 手动取数':2,'linux.do':2,'抖音视频榜':1,'小红书灵感榜':1,'X 榜单':1,'读者问题':3,'抖音兴趣搜索':3,'小红书兴趣搜索':3}
 
 def workspace(root):
  root=Path(root).resolve()
@@ -160,7 +160,7 @@ def files(root,now,reports=None):
   folder=base/directory
   if folder.is_symlink():continue
   out.extend((p,kind) for p in sorted(folder.glob('*/*.json')) if p.parent.name>=cut and not p.parent.is_symlink())
- for rel,kind in (('video-radar/page.json','video'),('linuxdo/top-daily.json','linuxdo'),('linuxdo/previous.json','linuxdo')):
+ for rel,kind in (('interest-video-search/page.json','interest_video'),('video-radar/page.json','video'),('linuxdo/top-daily.json','linuxdo'),('linuxdo/previous.json','linuxdo')):
   p=base/rel
   if p.is_file():out.append((p,kind))
  import grok_radar_ingest as R
@@ -211,6 +211,13 @@ def parse_file(path,kind):
    platform='xhs' if board=='xiaohongshu' else 'douyin'
    for row in rows:
     if isinstance(row,dict):add(row,'小红书灵感榜' if platform=='xhs' else '抖音视频榜','V',data.get('generated_at'),platform=platform,body=row.get('full_text') or row.get('desc_excerpt') or row.get('title'),kind='video')
+ elif kind=='interest_video' and isinstance(data,dict):
+  for row in data.get('items',[]) if isinstance(data.get('items'),list) else []:
+   if not isinstance(row,dict) or row.get('platform') not in ('douyin','xhs'):continue
+   before=len(result)
+   add(row,'抖音兴趣搜索' if row['platform']=='douyin' else '小红书兴趣搜索','aisa:interest-video',data.get('generated_at'),platform=row['platform'],body=row.get('full_text'),kind='video')
+   if len(result)>before:
+    result[-1]['source_topics']=[safe_text(v) for v in row.get('interest_topics',[]) if isinstance(v,str)]
  elif kind=='linuxdo' and isinstance(data,dict):
   for row in data.get('items',[]):add(row,'linux.do','L',data.get('updated_at'),platform='linuxdo',kind='topic')
  return result

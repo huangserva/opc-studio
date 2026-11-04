@@ -1,0 +1,68 @@
+[
+  {
+    "id": "douyin:7703938638383533350",
+    "text": "11月comfyui超详细教程，手把手带你Ai视频制作！ comfyui#comfyui #comfyui教程 #comfyui工作流 #comfyui安装 #comfyui整合包",
+    "platform": "douyin",
+    "verdict": "admit"
+  },
+  {
+    "id": "xhs:6aea28b9000000000303b434",
+    "text": "AI软件comfyUI新手入门教程：解压后如何使用\n下载便携版comfyUI解压后，如何使用默认工作流进行文生图 #AI  #教程  #图像生成  #AI新手入门  #AI",
+    "platform": "xhs",
+    "verdict": "admit"
+  },
+  {
+    "id": "xhs:6aea10b4000000001e017da9",
+    "text": "ComfyUI人体姿态出图工作流！\n来自 Github aicg3d 大佬开源插件 内置第 5 期全套人体姿态素材，无需重复配置 上传背景图，点选人像、发饰",
+    "platform": "xhs",
+    "verdict": "admit"
+  },
+  {
+    "id": "xhs:6ae9f9d9000000000300b71c",
+    "text": "ComfyTV 视频板块通过预设链接工作流\n#H3  #comfyui",
+    "platform": "xhs",
+    "verdict": "pending"
+  },
+  {
+    "id": "xhs:6ae9ac4500000000030219e5",
+    "text": "11月1日，秋叶手搓工作流更新！ #comfyui #comfyui工作流 #m\n11月1日，秋叶手搓工作流更新！ #comfyui  #comfyui工作流  #minimaxh3  #工作流  #a",
+    "platform": "xhs",
+    "verdict": "reject"
+  },
+  {
+    "id": "xhs:6ae990bb0000000003004e0f",
+    "text": "本地部署一起织布呀#ComfyUI #工作流\n本地部署一起织布呀#ComfyUI  #工作流",
+    "platform": "xhs",
+    "verdict": "reject"
+  },
+  {
+    "id": "xhs:6ae9495b0000000003014255",
+    "text": "免费开源！可溶图可打光这一套就够了！Qwen2.1心宝全能溶图打光大师｜18种光效×11种方向，附ComfyUI节点与工",
+    "platform": "xhs",
+    "verdict": "admit"
+  },
+  {
+    "id": "douyin:7703855201597377792",
+    "text": "|Vibe知识大赏|DSH保姆级入门教程 #本地部署 #DSH #deepseek #vibe知识大赏",
+    "platform": "douyin",
+    "verdict": "admit"
+  },
+  {
+    "id": "douyin:7703799219535107945",
+    "text": "Comfyui安装进度条卡67%使用教程 #confyui #ai视频制作 #ai本地部署 #视频剪辑 #ai工具教学",
+    "platform": "douyin",
+    "verdict": "admit"
+  },
+  {
+    "id": "xhs:6ae9c79a0000000015023185",
+    "text": "AI本地部署保姆级教程丨开源模型MiniMaxH3\n#华硕ProArt  #华硕显卡  #RTX5080  #双十一  #AI视频  #本地部署  #ComfyUI  #M",
+    "platform": "xhs",
+    "verdict": "admit"
+  },
+  {
+    "id": "xhs:6ae975e8000000001a020d86",
+    "text": "新手MiniMax-H3旋转穿搭换装\n#comfyui  #minimax  #ai视频  #ai视频生成  #comfyui工作流  #comfyui整合包",
+    "platform": "xhs",
+    "verdict": "reject"
+  }
+]

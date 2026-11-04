@@ -8,7 +8,7 @@ import json
 from functools import lru_cache
 from topic_registry import TOPICS, topic_key, normalized
 
-VERSION = 'interest-rules-7'
+VERSION = 'interest-rules-8'
 TOOL_FIELDS=('in_tools','direction_state','share_count','first_shared_at','classification','tool_version','verification','filtered')
 # 方向的词典，只有对应方向在用户设置中启用才生效，不是第二份兴趣偏好。
 TERMS = {
@@ -19,8 +19,8 @@ TERMS = {
  'agent-coding': ('Claude Code','Codex','MCP','Agent 编程','Agent编程','Cursor','Windsurf'),
  'skill-security': ('SkillSpector','Skill 安全','Skill安全','Skill 扫描','Skill扫描'),
  'local-agent-ecosystem': ('OpenCode','本地 Agent 桌面','本地Agent桌面','Agent 桌面插件'),
- 'content-automation': ('选题雷达','剪映','批量出片','内容生产自动化','内容自动化'),
- 'embodied-3d': ('硬件 Agent','硬件Agent','embodied','具身智能','游戏 Agent','游戏Agent','3D Agent','3D生成','3D 生成'),
+ 'content-automation': ('选题雷达','剪映','批量出片','内容生产自动化','内容自动化','视频生产线','批量成片'),
+ 'embodied-3d': ('硬件 Agent','硬件Agent','embodied','具身智能','游戏 Agent','游戏Agent','3D Agent','3D生成','3D 生成','Unity MCP'),
 }
 GENERIC = {'agent','模型','ai','视频','api','工具','工作流','3d','游戏'}
 WEAK = {'ai视频','ai图像','剪映'}

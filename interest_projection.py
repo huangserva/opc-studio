@@ -138,7 +138,8 @@ def schedule(root,st,now,*,force=False):
 
 def empty(root):
     import interest_channel as I
-    return dict(channel='interest',items=[],total=0,page=1,page_size=50,top=[],top_message='',sources={},filtering=dict(by_source={},items=[],total=0,policy='正在首次建立跨来源兴趣读模型'),configured_topics=I.topics()['topics'],daily_counts={},sort_policy='',interest_cache=dict(ready=False,partial=True,refreshing=True,error=None,built_at=None,build_ms=None))
+    from scripts.interest_video_search import status as video_interest_status
+    return dict(channel='interest',items=[],total=0,page=1,page_size=50,top=[],top_message='',sources=video_interest_status(root),filtering=dict(by_source={},items=[],total=0,policy='正在首次建立跨来源兴趣读模型'),configured_topics=I.topics()['topics'],daily_counts={},sort_policy='',interest_cache=dict(ready=False,partial=True,refreshing=True,error=None,built_at=None,build_ms=None))
 
 def page(root,query):
     now=datetime.now(timezone.utc);period=query.get('range',['today'])[0]
@@ -167,6 +168,8 @@ def page(root,query):
     with LOCK:refreshing=expired or st['updating'];checking=st['running'] and not st['updating'];error=st['error']
     result['interest_cache'].update(ready=not refreshing,partial=False,refreshing=refreshing,checking=checking,error=error)
     result['interest_cache']['projection']=dict(source='readmodel',fallbacks={},stale=expired)
+    from scripts.interest_video_search import status as video_interest_status
+    result['sources'].update(video_interest_status(root))
     return result
 
 def detail(root,identifier):
