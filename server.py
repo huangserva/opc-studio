@@ -725,6 +725,9 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
+        return __import__('gmail_view').owner_route(self,self._get_routes)
+
+    def _get_routes(self):
         if not self.trusted():
             return self.reply(403, {'error': '仅限本机访问'})
         parts = urlsplit(self.path)
@@ -732,6 +735,8 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parts.query)
         store = self.server.store
         try:
+            if parts.path == '/gmail' or parts.path.startswith('/api/gmail/'):
+                return __import__('gmail_view').get_route(self,parts)
             if parts.path == '/api/clue-inbox' or parts.path.startswith('/api/clue-objects/'):
                 return __import__('clue_ingest_api').get_route(self, parts, query)
             if parts.path == '/api/knowledge/upload-candidates':
@@ -964,6 +969,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._log_resolve(context)
 
     def _post_routes(self):
+        return __import__('gmail_view').owner_route(self,self._post_routes_unscoped)
+
+    def _post_routes_unscoped(self):
         allowed_origins = {f'http://127.0.0.1:{self.server.server_port}', f'http://localhost:{self.server.server_port}'}
         if not self.trusted() or self.headers.get('Origin') not in allowed_origins or self.headers.get('X-Article-Studio') != '1':
             return self.reply(403, {'error': '请求来源不受支持'})
@@ -1032,6 +1040,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if len(segments)==3 and segments[:2]==['api','gmail']:
+                return __import__('gmail_view').post_route(self,payload,route)
             if segments == ['api', 'knowledge', 'upload']:
                 return __import__('weknora_upload').post_route(self, payload)
             if segments == ['api', 'settings', 'official-accounts']: return __import__('settings_view').official_accounts_route(self, payload)
@@ -1190,6 +1200,8 @@ class Handler(BaseHTTPRequestHandler):
             if segments == ['api', 'knowledge', 'source']:
                 return self.reply(200, self.server.store.knowledge.configure_source(payload))
             if segments == ['api', 'knowledge', 'gmail', 'import']:
+                try:__import__('gmail_view').service(self.server).session(self,owner=True)
+                except Exception:return self.reply(403, {'error':'邮件导入需要本人本机会话'})
                 return self.reply(201, self.server.store.knowledge.ingest_gmail(payload))
             if segments == ['api', 'knowledge', 'project']:
                 return self.reply(201, self.server.store.knowledge.add_project(payload))

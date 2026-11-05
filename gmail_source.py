@@ -137,7 +137,7 @@ def decode_header_value(value):
 def render_body(payload):
     plain, html = [], []
     scope = {'body_source': 'missing', 'truncated': False, 'missing': True,
-        'attachments_not_read': False, 'attachment_parts': 0, 'decoding_replaced': False}
+        'attachments_not_read': False, 'attachment_parts': 0, 'decoding_replaced': False, 'attachments': [], 'body_detached': False}
     visited = 0
 
     def walk(part, depth=0):
@@ -161,7 +161,7 @@ def render_body(payload):
         if not isinstance(body, dict) or set(body) - {'size', 'base64_url_content', 'content', 'attachment_id'}:
             raise ValueError('MIME 正文字段无效')
         if 'size' in body:
-            integer(body['size'], 'MIME 正文大小', MAIL_BYTES)
+            integer(body['size'], '远端 MIME 估计大小', 2**53-1)
         for field in ('content', 'base64_url_content', 'attachment_id'):
             if field in body:
                 bounded_text(body[field], 'MIME ' + field, MAIL_BYTES, optional=True)
@@ -183,6 +183,8 @@ def render_body(payload):
         if attachment or (not parts and mime and mime not in ('text/plain', 'text/html') and not mime.startswith('multipart/')):
             scope['attachments_not_read'] = True
             scope['attachment_parts'] += 1
+            scope['attachments'].append({'filename': filename, 'mime': mime, 'size': body.get('size', 0), 'attachment_id': body.get('attachment_id') or '', 'part_id': part.get('part_id') or ''})
+            if not filename and mime in ('text/plain', 'text/html') and body.get('attachment_id'): scope['body_detached'] = True
             return
         if parts:
             for child in parts:
@@ -231,6 +233,7 @@ def render_body(payload):
 class GmailCache:
     def __init__(self, workspace):
         self.root = Path(workspace) / 'mail'
+        if self.root.is_symlink() or (self.root/'gmail.db').is_symlink():raise ValueError('邮件缓存路径不可使用符号链接')
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.path = self.root / 'gmail.db'
@@ -277,7 +280,7 @@ class GmailCache:
 
     @staticmethod
     def _normalize(message, account, query, has_more, captured):
-        if not isinstance(message, dict) or set(message) - {'id', 'thread_id', 'label_ids', 'snippet', 'history_id', 'internal_date', 'payload', 'size_estimate', 'classification_label_values'}:
+        if not isinstance(message, dict) or set(message) - {'id', 'thread_id', 'label_ids', 'snippet', 'history_id', 'internal_date', 'payload', 'size_estimate', 'remote_size_estimate', 'classification_label_values'}:
             raise ValueError('Gmail 邮件字段无效')
         mid = mail_id(message.get('id'), '邮件编号')
         thread = mail_id(message.get('thread_id'), '会话编号')
@@ -295,6 +298,8 @@ class GmailCache:
         history_id = message.get('history_id', '')
         if not isinstance(history_id, str) or history_id and not re.fullmatch('[0-9]{1,30}', history_id):
             raise ValueError('Gmail history_id 格式无效')
+        if 'remote_size_estimate' in message:
+            integer(message['remote_size_estimate'], '远端邮件估计大小', 2**53-1)
         if 'size_estimate' in message:
             integer(message['size_estimate'], '邮件估计大小', MAIL_BYTES)
         payload = message.get('payload')
@@ -315,6 +320,8 @@ class GmailCache:
                 pass
         scope.update(query=query, has_more=has_more, date_sent_missing_or_invalid=not bool(date_sent))
         details = ['仅本次查询获取的邮件正文；缓存可能保留此前批次，未证明全邮箱已同步']
+        if scope['body_detached']:
+            details.append('正文未取全：正文由 attachmentId 分离；本期不下载')
         if scope['missing']:
             details.append('正文缺失，预览不作为完整正文')
         elif scope['body_source'] == 'text/html':
@@ -339,6 +346,8 @@ class GmailCache:
             'source_url': 'https://mail.google.com/mail/u/?' + urlencode({'authuser': account}) + '#all/' + mid,
             'modified': modified, 'captured_at': captured, 'content_scope': scope,
             'labels': list(dict.fromkeys(labels)),
+            'attachments': scope['attachments'], 'remote_size_estimate': message.get('remote_size_estimate'),
+            'read_limit_bytes': MAIL_BYTES,
         }
 
     def import_messages(self, payload):

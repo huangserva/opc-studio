@@ -14,6 +14,9 @@ class GmailKnowledgeTests(unittest.TestCase):
         self.store = Store(Path(self.temp.name) / 'studio')
         self.k = Knowledge(self.store, sources=[])
         self.store._knowledge = self.k
+        owner = self.k.gmail_owner()
+        owner.__enter__()
+        self.addCleanup(owner.__exit__, None, None, None)
         self.fixture = GmailCacheTests()
         self.fixture.account = 'demo.user@gmail.com'
         self.payload = {'account': self.fixture.account, 'query': 'newer_than:7d', 'has_more': True,

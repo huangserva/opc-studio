@@ -191,8 +191,26 @@ class Events:
             })
         return snapshots
 
-    @staticmethod
-    def _row(c, event_id):
+    def _private_read_clause(self,c):
+        """Same predicate for details, evidence and every list/count view."""
+        knowledge=self.store.knowledge
+        if getattr(knowledge,'_gmail_owner',lambda:False)():return '1'
+        path=Path(self.store.workspace)/'mail/gmail-private.db'
+        member='0'
+        if path.is_file():
+            try:
+                if 'gmail_read_guard' not in {r[1] for r in c.execute('PRAGMA database_list')}:
+                    c.execute('ATTACH DATABASE ? AS gmail_read_guard',(path.resolve().as_uri()+'?mode=ro',))
+                member="json_extract(g.snapshot,'$.document_id') IN (SELECT id FROM gmail_read_guard.documents)"
+            except sqlite3.Error:raise ValueError('私有引用权限无法核验') from None
+        return "NOT EXISTS(SELECT 1 FROM evidence g WHERE g.event_id=e.id AND (json_extract(g.snapshot,'$.source') LIKE 'gmail-%' OR json_extract(g.snapshot,'$.access_policy')='gmail_owner' OR "+member+"))"
+
+    def _assert_readable(self,c,event_id):
+        clause=self._private_read_clause(c)
+        if not c.execute('SELECT 1 FROM events e WHERE e.id=? AND '+clause,(event_id,)).fetchone():raise ValueError('事件不存在')
+
+    def _row(self,c, event_id):
+        self._assert_readable(c,event_id)
         row = c.execute('SELECT * FROM events WHERE id=?', (event_id,)).fetchone()
         if row is None:
             raise ValueError('事件不存在')
@@ -210,8 +228,8 @@ class Events:
             actions.append(item)
         return actions
 
-    @staticmethod
-    def _evidence(c, event_id):
+    def _evidence(self,c, event_id):
+        self._assert_readable(c,event_id)
         return [{**json.loads(r['snapshot']), 'id': r['id']} for r in c.execute(
             'SELECT id,snapshot FROM evidence WHERE event_id=? ORDER BY rowid', (event_id,))]
 
@@ -285,6 +303,7 @@ class Events:
         }
         common = ' AND '.join(conditions) or '1'
         with self.db() as c:
+            common='('+common+') AND '+self._private_read_clause(c)
             counts = {v: c.execute('SELECT COUNT(*) FROM events e WHERE ' + common + ' AND ' + clause, args).fetchone()[0] for v, clause in views.items()}
             counts['mine_actions'] = c.execute('SELECT COUNT(*) FROM actions a JOIN events e ON e.id=a.event_id WHERE ' + common + ' AND a.owner_is_self=1 AND ' + active, args).fetchone()[0]
             rows = c.execute('SELECT e.id FROM events e WHERE ' + common + ' AND ' + views[view] + ' ORDER BY e.updated_at DESC,e.id LIMIT ?', [*args, limit]).fetchall()

@@ -22,11 +22,19 @@ from tests import test_events_api as event_fixture
 class KnowledgeFeedbackApiTests(unittest.TestCase):
     # Reuse the existing server/temporary Store fixture, including its synthetic
     # seed note, instead of constructing any live Assistant or mail connection.
-    setUp = event_fixture.EventApiTests.setUp
+    def setUp(self):
+        event_fixture.EventApiTests.setUp(self)
+        if self._testMethodName != 'test_standard_connector_mime_import_search_event_keeps_exact_body_and_provenance':return
+        with urlopen(self.base+'/gmail',timeout=5) as response:
+            cookie=response.headers['Set-Cookie'].split(';',1)[0]
+        with urlopen(Request(self.base+'/api/gmail/session',headers={'Cookie':cookie}),timeout=5) as response:
+            session=json.load(response)
+        self.gmail_headers={'Cookie':cookie,'X-Gmail-Nonce':session['nonce']}
+        self.request('/api/gmail/unlock',{})
     tearDown = event_fixture.EventApiTests.tearDown
 
     def request(self, path, payload=None, origin=True, expected_status=None):
-        headers={'Content-Type':'application/json','X-Article-Studio':'1'}
+        headers={'Content-Type':'application/json','X-Article-Studio':'1',**getattr(self,'gmail_headers',{})}
         if origin is not False:
             headers['Origin']=self.base if origin is True else origin
         req=Request(self.base+path,
