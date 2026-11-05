@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 
 from items_store import readonly
+from platform_registry import annotate_items
 from publication_metrics import PUBLISHED, slug_value
 
 METRICS = {
@@ -327,14 +328,27 @@ class PublishReview:
         title = ref['item_id']
         sources = ref.get('sources') if isinstance(ref.get('sources'),list) else []
         path = self.workspace / 'items/items.db'
+        row = None
         if path.exists():
             with closing(readonly(path)) as c:
-                row = c.execute('SELECT title,sources_json FROM items WHERE id=?',(ref['item_id'],)).fetchone()
+                row = c.execute('SELECT * FROM items WHERE id=?',(ref['item_id'],)).fetchone()
                 if row:
                     title = row['title'] or title
                     sources = read_json_string(row['sources_json']) or sources
+        source = {**ref, 'id':ref['item_id'], 'sources':sources}
+        if path.exists() and row:
+            fields = set(row.keys())
+            if 'platform' in fields and row['platform']:
+                source['platform'] = row['platform']
+            if 'channels_json' in fields:
+                channels = read_json_string(row['channels_json'])
+                if isinstance(channels,list):source['channels'] = channels
+        # Reuse the one canonical registry/K1 reader; never infer platforms in JS.
+        annotate_items(self.workspace,[source])
         return {'item_id':ref['item_id'], 'title':title, 'sources':sources,
+                **{k:source[k] for k in ('platform','channels','platform_info','channel_details')},
                 'url':'/library.html?item='+quote(ref['item_id'],safe='')}
+
 
     def _cache(self):
         posts = {}

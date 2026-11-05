@@ -245,9 +245,12 @@ class PublicationReviews:
         notes = text(payload.get('notes', ''), '复盘笔记', MAX_NOTES)
         self.review(slug)
         state = self._state(slug)
-        state['notes'] = notes
-        state['notes_updated_at'] = now()
-        self._save_state(slug, state)
+        # A repeated save of identical text must not change note_body's hash.
+        # Changed metrics still produce a new body via the existing export path.
+        if state['notes'] != notes:
+            state['notes'] = notes
+            state['notes_updated_at'] = now()
+            self._save_state(slug, state)
         return {'slug': slug, 'notes': notes, 'notes_updated_at': state['notes_updated_at'],
                 'documents': state['documents'], 'summary': '复盘笔记已保存在本机；尚未回库。'}
 
