@@ -734,6 +734,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parts.path == '/api/clue-inbox' or parts.path.startswith('/api/clue-objects/'):
                 return __import__('clue_ingest_api').get_route(self, parts, query)
+            if parts.path == '/api/knowledge/upload-candidates':
+                return __import__('weknora_upload').get_route(self)
             if parts.path == '/api/settings/wechat-tools': return __import__('settings_view').wechat_tools_route(self)
             if parts.path == '/api/settings/official-accounts': return __import__('settings_view').official_accounts_route(self)
             if parts.path == '/api/settings/overview': return __import__('settings_view').get_route(self, parts)
@@ -1030,6 +1032,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(length))
             segments = urlsplit(self.path).path.strip('/').split('/')
+            if segments == ['api', 'knowledge', 'upload']:
+                return __import__('weknora_upload').post_route(self, payload)
             if segments == ['api', 'settings', 'official-accounts']: return __import__('settings_view').official_accounts_route(self, payload)
             if segments == ['api', 'settings', 'wechat-tools']: return __import__('settings_view').wechat_tools_route(self, payload)
             if segments == ['api', 'settings', 'interest-topics']:
