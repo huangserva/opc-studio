@@ -67,24 +67,37 @@ function requestOpen(slug, revision) {
   if (state.dirty && !confirm('您有尚未保存的修改，确定放弃并切换吗？')) return;
   openArticle(slug,revision).catch(e=>toast(e.message));
 }
-async function openArticle(slug, revision, {reveal=true}={}) {
-  const article = await api('/api/article/'+encodeURIComponent(slug)+(revision?'?version='+encodeURIComponent(revision):''));
-  state.page='article'; document.body.classList.remove('browsing-collections'); $('#collection-page').hidden=true; $('.toolbar').hidden=false;
-  state.studio=structuredClone(article.studio); state.mediaBusy=false;
-  state.slug=slug; state.article=article; state.edit=false; state.dirty=false; state.changed.clear(); state.uploads.clear(); state.anchor=null; state.view='read';
-  document.querySelectorAll('.toolbar button').forEach(button=>button.disabled=false);
-  document.body.classList.remove('library-open');
-  if (!reader) history.replaceState(null,'','/?article='+encodeURIComponent(slug));
-  document.title=article.title+' · 内容工作台';
-  $('#version-notice').hidden=article.version.id===article.head;
-  $('#version-notice').textContent='您正在查看历史版本 '+versionName(article.version.id)+'，原稿保持不变。';
-  $('#loading').hidden=true; $('#paper').hidden=false;
-  $('#crumb').textContent=article.title;
-  $('#gallery').textContent='图片 '+article.image_count;
-  document.querySelectorAll('[data-slug]').forEach(el=>el.classList.toggle('selected',el.dataset.slug===slug));
-  $('#publishing').hidden=true; renderPaper(); renderHistory(); editControls(); renderView();
-  $('#canvas').scrollTop=0;
-  if(reveal)window.StudioPanels?.contentRequested();
+let articleOpenRequest=0;
+let articleSelectionRequest=0,articleSelectionPending=0;
+async function openArticle(slug, revision, {reveal=true,accept=()=>true,refresh=false}={}) {
+  // Reject stale refreshes before they can supersede a user's pending read.
+  if(!accept())return;
+  const selection=refresh?articleSelectionRequest:++articleSelectionRequest;
+  if(!refresh)articleSelectionPending=selection;
+  const request=++articleOpenRequest;
+  try{
+    const article = await api('/api/article/'+encodeURIComponent(slug)+(revision?'?version='+encodeURIComponent(revision):''));
+    if(request!==articleOpenRequest||!accept())return;
+    state.page='article'; document.body.classList.remove('browsing-collections'); $('#collection-page').hidden=true; $('.toolbar').hidden=false;
+    state.studio=structuredClone(article.studio); state.mediaBusy=false;
+    state.slug=slug; state.article=article; state.edit=false; state.dirty=false; state.changed.clear(); state.uploads.clear(); state.anchor=null; state.view='read';
+    document.querySelectorAll('.toolbar button').forEach(button=>button.disabled=false);
+    document.body.classList.remove('library-open');
+    if (!reader) history.replaceState(null,'','/?article='+encodeURIComponent(slug));
+    document.title=article.title+' · 内容工作台';
+    $('#version-notice').hidden=article.version.id===article.head;
+    $('#version-notice').textContent='您正在查看历史版本 '+versionName(article.version.id)+'，原稿保持不变。';
+    $('#loading').hidden=true; $('#paper').hidden=false;
+    $('#crumb').textContent=article.title;
+    $('#gallery').textContent='图片 '+article.image_count;
+    document.querySelectorAll('[data-slug]').forEach(el=>el.classList.toggle('selected',el.dataset.slug===slug));
+    $('#publishing').hidden=true; renderPaper(); renderHistory(); editControls(); renderView();
+    $('#canvas').scrollTop=0;
+    if(typeof updateAssistantContext==='function')updateAssistantContext();
+    if(reveal)window.StudioPanels?.contentRequested();
+  }finally{
+    if(!refresh&&articleSelectionPending===selection)articleSelectionPending=0;
+  }
 }
 
 function renderPaper() {

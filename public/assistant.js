@@ -12,7 +12,7 @@ function assistantContext(){
 function updateAssistantContext(){
   const context=assistantContext();
   $('#assistant-context-label').textContent=context?.slug?'当前作品 · '+context.title:'整个工作台 · 查询与整理合集';
-  $('#assistant-context-label').title=context?.title||'整个工作台';
+  $('#assistant-context-label').title=(context?.title||'整个工作台')+'；聊天与选中作品的相关内容会发送至您配置的模型服务';
 }
 async function openAssistant(){
   assistantState.open=true;$('#assistant-panel').hidden=false;document.body.classList.add('assistant-open');document.body.classList.remove('history-open');
@@ -69,26 +69,41 @@ function assistantBusy(busy){
   $('#assistant-status').textContent=busy?'正在处理，可随时停止':'修改会保存为新版本';$('#assistant-new-chat').disabled=busy;
 }
 async function pollAssistant(id){
+  if(assistantState.active&&assistantState.active!==id)return;
+  const epoch=assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
+  const current=()=>assistantState.pollEpoch===epoch&&(!assistantState.active||assistantState.active===id);
   clearTimeout(assistantState.poll);assistantBusy(true);
   try{
-    const job=await api('/api/assistant/job/'+id);renderAssistant(job);
+    const job=await api('/api/assistant/job/'+id);
+    if(!current())return;
+    renderAssistant(job);
     if(['running','stopping'].includes(job.status)){assistantState.poll=setTimeout(()=>pollAssistant(id),1200);return;}
-    assistantState.active=null;assistantBusy(false);
-    const fresh=await api('/api/assistant');assistantState.config=fresh;assistantState.messages=fresh.messages;showCurrentModel(fresh);renderAssistant();
+    assistantState.active=null;
+    const fresh=await api('/api/assistant');
+    if(!current())return;
+    assistantState.config=fresh;assistantState.messages=fresh.messages;showCurrentModel(fresh);renderAssistant();
     if(job.changed?.length){
+      const selected={page:state.page,slug:state.slug,collection:state.collection,navigation:articleSelectionRequest};
+      const sameSelection=()=>!articleSelectionPending&&articleSelectionRequest===selected.navigation&&state.page===selected.page&&state.slug===selected.slug&&state.collection===selected.collection;
       await loadLibrary();
-      if(state.page==='article'&&job.changed.includes(state.slug)&&!state.dirty){await openArticle(state.slug);}
-      updateAssistantContext();
+      if(!current())return;
+      if(state.page==='article'&&job.changed.includes(state.slug)&&!state.dirty&&sameSelection()){
+        await openArticle(state.slug,undefined,{refresh:true,accept:()=>current()&&!state.dirty&&sameSelection()});
+      }
+      if(current())updateAssistantContext();
     }
-  }catch(e){assistantBusy(false);$('#assistant-status').textContent=e.message;}
+    if(current())assistantBusy(false);
+  }catch(e){if(current()){assistantBusy(false);$('#assistant-status').textContent=e.message;}}
 }
 async function sendAssistant(event){
   event.preventDefault();const input=$('#assistant-input'),message=input.value.trim()?input.value:'';if((!message&&!chatAttachments.items.length)||assistantState.busy||composerMedia.loading)return;
+  assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
   assistantBusy(true);
   try{
     const attachments=await readyChatAttachments();
     const result=await submitComposerMedia(message,{unsaved:state.dirty,attachments});
-    input.value='';clearChatAttachments();clearMediaTool();selectWritingWorkflow(false);
+    if(input.value===message)input.value='';
+    clearChatAttachments();clearMediaTool();selectWritingWorkflow(false);
     assistantScroll.followLatest=true;
     if(result.media_job){
       assistantBusy(false);await openAssistant();
@@ -101,7 +116,28 @@ $('#assistant-toggle').onclick=()=>assistantState.open?closeAssistant():openAssi
 $('#assistant-close').onclick=closeAssistant;$('#assistant-form').onsubmit=sendAssistant;
 $('#assistant-input').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#assistant-form').requestSubmit();}};
 $('#assistant-stop').onclick=async()=>{if(assistantState.active){try{await api('/api/assistant/stop',{id:assistantState.active});$('#assistant-status').textContent='正在停止，已保存修改会保留';}catch(e){toast(e.message);}}};
-$('#assistant-new-chat').onclick=async()=>{try{await api('/api/assistant/new-chat',{});assistantState.messages=[];clearChatAttachments();clearMediaTool();renderAssistant();}catch(e){toast(e.message);}};
+$('#assistant-shortcuts').onclick=()=>{
+  const box=$('#assistant-chips');box.hidden=!box.hidden;
+  $('#assistant-shortcuts').setAttribute('aria-expanded',String(!box.hidden));
+};
+$('#assistant-chips').addEventListener('click',()=>{
+  $('#assistant-chips').hidden=true;$('#assistant-shortcuts').setAttribute('aria-expanded','false');
+});
+$('#assistant-new-chat').onclick=async()=>{
+  if(assistantState.busy)return;
+  // Reset the old draft at the click, never after a delayed response: a new
+  // draft typed while this request settles must belong to the new conversation.
+  const epoch=assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
+  selectWritingWorkflow(false);$('#assistant-input').value='';
+  clearChatAttachments();clearMediaTool();$('#assistant-chips').hidden=true;
+  $('#assistant-shortcuts').setAttribute('aria-expanded','false');
+  try{
+    await api('/api/assistant/new-chat',{});
+    if(assistantState.pollEpoch!==epoch)return;
+    assistantState.messages=[];renderAssistant();
+    toast('已开始新对话，输入草稿和调研模式已重置');
+  }catch(e){toast(e.message);}
+};
 document.querySelectorAll('[data-assistant-prompt]').forEach(b=>b.onclick=()=>{$('#assistant-input').value=b.dataset.assistantPrompt;$('#assistant-input').focus();});
 $('#history-toggle').addEventListener('click',()=>{if(assistantState.open)closeAssistant();});
 let assistantWidth=440;
@@ -122,7 +158,7 @@ function showCurrentModel(config){
   $('#assistant-model').textContent=label;$('#assistant-model').title=label;
   $('#model-picker-label').textContent=config.configured?'聊天 · '+(config.display_name||config.model):'选择聊天模型';
   $('#model-picker-toggle').title=label;
-  $('#model-picker-toggle').setAttribute('aria-label','当前模型：'+(config.configured?(config.display_name||config.model):'未配置')+'，点击选择模型');
+  $('#model-picker-toggle').setAttribute('aria-label','当前模型：'+(config.configured?(config.display_name||config.model):'未配置')+'，'+label+'，点击选择模型');
   renderModelOptions(config);
 }
 function renderModelOptions(config){

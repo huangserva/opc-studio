@@ -111,3 +111,15 @@ mark{background:var(--c-note);color:inherit;padding:0 2px;border-radius:var(--ra
 #comparison .rich-inline-diff [data-color] del{color:inherit}
 #comparison .rich-inline-diff [data-hl] ins,
 #comparison .rich-inline-diff [data-hl] del{background:transparent;color:inherit}
+
+/* Assistant light compression: panel-only, layout ownership stays in panel-layout.js. */
+#assistant-panel .assistant-head{padding:8px 12px;min-height:48px;gap:5px;flex-shrink:0}
+#assistant-panel .assistant-head h2{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#assistant-panel .assistant-head .icon-button,#assistant-panel #assistant-settings{padding:4px;min-width:26px;flex-shrink:0}
+#assistant-panel .assistant-context{padding:7px 12px;min-height:32px;flex-shrink:0}
+#assistant-panel .assistant-context>span{line-height:17px}
+#assistant-panel #assistant-chips{position:absolute;top:48px;right:12px;left:12px;z-index:4;padding:10px;background:var(--c-surface);border:1px solid var(--c-line);box-shadow:var(--shadow)}
+#assistant-panel .assistant-model-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#assistant-panel #model-picker-toggle{min-width:0;max-width:100%}
+#assistant-panel #model-picker-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#assistant-panel .assistant-compose-actions .model-picker{min-width:0}
