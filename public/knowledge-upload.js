@@ -7,11 +7,11 @@
     const r = await fetch(url, payload === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-Article-Studio':'1'},body:JSON.stringify(payload)});
     const d = await r.json(); if(!r.ok) throw new Error(d.error || '请求未完成'); return d;
   }
-  const visible = () => items.filter(d => !$('pending-only').checked || d.state !== 'uploaded');
+  const visible = () => items.filter(d => (!$('pending-only').checked || d.state !== 'uploaded') && (!$('upload-source').value || ($('upload-source').value==='reviews' ? ['manual','publication_observations'].includes(d.source) : d.source===$('upload-source').value)));
   function controls() {
     $('upload').disabled = busy || !selected.size;
     $('upload').textContent = busy ? '正在上传，请等待…' : `上传所选（${selected.size}）`;
-    ['select-visible','clear-selection','refresh','pending-only'].forEach(id => $(id).disabled=busy);
+    ['select-visible','clear-selection','refresh','pending-only','upload-source'].forEach(id => $(id).disabled=busy);
   }
   function render() {
     const host=$('documents');host.replaceChildren();
@@ -20,7 +20,7 @@
       const input=document.createElement('input');input.type='checkbox';input.checked=selected.has(d.number);input.disabled=busy || d.state==='changed';input.setAttribute('aria-label',d.title);
       input.onchange=()=>{if(input.checked){if(selected.size>=50){input.checked=false;return;}selected.add(d.number);}else selected.delete(d.number);controls();};
       const text=document.createElement('div'),title=document.createElement('strong'),meta=document.createElement('small'),result=document.createElement('small');
-      title.textContent=d.title;meta.textContent=`${d.source==='articles'?'文案与作品':'外部参考'} · ${d.body_characters} 字 · ${d.number}`;
+      title.textContent=d.title;meta.textContent=`${({articles:'文案与作品','external-references':'外部参考',manual:'发布复盘笔记 · 隐私-内部',publication_observations:'发布观察 · 隐私-内部'})[d.source] || '未知来源'} · ${d.body_characters} 字 · ${d.number}`;
       result.className='result';result.textContent=labels[d.action||d.state]+(d.error?'：'+d.error:'');text.append(title,meta,result);row.append(input,text);host.append(row);
     }
     host.setAttribute('aria-busy',String(busy)); controls();
@@ -29,6 +29,8 @@
     try{const d=await api('/api/knowledge/upload-candidates');items=d.items;selected.clear();render();$('status').className='';$('status').textContent=`共 ${items.length} 篇；未上传 ${items.filter(d=>d.state==='pending').length} 篇。`;}catch(e){$('status').className='error';$('status').textContent=e.message;$('documents').setAttribute('aria-busy','false');}
   }
   $('pending-only').onchange=render;
+  $('upload-source').onchange=()=>{selected.clear();render();};
+  if(new URLSearchParams(location.search).get('source')==='reviews')$('upload-source').value='reviews';
   $('select-visible').onclick=()=>{selected=new Set(visible().filter(d=>d.state!=='changed').slice(0,50).map(d=>d.number));render();};
   $('clear-selection').onclick=()=>{selected.clear();render();};$('refresh').onclick=load;
   $('upload').onclick=async()=>{

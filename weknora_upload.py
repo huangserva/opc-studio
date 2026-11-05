@@ -18,8 +18,9 @@ import sqlite3
 import re
 import time
 
-from scripts.weknora_push_longtext import KB, SOURCES, Ledger, render, SafetyStop, metadata, sha
+from scripts.weknora_push_longtext import KB, SOURCES, render, SafetyStop, metadata, sha
 from weknora_client import WeKnoraClient, WeKnoraError
+from weknora_review_upload import (UploadLedger as Ledger, read_review_documents, REVIEW_SOURCES, REVIEW_TAGS)
 
 
 def now():
@@ -164,6 +165,7 @@ class UploadService:
                     reason = reasons.get(code, '读取或渲染失败，请检查该篇本机资料后重试')
                     docs.append(UnavailableDocument(number, entry['id'], entry['source'], title[:250],
                                 '不可上传：' + reason, code if code in reasons else 'source_read_or_render_failed', size))
+        docs.extend(read_review_documents(self.workspace / 'knowledge' / 'knowledge.db', tags, UnavailableDocument))
         return docs
 
     def rows(self):
@@ -269,7 +271,8 @@ class UploadService:
         else:
             raise UploadStop('远端标签分页异常')
         for doc in docs:
-            if tuple(tags.get(t) for t in doc.tag_ids) != ('隐私-公开', '类型-' + SOURCES[doc.source][1]):
+            expected = REVIEW_TAGS if doc.source in REVIEW_SOURCES else ('隐私-公开', '类型-' + SOURCES[doc.source][1])
+            if tuple(tags.get(t) for t in doc.tag_ids) != expected:
                 raise UploadStop('内部标签与远端标签不一致')
             if client.config.api_key in doc.content or client.config.api_key in doc.title:
                 raise UploadStop('正文含凭据，已停止上传')
