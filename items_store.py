@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import sqlite3
 import time
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +47,10 @@ def canonical_url(value):
 
 
 def canonical_id(item):
+    if isinstance(item.get('legacy_id'),str) and item['legacy_id'].startswith('wk:'):
+        from weknora_search import REMOTE_ID
+        if not REMOTE_ID.fullmatch(item['legacy_id']):raise ValueError('无效远端资料编号')
+        return 'kb:' + item['legacy_id']
     if item.get('kind') == 'card':
         return 'card:' + (item.get('prompt_sha') or hashlib.sha256(str(item.get('full_text','')).encode()).hexdigest())
     url = canonical_url(item.get('url',''))
@@ -419,7 +425,14 @@ def upsert_from_reference(root, document):
 
 def get_route(handler,parts,query):
     try:
-        if parts.path=='/api/library/search':return handler.reply(200,library_search(handler.server.store.workspace,query))
+        if parts.path=='/api/library/search':
+            from weknora_search import library_results
+            return handler.reply(200,library_results(handler.server.store.workspace,query,library_search))
+        if parts.path=='/api/library/remote':
+            from weknora_search import service
+            q=parameters(query,{'id','include_private'})
+            if q.get('include_private','0') not in ('0','1'):raise ValueError('私密范围参数无效')
+            return handler.reply(200,service(handler.server.store.workspace).document(q.get('id'),include_private=q.get('include_private')=='1'))
         store=ItemsStore(handler.server.store.workspace)
         if parts.path=='/api/items':return handler.reply(200,store.listing(query))
         identifier=unquote(parts.path[len('/api/items/'):])
@@ -428,12 +441,62 @@ def get_route(handler,parts,query):
     except (OSError,sqlite3.Error):return handler.reply(503,{'error':'素材库暂不可用，请稍后重试'})
 
 
+# Client-authored materials are a separate DTO from trusted source imports.
+# Provenance (legacy_refs/rich_sources/attachments/etc.) is server-owned: a
+# caller needing those must use the document_id or remote_id import request.
+MANUAL_CLIENT_FIELDS = frozenset(('id','legacy_id','kind','source','sources','title',
+    'full_text','url','note','tags','published_at','created_at','updated_at',
+    'author','metrics','content_complete','incomplete_reason'))
+
+
+def validate_manual_material(payload):
+    if not isinstance(payload,dict) or set(payload)-MANUAL_CLIENT_FIELDS:
+        raise ValueError('手动素材字段无效；来源资料须使用可信导入请求')
+    def remote_identity(value):
+        if not isinstance(value,str):
+            return False
+        value=unicodedata.normalize('NFKC',unquote(unquote(value))).strip().casefold()
+        return value.startswith(('wk:','kb:wk:','weknora:','kb:weknora:')) or bool(re.search(r'[?&]remote=wk:',value))
+    for key in MANUAL_CLIENT_FIELDS-{'sources','tags','author','metrics','content_complete'}:
+        if key in payload and not isinstance(payload[key],str):
+            raise ValueError('手动素材文字字段格式无效')
+    for key in ('id','legacy_id','url'):
+        if remote_identity(payload.get(key)):
+            raise ValueError('远端身份仅接受可信片段导入')
+    for key in ('sources','tags'):
+        if key in payload and (not isinstance(payload[key],list) or any(not isinstance(v,str) for v in payload[key])):
+            raise ValueError('手动素材列表格式无效')
+    sources=[payload.get('source','')]+payload.get('sources',[])
+    if any('weknora' in unicodedata.normalize('NFKC',unquote(v)).casefold() or remote_identity(v) for v in sources):
+        raise ValueError('远端来源仅接受可信片段导入')
+    if 'content_complete' in payload and type(payload['content_complete']) is not bool:
+        raise ValueError('完整性标记格式无效')
+    author=payload.get('author',{})
+    if not isinstance(author,dict) or set(author)-{'name','handle','followers'}:
+        raise ValueError('手动素材作者格式无效')
+    if any(k in author and not isinstance(author[k],str) for k in ('name','handle')):
+        raise ValueError('手动素材作者格式无效')
+    if 'followers' in author and author['followers'] is not None and (type(author['followers']) is not int or not 0<=author['followers']<=10**18):
+        raise ValueError('手动素材作者格式无效')
+    metrics=payload.get('metrics',{})
+    fields={'views','likes','bookmarks','retweets','replies','quotes','views_per_hour','likes_per_hour'}
+    if not isinstance(metrics,dict) or set(metrics)-fields or any(v is not None and (type(v) not in (int,float) or not 0<=v<=10**18 or not math.isfinite(v)) for v in metrics.values()):
+        raise ValueError('手动素材指标格式无效')
+    return payload
+
+
 def post_route(handler,payload):
     try:
         store=ItemsStore(handler.server.store.workspace)
         path=urlsplit(handler.path).path
         if path=='/api/items':
-            if isinstance(payload,dict) and set(payload)=={'document_id'}:
+            if not isinstance(payload,dict):raise ValueError('素材格式无效')
+            if 'remote_id' in payload:
+                if set(payload)!={'remote_id','include_private'}:raise ValueError('远端导入仅接受片段编号和隐私选项')
+                from weknora_search import service
+                if type(payload['include_private']) is not bool:raise ValueError('私密范围参数无效')
+                payload=service(handler.server.store.workspace).material(payload['remote_id'],include_private=payload['include_private'])
+            elif isinstance(payload,dict) and set(payload)=={'document_id'}:
                 # Direct read-only document retrieval; do not instantiate KnowledgeStore.
                 c=readonly(workspace(handler.server.store.workspace)/'knowledge/knowledge.db')
                 try:
@@ -441,6 +504,8 @@ def post_route(handler,payload):
                     if not row:raise ValueError('资料不存在或已删除')
                     payload=from_document(dict(row))
                 finally:c.close()
+            else:
+                payload=validate_manual_material(payload)
             return handler.reply(201,store.upsert(payload))
         identifier,action=path[len('/api/items/'):].rsplit('/',1)
         return handler.reply(200,store.action(unquote(identifier),action,payload))

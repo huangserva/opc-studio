@@ -15,7 +15,9 @@ SOURCE_FIELDS = ('ownership', 'author', 'author_handle', 'author_basis', 'platfo
                  'source_locator', 'local_path', 'localPath', 'relative_path', 'project_name',
                  'slug', 'version', 'chatroom_id', 'local_id', 'timestamp', 'noteId',
                  'noteType', 'noteSource', 'account', 'message_id', 'thread_id',
-                 'rfc_message_id', 'from', 'to', 'date_sent', 'original_message_url', 'reader_note')
+                 'rfc_message_id', 'from', 'to', 'date_sent', 'original_message_url', 'reader_note',
+                 'remote_knowledge_id', 'remote_chunk_id', 'result_number', 'privacy',
+                 'local_document_id', 'local_document_url', 'retrieval_scope', 'content_redacted')
 
 
 def bounded_string(value, maximum=240):
@@ -39,7 +41,7 @@ def clean_id(value, document=False):
 
 def local_or_source_url(value):
     value = bounded_string(value, 2048)
-    if value.startswith(('/?article=', '/knowledge.html?', '/events.html?')):
+    if value.startswith(('/?article=', '/knowledge.html?', '/events.html?', '/library.html?')):
         return value
     try:
         parts = urlsplit(value)
@@ -155,10 +157,10 @@ class KnowledgeTools:
         knowledge = self.store.knowledge
         combined = ' '.join(terms)
         # The existing index accepts 200 characters; never silently lose terms.
-        data = knowledge.search(combined, **filters) if len(combined)<=200 else {'results':[], 'total':None}
+        data = knowledge.search(combined, **filters) if len(combined)<=200 and filters['source']!='weknora' else {'results':[], 'total':None}
         entries = data.get('results', [])
         mode, exact_total = 'keyword_and', data.get('total', 0)
-        if terms and not entries:
+        if terms and not entries and filters['source']!='weknora':
             mode, exact_total = 'keyword_candidates', None
             candidates = {}
             for term in terms:
@@ -184,10 +186,23 @@ class KnowledgeTools:
                             'source_url': local_or_source_url(entry.get('url')),
                             'url': document_link(entry['id'], start, start+len(excerpt), entry.get('hash', '')),
                             'provenance': source_metadata(entry.get('provenance'))})
-        return self.emit({'query_terms': terms, 'query_mode': mode, 'total': exact_total, 'results': results,
-                          'summary': f'找到 {len(results)} 条资料候选；关键词候选需 read_knowledge 核对原文，不能当已确认事件'}, job)
+        remote = {'state':'not_requested'}
+        if combined and filters['source'] in ('','weknora') and filters['kind'] in ('','article'):
+            from weknora_search import service
+            retrieval=service(self.store.workspace)
+            data=retrieval.checked_result(retrieval.search(query,limit=limit))
+            remote = {k:v for k,v in data.items() if k!='results'}
+            candidates = []
+            for doc in data['results']:
+                candidates.append({k:doc[k] for k in ('id','title','source','kind','hash','excerpt','url','source_url','provenance','privacy','remote_knowledge_id','incomplete_reason')})
+            results = (candidates + results)[:limit]
+            if candidates:exact_total=None
+        return self.emit({'query_terms': terms, 'query_mode': mode, 'total': exact_total, 'results': results, 'remote':remote,
+                          'summary': f'找到 {len(results)} 条资料候选；须 read_knowledge 核对实际片段，不当作全文或已确认事件'}, job)
 
     def read_knowledge(self, args, job):
+        if isinstance(args.get('id'),str) and args['id'].startswith('wk:'):
+            return self.read_remote_knowledge(args,job)
         identity = clean_id(args.get('id'), document=True)
         digest = args.get('hash')
         if digest is not None and (not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest)):
@@ -211,6 +226,24 @@ class KnowledgeTools:
                             'summary': f'已读取资料第 {start}–{end} 字符；位置为 Unicode 字符、从 0 开始、结束位置不包含'}, job)
         if end > start:
             self.record_knowledge_read(doc, start, end, body[start:end], result['url'], job)
+        return result
+
+    def read_remote_knowledge(self, args, job):
+        if '_knowledge_context' in job:
+            raise ValueError('固定知识上下文不允许扩展为远端检索')
+        from weknora_search import service
+        doc = service(self.store.workspace).document(args['id'])
+        if args.get('hash') is not None and args['hash'] != doc['hash']:
+            raise ValueError('远端片段 hash 不匹配，请重新检索')
+        start = integer(args.get('start'),0,0,len(doc['body']),'起始字符位置')
+        count = integer(args.get('max_chars'),2000,1,MAX_READ,'读取字符数')
+        end = min(start+count,len(doc['body']))
+        result = self.emit({k:doc[k] for k in ('id','title','source','kind','hash','url','source_url','provenance','privacy','remote_knowledge_id','incomplete_reason')}
+                           | {'start':start,'end':end,'text':doc['body'][start:end],
+                              'total_chars':len(doc['body']),'next_start':end if end<len(doc['body']) else None,
+                              'truncated':doc['truncated'],'content_complete':False,
+                              'summary':'读取已脱敏的固定检索片段；位置相对片段，从 0 开始；不是整篇远端文档'},job)
+        if end>start:self.record_knowledge_read(doc,start,end,doc['body'][start:end],doc['url'],job)
         return result
 
     @staticmethod

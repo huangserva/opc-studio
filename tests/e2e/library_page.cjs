@@ -45,7 +45,7 @@ async function start(){
  check('首屏3次均<1秒',timings.every(t=>t<1),JSON.stringify(timings));
  const csp=(await context.request.get(base+'/library.html')).headers()['content-security-policy'];check('素材库CSP允许https图片且不允许http',csp.includes(' https:;')&&!csp.includes(' http:'));
  check('导航今日后紧跟素材库',await page.locator('#workspace-nav>a').evaluateAll(ns=>ns.slice(0,2).map(n=>n.dataset.navItem).join(','))==='today,library');
- check('旧版九个入口完整且工具分组独立',await page.locator('#workspace-nav details[data-nav-group=legacy] [data-nav-item]').evaluateAll(ns=>ns.map(n=>n.dataset.navItem).join(','))==='clues,intel,github,schedules,feedback,x-official,knowledge,intake,cards' && await page.locator('#workspace-nav details[data-nav-group=tools] [data-nav-item]').count()===2);
+ check('基线定时任务主导航、八个旧版入口和工具分组完整',await page.locator('#workspace-nav details[data-nav-group=legacy] [data-nav-item]').evaluateAll(ns=>ns.map(n=>n.dataset.navItem).join(','))==='clues,intel,github,feedback,x-official,knowledge,intake,cards' && await page.locator('#workspace-nav>a[data-nav-item=schedules][href="/schedules.html"]').count()===1 && await page.locator('#workspace-nav [data-nav-item]').count()===17 && await page.locator('#workspace-nav details[data-nav-group=tools] [data-nav-item]').count()===2);
  await page.screenshot({path:path.join(out,'library-first-screen.png')});
  if(!REAL){
   await select(page,'x:fixture');check('2400字中文emoji原文逐字一致',await page.locator('#reader .full-text').textContent()===long.replaceAll('&amp;','&'));

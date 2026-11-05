@@ -33,13 +33,16 @@ def blocks_for(item):
     except ValueError:
         safe = False
     origin = '<a href="' + escape(url, quote=True) + '">' + escape(url) + '</a>' if safe else escape(url)
-    blocks = [{'kind': 'text', 'html': '<h2>来源链接</h2><p>' + origin + '</p>'}, block('原文全文', item.get('full_text') or item.get('article_text') or '')]
+    remote = any(r.get('store')=='weknora' for r in item.get('legacy_refs',[]) if isinstance(r,dict))
+    blocks = [{'kind': 'text', 'html': '<h2>来源链接</h2><p>' + origin + '</p>'}, block('检索片段（非全文）' if remote else '原文全文', item.get('full_text') or item.get('article_text') or '')]
     if item.get('article_text') and item.get('article_text') != item.get('full_text'):
         blocks.append(block('长文全文', item['article_text']))
     # 保留双来源的长文、串推和引用，避免只把摘要送进底稿。
     for key in ('rich_sources', 'thread', 'quoted'):
         if item.get(key):
             blocks.append(block({'rich_sources': '来源补充全文', 'thread': '原串推', 'quoted': '原文引用'}[key], item[key]))
+    if remote:
+        blocks.append(block('资料出处与隐私', {'notice':item.get('incomplete_reason'), 'references':item.get('legacy_refs',[])}))
     metrics = item.get('metrics') or {}
     labels = {'views':'浏览', 'likes':'赞', 'bookmarks':'收藏', 'retweets':'转发', 'replies':'回复', 'views_per_hour':'每小时浏览', 'likes_per_hour':'每小时赞'}
     data = '\n'.join(labels.get(k,k) + '：' + (text(v) if v is not None else '未知') for k,v in metrics.items())
@@ -160,10 +163,14 @@ class ItemWriter:
                 slug = created['slug']
                 saved = self.store.save(slug, {'base_version':created['head'], 'title':title, 'blocks':blocks_for(item), 'summary':'素材写作底稿'})
                 from content_store import write
-                write(self.store.article(slug) / 'source-item.json', {'item_id':identifier,'sources':item.get('sources',[]),'url':item.get('url',''),'created_at':now()})
+                write(self.store.article(slug) / 'source-item.json', {'item_id':identifier,'sources':item.get('sources',[]),'url':item.get('url',''),'legacy_refs':item.get('legacy_refs',[]),'created_at':now()})
                 self.items.mark_used(identifier, slug)
                 state = {'status':'pending','slug':slug,'item_id':identifier,'base_version':saved['version'],'created_at':now(),'elapsed':0,'error':'','title_prefix':payload.get('title_prefix',''),'notice':'底稿已就绪，AI 正在起草'}
                 self._write(slug, state)
+            if any(r.get('store')=='weknora' for r in item.get('legacy_refs',[]) if isinstance(r,dict)):
+                state.update(status='source_only',notice='资料底稿已保存；请核对片段和隐私后手动创作，未自动发送给模型')
+                self._write(slug,state)
+                return {**state,'reused':False,'draft_seconds':round(time.monotonic()-started,3)}
             self.live.add(slug)
             threading.Thread(target=self._run, args=(item,state), daemon=True, name='item-draft-' + slug).start()
             return {**state, 'reused':False, 'draft_seconds':round(time.monotonic()-started,3)}

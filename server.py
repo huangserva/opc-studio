@@ -748,7 +748,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts.path == '/api/publish/review' or parts.path.startswith('/api/publish/review/'):
                 from publish_review import get_route
                 return get_route(self, parts, query)
-            if parts.path == '/api/items' or parts.path.startswith('/api/items/') or parts.path == '/api/library/search':
+            if parts.path == '/api/items' or parts.path.startswith('/api/items/') or parts.path in ('/api/library/search', '/api/library/remote'):
                 from items_store import get_route
                 return get_route(self, parts, query)
             if parts.path == '/api/today':
