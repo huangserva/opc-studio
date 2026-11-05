@@ -216,3 +216,20 @@ html body.today-workspace #today-todo-next:disabled {opacity:.65;cursor:default}
 html body.today-workspace #today-todo-close {margin-left:0}
 html body.today-workspace .today-todo.is-collapsed #today-todo-next {display:none}
 html body.today-workspace .digest-batch,html body.today-workspace .digest-batch-origin {font-size:12px;line-height:1.5;color:var(--c-paper);margin:0 0 10px;overflow-wrap:anywhere}
+
+/* 来源回执完整换行；展开详情占据正常布局，不遮住下面的筛选首排。 */
+html body.today-workspace .today-source-row {height:auto;min-height:36px;flex:none;align-items:flex-start;flex-wrap:wrap;padding-top:5px;padding-bottom:5px;gap:8px 16px}
+html body.today-workspace #sources {flex:1 1 60%;flex-wrap:wrap;align-items:flex-start;overflow:visible}
+html body.today-workspace #sources .status-block {white-space:normal;overflow-wrap:anywhere;max-width:100%;min-width:0;flex:0 1 auto;text-align:left}
+html body.today-workspace #sources>.status-block {display:inline-flex;overflow:visible;text-overflow:clip;max-width:100%}
+html body.today-workspace .source-overview[open] {flex:1 0 100%}
+html body.today-workspace .source-expanded {position:static;margin-top:6px;box-shadow:none}
+html body.today-workspace #sources :is(.source-has-note,.source-cancelled,.source-unknown)::after {content:none}
+html body.today-workspace #clue-morning-panel {flex:0 1 30%}
+html body.today-workspace #clue-morning-summary {white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+html body.today-workspace #clue-morning-panel[open] {flex:1 0 100%;max-width:100%}
+html body.today-workspace #clue-morning-content {position:static;margin:6px 0 0}
+@media(max-width:899px){
+ html body.today-workspace #sources {flex-basis:100%}
+ html body.today-workspace #clue-morning-panel {flex-basis:100%;max-width:100%;margin-left:0}
+}

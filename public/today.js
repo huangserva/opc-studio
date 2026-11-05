@@ -206,13 +206,25 @@ function renderSources(sources=sourceStates) {
   sourceStates=sources;
   $('sources').replaceChildren();
   for(const [key,status] of Object.entries(sources)) {
-    const label={G:'Grok Bot','grok:radar':'Grok 推特雷达',A:'AIsa',V:'AIsa · 视频榜',L:'RSS · linux.do',W:'微信雷达',feedback:'反馈'}[key] || key;
+    // A 是历史推特快照，不代表 AIsa 的抖音/小红书采集状态。
+    const label={G:'Grok Bot','grok:radar':'Grok 推特雷达',A:'AIsa · 推特',V:'AIsa · 视频榜',L:'RSS · linux.do',W:'微信雷达',feedback:'反馈'}[key] || key;
     const time=status.updated_at ? new Date(status.updated_at).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}) : '暂无';
-    const entry=node(status.error?'button':'span','status-block source-update '+(status.error?'status-warning':status.status==='disabled'?'status-idle':status.updated_at?'status-complete':'status-idle'),label+' '+time+(status.error?' · 异常':status.status==='waiting'?' · 等待产出':status.status==='disabled'?' · 已停用':key==='grok:radar'?' · '+(status.note || '正常'):''));
+    const twitterCancelled=key==='A' && status.status==='disabled';
+    const suffix=twitterCancelled?' · 已取消'+(status.error?' · 历史快照异常':''):status.error?' · 异常':status.status==='waiting'?' · 等待产出':status.status==='disabled'?' · 已停用':status.note?' · '+status.note:'';
+    const entry=node(status.error?'button':'span','status-block source-update '+(status.error?'status-warning':status.status==='disabled'?'status-idle':status.updated_at?'status-complete':'status-idle'),label+' '+time+suffix);
+    entry.dataset.sourceKey=key;
+    if(status.note)entry.classList.add('source-has-note');
+    if(twitterCancelled)entry.classList.add('source-cancelled');
     if(status.note)entry.title=status.note;
     if(key==='grok:radar' && status.status==='ok' && status.note){entry.classList.add('source-notice');entry.style.color='var(--c-muted)';}
     if(status.error) {entry.type='button';entry.onclick=()=>openSourceDialog('来源异常详情',label+'\n'+status.error+'\n最近更新：'+(status.updated_at || '暂无'));}
     $('sources').append(entry);
+    if(key==='A'){
+      const nonTwitter=node('span','status-block source-update status-idle source-unknown','AIsa · 抖音/小红书 · 启用状态未知');
+      nonTwitter.dataset.sourceKey='A:non-twitter';
+      nonTwitter.title='推特子源状态不代表 AIsa 整体状态；非推特采集沿用原安排，当前快照未提供启用状态，视频榜回执另列。';
+      $('sources').append(nonTwitter);
+    }
     if(channel==='interest' && key==='G' && status.incomplete_entries>0){
       const notice=node('button','status-block source-incomplete',status.incomplete_entries+' 条内容不完整');
       notice.type='button';notice.dataset.noticeSource=key;notice.title=label+' · 查看内容缺失详情';
@@ -220,7 +232,7 @@ function renderSources(sources=sourceStates) {
       $('sources').append(notice);
     }
   }
-  const labels={'grok-daily':'Grok 日报','grok-alerts':'Grok 快报','grok-interest':'Grok 兴趣','twitter-radar':'AIsa','video-radar':'视频榜','linuxdo':'linux.do','wechat-radar':'微信雷达'};
+  const labels={'grok-daily':'Grok 日报','grok-alerts':'Grok 快报','grok-interest':'Grok 兴趣','twitter-radar':'AIsa · 推特','video-radar':'视频榜','linuxdo':'linux.do','wechat-radar':'微信雷达'};
   const states={waiting:'等待产出',running:'补跑中',completed:'已补',unavailable:'不可补',failed:'补跑失败',unknown:'状态待确认',fault:'来源故障'};
   const causes={sleep:'休眠漏报',offline:'离线漏报',overdue:'逾期',missing:'漏报'};
   for(const row of sourceCatchup.sources || []) {
