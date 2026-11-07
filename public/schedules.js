@@ -288,7 +288,7 @@ function outsourcedDelivery(task) {
   return '未交付';
 }
 function modelName(task) {
-  if (task.kind === 'script') return '';
+  if (['script','recompute_heat','intel_wechat_mp','gmail_sync'].includes(task.kind)) return '';
   return task.model_name || state.models.find(model => model.profile_id === task.profile_id)?.display_name || '模型配置已移除';
 }
 function project(task) {

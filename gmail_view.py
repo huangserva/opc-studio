@@ -1,4 +1,4 @@
-"""Owner-only Gmail UI/API. No event scheduler, sender, or legacy credentials."""
+"""Owner-only Gmail UI/API. No sender or legacy credentials; periodic sync runs through scheduled_tasks."""
 import json
 from pathlib import Path
 import secrets
@@ -98,6 +98,29 @@ class GmailService:
                 self.auth().cancel_all();self.sync_store.update(invalidate=True,connected=False,paused=True,status='disconnected')
                 self.auth().vault.delete(state['ref'])
         return self.status(True)
+
+def scheduled_sync(svc,cancel,deadline):
+    """定时任务入口，返回 (status, exit_code, output)。
+
+    跳过（未连接、已暂停、退避或冷却中、另一次同步在跑）记为成功并写明原因；
+    需要重新授权或同步出错记为失败，让定时任务页能看见。
+    """
+    def done(outcome,**data):
+        return outcome,(0 if outcome=='succeeded' else None),json.dumps(data,ensure_ascii=False)
+    if cancel.is_set():return done('cancelled',skipped='已取消')
+    s=svc.sync_store.state() or {}
+    if not s or s.get('status')=='disconnected':return done('succeeded',skipped='未连接 Gmail')
+    if not s.get('connected'):return done('failed',error='auth',message=GmailError('auth').args[0],status=s.get('status',''))
+    if s.get('paused'):return done('succeeded',skipped=GmailError('paused').args[0])
+    wait_until=max(s.get('next_retry_at',0),s.get('cooldown',0))
+    if svc.clock()<wait_until:return done('succeeded',skipped=GmailError('busy').args[0],retry_at=int(wait_until))
+    budget=min(300,max(10,int(deadline-time.monotonic())-60))
+    try:
+        result=GmailAdapter(svc.sync_store,svc.auth(),svc.clock,budget=budget).run()
+    except GmailError as error:
+        if error.code in ('busy','paused'):return done('succeeded',skipped=str(error))
+        return done('failed',error=error.code,message=str(error))
+    return done('succeeded',**result)
 
 def service(server):
     with _LOCK:

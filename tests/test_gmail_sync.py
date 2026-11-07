@@ -78,6 +78,17 @@ class SyncTests(unittest.TestCase):
         self.adapter.limit=2;self.adapter.run();self.assertEqual(self.count(),2);self.assertEqual(self.store.state()['history_id'],'')
         self.run_again();self.assertEqual(self.count(),4);self.run_again();self.assertEqual(self.count(),5);self.run_again();self.assertEqual(self.store.state()['phase'],'idle')
         self.now[0]+=86400;self.adapter.run_due();calls=len(self.provider.calls);self.adapter.run_due();self.assertEqual(len(self.provider.calls),calls)
+    def test_time_budget_mid_page_keeps_fetched_and_resumes_without_error(self):
+        for i in range(5):self.add(format(i+1,'x'))
+        def hook(method,path):
+            if path.startswith('/messages/'):self.now[0]+=100
+        self.provider.hook=hook;self.adapter.budget=250
+        result=self.adapter.run();state=self.store.state()
+        self.assertEqual(result['status'],'backfill');self.assertEqual(state['error'],'');self.assertEqual(state['next_retry_at'],0)
+        self.assertEqual(self.count(),3);self.assertEqual(state['history_id'],'');self.assertEqual(len(state['retry_pending']['ids']),2)
+        self.assertEqual(self.store.index.search()['total'],3)
+        self.run_again();self.assertEqual(self.count(),5)
+        self.provider.hook=None;self.run_again();self.assertEqual(self.store.state()['phase'],'idle');self.assertEqual(self.store.state()['history_id'],self.provider.watermark)
     def test_large_history_event_resumes_without_starvation(self):
         self.adapter.run()
         for i in range(5):self.add(format(i+1,'x'))
@@ -157,3 +168,35 @@ class SyncTests(unittest.TestCase):
         queries=[q['q'] for _,path,q in self.provider.calls if path=='/messages']
         self.assertGreaterEqual(len(queries),2);self.assertEqual(len(set(queries)),1)
         self.assertIn('after:'+str(start-30*86400),queries[0]);self.assertIn('before:'+str(start+1),queries[0]);self.assertEqual(self.count(),2)
+
+class ScheduledSyncTests(SyncTests):
+    def svc(self,auth=None):
+        from types import SimpleNamespace
+        return SimpleNamespace(sync_store=self.store,auth=auth or (lambda:self.auth),clock=self.clock)
+    def sync(self,svc=None,cancel=None):
+        import time
+        from gmail_view import scheduled_sync
+        status,code,output=scheduled_sync(svc or self.svc(),cancel or threading.Event(),time.monotonic()+600)
+        return status,code,json.loads(output)
+    def test_fetches_mail_and_ignores_adapter_next_due(self):
+        self.add();status,code,data=self.sync()
+        self.assertEqual((status,code),('succeeded',0));self.assertNotIn('skipped',data);self.assertEqual(self.count(),1)
+        self.assertGreater(self.store.state()['next_due'],self.clock()+400)
+        calls=len(self.provider.calls);self.now[0]+=400;status,code,data=self.sync()
+        self.assertEqual((status,code),('succeeded',0));self.assertNotIn('skipped',data);self.assertGreater(len(self.provider.calls),calls)
+    def test_cooldown_and_pause_are_recorded_as_skips(self):
+        self.add();self.sync();status,code,data=self.sync()
+        self.assertEqual((status,code),('succeeded',0));self.assertIn('retry_at',data);self.assertEqual(data['skipped'],GmailError('busy').args[0])
+        self.store.update(paused=True);status,code,data=self.sync()
+        self.assertEqual((status,data['skipped']),('succeeded',GmailError('paused').args[0]))
+    def test_disconnected_skips_but_expired_authorization_fails(self):
+        self.store.update(connected=False,status='disconnected');status,code,data=self.sync()
+        self.assertEqual((status,code,data['skipped']),('succeeded',0,'未连接 Gmail'))
+        self.store.update(connected=False,status='needs_auth');status,code,data=self.sync()
+        self.assertEqual((status,code,data['error']),('failed',None,'auth'))
+    def test_credential_error_fails_and_cancel_does_not_fetch(self):
+        def broken():raise GmailError('credentials')
+        status,code,data=self.sync(self.svc(broken))
+        self.assertEqual((status,code,data['error']),('failed',None,'credentials'))
+        cancel=threading.Event();cancel.set();self.add()
+        self.assertEqual(self.sync(cancel=cancel)[0],'cancelled');self.assertEqual(self.count(),0)

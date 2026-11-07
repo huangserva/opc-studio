@@ -17,6 +17,8 @@ from urllib.error import HTTPError, URLError
 READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
 AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
+# RFC 9207 authorization-response issuer; Google appends it to loopback redirects.
+ISSUER = 'https://accounts.google.com'
 API_URL = 'https://gmail.googleapis.com/gmail/v1/users/me'
 SERVICE = 'article-studio.gmail.p1'
 
@@ -33,12 +35,24 @@ class GmailError(Exception):
         self.code = code if code in self.MESSAGES else 'format'
         super().__init__(self.MESSAGES[self.code])
 
+class _Transport(GmailError):
+    def __init__(self): super().__init__('network')
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
 class GoogleHTTP:
     """Production endpoints are literals; imported clients cannot replace them."""
+    # The local proxy intermittently drops TLS mid-handshake; HTTP-level answers are never retried.
+    attempts = 6
+    sleep = staticmethod(time.sleep)
     def request(self, method, path, *, data=None, token=None, query=None):
+        for attempt in range(self.attempts):
+            try: return self._once(method, path, data=data, token=token, query=query)
+            except _Transport:
+                if attempt == self.attempts - 1: raise GmailError('network') from None
+                self.sleep(min(2, 0.5 * 2 ** attempt))
+    def _once(self, method, path, *, data=None, token=None, query=None):
         if path == 'token' and method == 'POST':
             url = TOKEN_URL
             body = urlencode(data).encode()
@@ -47,7 +61,8 @@ class GoogleHTTP:
             url = API_URL + path + ('?' + urlencode(query or {}, doseq=True) if query else '')
             body = None; headers = {'Authorization':'Bearer ' + token}
         else: raise GmailError('boundary')
-        opener = build_opener(NoRedirect(), ProxyHandler({}))
+        # Follow env/macOS system proxy: Google is unreachable directly from this network; TLS still pins the literal hosts.
+        opener = build_opener(NoRedirect(), ProxyHandler())
         try:
             with opener.open(Request(url, data=body, headers=headers, method=method), timeout=25) as response:
                 raw = response.read(10 * 1024 * 1024 + 1)
@@ -71,6 +86,7 @@ class GoogleHTTP:
             if status == 403: raise GmailError('policy') from None
             raise GmailError('network') from None
         except GmailError: raise
+        except (URLError, OSError): raise _Transport() from None
         except Exception: raise GmailError('network') from None
 
 class Keychain:
@@ -200,7 +216,7 @@ class OAuth:
             def do_GET(self):
                 try:
                     parsed=urlsplit(self.path);query=parse_qs(parsed.query,keep_blank_values=True)
-                    if self.headers.get('Host')!=f'127.0.0.1:{self.server.server_port}' or parsed.path!='/callback/'+nonce or set(query)-{'state','code','scope','authuser','prompt'} or any(len(v)!=1 for v in query.values()):raise GmailError('oauth')
+                    if self.headers.get('Host')!=f'127.0.0.1:{self.server.server_port}' or parsed.path!='/callback/'+nonce or set(query)-{'state','code','scope','authuser','prompt','iss'} or any(len(v)!=1 for v in query.values()) or query.get('iss',[ISSUER])[0]!=ISSUER:raise GmailError('oauth')
                     outer.finish(state,query.get('state',[''])[0],query.get('code',[''])[0],nonce)
                     status=200;body='授权完成，请返回工作台。'
                 except Exception:status=400;body='授权未完成，请返回工作台重新连接。'

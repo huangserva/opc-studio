@@ -218,4 +218,25 @@ class SchedulerTests(unittest.TestCase):
         self.wait(self.scheduler.control(identity, 'run')['id'])
         self.assertEqual(seen, [None])
 
+    def test_gmail_seed_is_enabled_hourly_local_and_idempotent(self):
+        seed=self.scheduler.seed_gmail_schedule(self.cwd)
+        task=self.scheduler.listing()['tasks'][0]
+        self.assertEqual((task['kind'],task['frequency'],task['minutes'],task['timeout']),('gmail_sync','interval',60,600))
+        self.assertTrue(task['enabled']);self.assertIsNotNone(task['next_run'])
+        self.assertEqual((task['executor_name'],task['model_name'],task['waiting_for_model']),('Gmail 收信（本机）','',False))
+        self.scheduler.control(seed['id'],'pause');paused=self.scheduler.listing()['tasks'][0]
+        self.assertEqual(self.scheduler.seed_gmail_schedule(self.cwd)['id'],seed['id'])
+        self.assertEqual(self.scheduler.listing()['tasks'],[paused])
+
+    def test_gmail_run_records_syncer_result_and_rejects_unsafe_shapes(self):
+        seen=[]
+        self.scheduler.gmail_syncer=lambda cancel,deadline:(seen.append(deadline),('succeeded',0,'{"status": "ready"}'))[1]
+        p=self.payload();p.update(kind='gmail_sync');identity=self.scheduler.save(p)['id']
+        result=self.wait(self.scheduler.control(identity,'run')['id'])
+        self.assertEqual((result['status'],result['exit_code'],result['output']),('succeeded',0,'{"status": "ready"}'));self.assertEqual(len(seen),1)
+        for bad in (dict(allow_commands=True),dict(frequency='daily'),dict(minutes=15),dict(result_destination='clues')):
+            p=self.payload();p.update(kind='gmail_sync',**bad)
+            with self.assertRaisesRegex(ValueError,'Gmail 收信'):self.scheduler.save(p)
+        self.scheduler.gmail_syncer=None
+        self.assertEqual(self.wait(self.scheduler.control(identity,'run')['id'])['status'],'failed')
 if __name__=='__main__':unittest.main()

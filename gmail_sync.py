@@ -104,8 +104,10 @@ class GmailAdapter:
                     s['retry_pending']={'ids':ids,'deleted':list(deleted),'page':{'nextPageToken':page.get('nextPageToken',''),'historyId':page.get('historyId','')}};self._save(s)
                     selected_ids=ids[:remaining];left_ids=ids[remaining:]
                     messages=[];marks=[]
-                    for mid in selected_ids:
-                        if self.clock()-started>=self.budget:raise GmailError('network')
+                    for position,mid in enumerate(selected_ids):
+                        if self.clock()-started>=self.budget:
+                            # Out of time mid-page: keep what was fetched, leave the rest as the durable obligation.
+                            left_ids=selected_ids[position:]+left_ids;selected_ids=selected_ids[:position];break
                         if self.store.state().get('paused'):raise GmailError('paused')
                         # A read failure never gets translated into a deletion.
                         value=self.auth.read(s['ref'],'/messages/'+mid,{'format':'full'})

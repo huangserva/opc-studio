@@ -181,6 +181,12 @@ def main(ROOT, Store, Handler, assistant_module, content, wire_outsourced_clues)
     from clues_heat import recompute_heat
     server.schedules.heat_recomputer = lambda cancel, deadline: recompute_heat(store.clues,cancel=cancel,deadline=deadline)
     server.schedules.seed_heat_schedule(store.workspace)
+    import gmail_view
+    server.schedules.gmail_syncer = lambda cancel, deadline: gmail_view.scheduled_sync(gmail_view.service(server), cancel, deadline)
+    try:
+        server.schedules.seed_gmail_schedule(store.workspace)
+    except (OSError, ValueError, KeyError):
+        pass  # 登记失败不阻断工作台启动
     server.schedules.publisher = store.clues.from_run
     wire_outsourced_clues(server, store)
     server.schedules.source_analyzer = store.wechat_source.analyze_events

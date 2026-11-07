@@ -136,6 +136,48 @@ class AuthTests(unittest.TestCase):
             self.assertEqual(caught.exception.code,400);self.assertNotIn(FAKE_ACCESS.encode(),caught.exception.read());caught.exception.close()
         self.assertNotIn(self.ref,self.v.values)
 
+    def test_google_requests_follow_configured_proxy(self):
+        from urllib.request import ProxyHandler
+        captured=[]
+        def opener(*handlers):
+            captured.extend(handlers);return SimpleNamespace(open=lambda *a,**k:(_ for _ in ()).throw(OSError('offline')))
+        with patch.dict(os.environ,{'https_proxy':'http://proxy.test:7897','no_proxy':''}),patch('gmail_auth.build_opener',side_effect=opener),patch.object(GoogleHTTP,'sleep',staticmethod(lambda s:None)):
+            with self.assertRaises(GmailError):GoogleHTTP().request('POST','token',data={})
+        proxies=[h.proxies for h in captured if isinstance(h,ProxyHandler)]
+        self.assertEqual(proxies[0].get('https'),'http://proxy.test:7897')
+
+    def test_transport_drops_retry_but_http_errors_do_not(self):
+        from urllib.error import URLError
+        class Response(io.BytesIO):
+            def __enter__(self):return self
+            def __exit__(self,*a):self.close()
+        def run(outcomes):
+            calls=[]
+            def opener(*handlers):
+                def open_(*a,**k):
+                    calls.append(1);item=outcomes.pop(0)
+                    if isinstance(item,Exception):raise item
+                    return Response(json.dumps(item).encode())
+                return SimpleNamespace(open=open_)
+            with patch('gmail_auth.build_opener',side_effect=opener),patch.object(GoogleHTTP,'sleep',staticmethod(lambda s:None)):
+                try:return GoogleHTTP().request('GET','/profile',token='t'),len(calls)
+                except GmailError as e:return e.code,len(calls)
+        eof=lambda:URLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol')
+        n=GoogleHTTP.attempts
+        self.assertEqual(run([eof()]*(n-1)+[{'emailAddress':ACCOUNT}]),({'emailAddress':ACCOUNT},n))
+        self.assertEqual(run([eof()]*n+[{'emailAddress':ACCOUNT}]),('network',n))
+        http401=HTTPError('https://fixture.invalid',401,'x',{},io.BytesIO(b'{}'))
+        self.assertEqual(run([http401,{'emailAddress':ACCOUNT}]),('auth',1))
+
+    def test_loopback_callback_accepts_google_issuer_and_rejects_other_issuer(self):
+        import urllib.request,urllib.error
+        from urllib.parse import urlencode
+        q,s,code=self.begin()
+        with self.assertRaises(urllib.error.HTTPError) as caught:urllib.request.urlopen(s['redirect']+'?'+urlencode(dict(state=q['state'],iss='https://evil.test',code=code,scope=READ_SCOPE)),timeout=3)
+        self.assertEqual(caught.exception.code,400);caught.exception.close();self.assertNotIn(self.ref,self.v.values)
+        with urllib.request.urlopen(s['redirect']+'?'+urlencode(dict(state=q['state'],iss='https://accounts.google.com',code=code,scope=READ_SCOPE)),timeout=3) as response:self.assertEqual(response.status,200)
+        self.assertEqual(len(self.completed),1);self.assertEqual(self.v.get(self.ref)['refresh_token'],FAKE_REFRESH)
+
     def test_native_keychain_locked_statuses_are_safe_without_native_access(self):
         from gmail_auth import Keychain
         from types import SimpleNamespace

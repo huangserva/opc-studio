@@ -57,7 +57,7 @@ class ScheduledTasks:
         self.folder.mkdir(mode=0o700, parents=True, exist_ok=True); self.folder.chmod(0o700)
         self.db_path = self.folder / 'tasks.db'
         self.lock = threading.RLock(); self.stop_event = threading.Event()
-        self.active = {}; self.workers = {}; self.assistant = assistant; self.last_error = None; self.last_tick = None; self.heat_recomputer = None; self.publisher = None; self.wechat_analyzer = None; self.github_analyzer = None; self.radar_analyzer = None; self.deals_analyzer = None; self.intake_analyzer = None; self.intel_analyzer = None; self.outsourced_clues = None; self.source_analyzer = None; self.source_receipt_reader = None; self.source_receipt_thread = None; self.source_receipt_cursor = 0
+        self.active = {}; self.workers = {}; self.assistant = assistant; self.last_error = None; self.last_tick = None; self.heat_recomputer = None; self.gmail_syncer = None; self.publisher = None; self.wechat_analyzer = None; self.github_analyzer = None; self.radar_analyzer = None; self.deals_analyzer = None; self.intake_analyzer = None; self.intel_analyzer = None; self.outsourced_clues = None; self.source_analyzer = None; self.source_receipt_reader = None; self.source_receipt_thread = None; self.source_receipt_cursor = 0
         with self.db() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, revision INTEGER, data TEXT, next_run REAL);
             CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, task_id TEXT, snapshot TEXT, trigger TEXT,
@@ -209,7 +209,7 @@ class ScheduledTasks:
         path = Path(task['cwd']).expanduser()
         if not path.is_absolute() or not path.is_dir(): raise ValueError('工作目录必须是本机存在的绝对目录')
         task['cwd'] = str(path.resolve())
-        if task['kind'] not in ('script','pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','intel_wechat_mp','recompute_heat','outsourced','source_events'): raise ValueError('请选择脚本、Pi、外包、商单分析、创意提炼、公众号订阅或线索分析任务')
+        if task['kind'] not in ('script','pi','wechat_clues','github_clues','wechat_radar','deals_review','intake_cards','intel_wechat_mp','recompute_heat','gmail_sync','outsourced','source_events'): raise ValueError('请选择脚本、Pi、外包、商单分析、创意提炼、公众号订阅、Gmail 收信或线索分析任务')
         from scheduled_pi import validate_scope
         task.update(validate_scope(payload, task['kind']))
         if task['kind'] in ('wechat_clues','github_clues','wechat_radar'):
@@ -226,6 +226,9 @@ class ScheduledTasks:
         if task['kind']=='recompute_heat':
             if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id'] or task['frequency']!='daily':
                 raise ValueError('heat 重算仅允许每日本地计算，不允许命令或结果投递')
+        if task['kind']=='gmail_sync':
+            if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id'] or task['frequency']!='interval' or task['minutes'] not in (30,60):
+                raise ValueError('Gmail 收信只按 30 或 60 分钟间隔同步到本机私有缓存，不允许命令或结果投递')
         if task['kind']=='deals_review':
             if task['allow_commands'] or task['result_destination']!='runs' or task['clue_id']:
                 raise ValueError('商单分析只在本机生成提醒与待确认建议，不允许命令或通用结果投递')
@@ -284,6 +287,13 @@ class ScheduledTasks:
                           'cwd':str(workspace),'frequency':'daily','at':'02:10','weekdays':list(range(7)),
                           'timeout':1800,'enabled':False,'allow_commands':False,'result_destination':'runs'})
 
+    def seed_gmail_schedule(self,workspace):
+        existing=next((t for t in self.listing()['tasks'] if t['kind']=='gmail_sync'),None)
+        if existing:return existing
+        return self.save({'name':'Gmail 收信（每 60 分钟）','kind':'gmail_sync','body':'按已授权的 gmail.readonly 增量收信，邮件只进本机私有缓存与私有索引，不调用模型、不发信。',
+                          'cwd':str(workspace),'frequency':'interval','minutes':60,
+                          'timeout':600,'enabled':True,'allow_commands':False,'result_destination':'runs'})
+
     def model_config(self, identity):
         from model_settings import find_profile, public_config
         if not self.assistant: raise ValueError('Pi 运行环境不可用')
@@ -305,9 +315,10 @@ class ScheduledTasks:
                 if task['kind'] == 'script':
                     task['executor_name'] = 'Bash 脚本'
                     task['model_name'] = ''
-                elif task['kind'] in ('intel_wechat_mp','recompute_heat'):
+                elif task['kind'] in ('intel_wechat_mp','recompute_heat','gmail_sync'):
                     # 本机抓取，不调用任何模型。
-                    task['executor_name'] = '本机 heat 重算' if task['kind']=='recompute_heat' else '公众号订阅（本机抓取）'
+                    task['executor_name'] = ('本机 heat 重算' if task['kind']=='recompute_heat' else
+                                             'Gmail 收信（本机）' if task['kind']=='gmail_sync' else '公众号订阅（本机抓取）')
                     task['model_name'] = ''
                 else:
                     task['executor_name'] = ('微信雷达分析（Pi）' if task['kind'] == 'wechat_radar' else
@@ -322,7 +333,7 @@ class ScheduledTasks:
                 last=db.execute('SELECT id,status,started_at,finished_at,exit_code FROM runs WHERE task_id=? ORDER BY rowid DESC LIMIT 1',(row['id'],)).fetchone()
                 task['last_run']=dict(last) if last else None
                 task['running']=db.execute("SELECT id FROM runs WHERE task_id=? AND status='running'",(row['id'],)).fetchone() is not None
-                task['waiting_for_model']=bool(task['kind']!='script' and not task['running'] and task['enabled'] and row['next_run'] and row['next_run']<=time.time() and task.get('profile_id') in active_profiles)
+                task['waiting_for_model']=bool(task['kind'] not in ('script','gmail_sync') and not task['running'] and task['enabled'] and row['next_run'] and row['next_run']<=time.time() and task.get('profile_id') in active_profiles)
                 tasks.append(task)
             active = db.execute("SELECT COUNT(*) FROM runs WHERE status='running'").fetchone()[0]
             return {'tasks':tasks,'timezone':'Asia/Shanghai','engine':'workbench','default_cwd':str(self.folder.parent),
@@ -838,6 +849,9 @@ class ScheduledTasks:
                 status=('cancelled' if cancel.is_set() else 'timeout' if time.monotonic()>=deadline else 'succeeded')
                 code=0 if status=='succeeded' else None
                 output=json.dumps(result,ensure_ascii=False)
+            elif task['kind']=='gmail_sync':
+                if not self.gmail_syncer:raise ValueError('Gmail 收信入口未连接')
+                status,code,output=self.gmail_syncer(cancel,deadline)
             elif task['kind']=='source_events':
                 if not self.source_analyzer:raise ValueError('来源事件入口未连接')
                 status,code,output=self.source_analyzer(run_id,task,cancel,config,deadline)
