@@ -36,6 +36,7 @@ const ASSISTANT_EVENTS_ENABLED=false; // 4-1：保留事件建议代码，关闭
 const assistantState={open:false,loaded:false,active:null,messages:[],poll:null,busy:false,config:null,contextTimer:null};
 function assistantContext(){
   const ui={page:state.page,view:state.view,more_settings_open:!!$('#chat-media-settings details')?.open};
+  if(state.page==='collections'&&/^collection-[a-f0-9]{12}$/.test(state.collection))ui.collection_id=state.collection;
   if(typeof composerMedia!=='undefined'&&composerMedia.kind){
     Object.assign(ui,{media_kind:composerMedia.kind,media_model:$('#chat-media-model').value,
       media_size:$('#chat-media-size').value==='custom'?$('#chat-media-width').value+'x'+$('#chat-media-height').value:$('#chat-media-size').value,...(composerMedia.kind==='video'?{media_frames:Number($('#chat-media-frames').value)}:{})});
@@ -65,10 +66,30 @@ async function openAssistant(){
 }
 function closeAssistant(){assistantState.open=false;stopChatMedia();$('#assistant-panel').hidden=true;document.body.classList.remove('assistant-open');$('#assistant-toggle').setAttribute('aria-expanded','false');clearInterval(assistantState.contextTimer);window.StudioPanels?.assistantChanged(false);$('#assistant-toggle').focus();}
 function chatText(text){return chatLinkedText(text);}
+function assistantCreationCard(action){
+  const slug=escapeHTML(action.slug),title=escapeHTML(action.title||action.result||'新文章');
+  return `<section class="assistant-created-work" data-created-work="${slug}"><strong>${title}</strong><small>已新建一篇草稿</small><div>${action.unavailable?'<span>作品暂不可用</span>':action.archived?`<span class="assistant-created-state">已撤销</span><button type="button" data-created-restore="${slug}">恢复</button>`:`<a href="/?article=${encodeURIComponent(action.slug)}" data-created-open="${slug}">打开</a><button type="button" data-created-undo="${slug}">撤销</button>`}</div></section>`;
+}
+async function changeAssistantCreation(slug,operation,button){
+  if(button.disabled)return;
+  button.disabled=true;
+  const navigation=articleSelectionRequest,epoch=assistantState.pollEpoch||0;
+  try{
+    await api('/api/assistant/created-work/'+encodeURIComponent(slug)+'/'+operation,{});
+    await loadLibrary();
+    const fresh=await api('/api/assistant');
+    if((assistantState.pollEpoch||0)!==epoch)return;
+    assistantState.messages=fresh.messages;renderAssistant();
+    if(state.slug===slug&&articleSelectionRequest===navigation&&!state.dirty)await openArticle(slug);
+  }catch(e){toast(e.message);}
+  finally{if(button.isConnected)button.disabled=false;}
+}
 function assistantActions(actions){
   if(!actions?.length)return '';
-  let proposalIndex=0;
+  let proposalIndex=0;const creations=new Set();
   return `<div class="assistant-actions">${actions.map(a=>{
+    if(a.name==='create_work'&&a.status==='done'&&a.slug){if(creations.has(a.slug))return '';creations.add(a.slug);return assistantCreationCard(a);}
+    if(a.name==='choose_work_target')return `<div class="assistant-work-choice"><button type="button" data-creation-choice="new">新建一篇</button><button type="button" data-creation-choice="edit">改当前作品</button></div>`;
     if(a.media_job)return `<div class="assistant-action" data-chat-media="${escapeHTML(a.media_job)}"></div>`;
     const proposal=a.status==='done'&&a.event_proposal?`<button ${ASSISTANT_EVENTS_ENABLED?'':'hidden'} type="button" class="assistant-version-link" data-event-proposal="${proposalIndex++}">核对并保存事件 →</button>`:'';
     return `<div class="assistant-action ${a.status}"><span>${a.status==='done'?'✓':a.status==='error'?'!':'◌'} ${escapeHTML(a.label)}</span>${a.result?`<small>${escapeHTML(a.result)}</small>`:''}${chatSourceLinks(a.sources)}${proposal}${a.slug&&a.version?`<button type="button" class="assistant-version-link" data-assistant-slug="${escapeHTML(a.slug)}" data-assistant-version="${escapeHTML(a.version)}">查看 ${escapeHTML(a.version)} →</button>`:''}${a.image_url?`<a href="${escapeHTML(a.image_url)}" target="_blank" rel="noopener"><img src="${escapeHTML(a.image_url)}" alt="助手生成的文字卡片"></a>`:''}</div>`;
@@ -87,6 +108,13 @@ function renderAssistant(active=null){
   if(!list.length){assistantScroll.followLatest=true;box.innerHTML='<div class="assistant-welcome"><span>✦</span><h3>把想法告诉我</h3><p>我可以帮您改稿、找作品、生成图片与视频、整理合集。修改会保存新版本。</p></div>';restoreAssistantScroll();return;}
   box.innerHTML=list.map((t,i)=>`<div class="chat-turn" data-chat-turn="${escapeHTML(t.id)}"><div class="chat-user"><div><div>${chatText(t.prompt)}</div>${attachmentMarkup(t.attachments)}${t.materials?.length?materialCardsMarkup(t.materials):''}<button type="button" class="chat-copy" data-copy-turn="${i}" data-copy-role="user" aria-label="复制我的消息">⧉ 复制</button></div></div><div class="chat-assistant">${t.model?`<small class="chat-model">${escapeHTML(t.model)}</small>`:''}${workflowCard(t.workflow)}${assistantActions(t.workflow?t.actions.filter(a=>a.name!=='submit_workflow_stage'):t.actions)}${t.answer?`<div class="assistant-answer">${chatText(t.answer)}</div><button type="button" class="chat-copy" data-copy-turn="${i}" data-copy-role="assistant" aria-label="复制助手回复">⧉ 复制</button>`:`<div class="assistant-thinking">${t.status==='stopping'?'正在停止…':escapeHTML(t.phase||'正在处理…')}</div>`}${chatReadSources(t.citations)}</div></div>`).join('');
   box.querySelectorAll('[data-copy-turn]').forEach(button=>button.onclick=()=>copyChatMessage(button.dataset.copyRole==='user'?list[Number(button.dataset.copyTurn)].prompt:list[Number(button.dataset.copyTurn)].answer,button));
+  box.querySelectorAll('[data-created-open]').forEach(link=>link.onclick=e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey){e.preventDefault();requestOpen(link.dataset.createdOpen);}});
+  for(const operation of ['undo','restore'])box.querySelectorAll('[data-created-'+operation+']').forEach(button=>button.onclick=()=>changeAssistantCreation(button.dataset[operation==='undo'?'createdUndo':'createdRestore'],operation,button));
+  box.querySelectorAll('[data-creation-choice]').forEach(button=>{
+    const id=button.closest('[data-chat-turn]').dataset.chatTurn;
+    button.disabled=assistantState.liveClarification!==id||assistantState.busy;
+    button.onclick=()=>{if(button.disabled)return;assistantState.liveClarification=null;box.querySelectorAll('[data-creation-choice]').forEach(b=>b.disabled=true);$('#assistant-input').value=button.dataset.creationChoice==='new'?'新建一篇，按上一条要求写成文章':'改当前作品，按上一条要求修改';$('#assistant-form').requestSubmit();};
+  });
   box.querySelectorAll('[data-assistant-slug]').forEach(b=>b.onclick=()=>requestOpen(b.dataset.assistantSlug,b.dataset.assistantVersion));
   box.querySelectorAll('[data-event-proposal]').forEach(b=>b.onclick=()=>{
     const turn=list.find(t=>t.id===b.closest('[data-chat-turn]')?.dataset.chatTurn),a=(turn?.actions||[]).filter(a=>a.status==='done'&&a.event_proposal)[Number(b.dataset.eventProposal)];
@@ -101,7 +129,9 @@ function renderAssistant(active=null){
   restoreAssistantScroll(position);
 }
 function assistantBusy(busy){
-  assistantState.busy=busy;mediaSendReady();$('#assistant-stop').hidden=!busy;
+  assistantState.busy=busy;
+  document.querySelectorAll('[data-creation-choice]').forEach(button=>button.disabled=busy||button.closest('[data-chat-turn]').dataset.chatTurn!==assistantState.liveClarification);
+  mediaSendReady();$('#assistant-stop').hidden=!busy;
   $('#assistant-research-write').disabled=busy;
   $('#assistant-status').textContent=busy?'正在处理，可随时停止':'修改会保存为新版本';$('#assistant-new-chat').disabled=busy;
 }
@@ -113,6 +143,7 @@ async function pollAssistant(id){
   try{
     const job=await api('/api/assistant/job/'+id);
     if(!current())return;
+    if(job.status==='done'&&job.actions?.some(a=>a.name==='choose_work_target'))assistantState.liveClarification=job.id;
     renderAssistant(job);
     if(['running','stopping'].includes(job.status)){assistantState.poll=setTimeout(()=>pollAssistant(id),1200);return;}
     assistantState.active=null;
@@ -134,22 +165,31 @@ async function pollAssistant(id){
 }
 async function sendAssistant(event){
   event.preventDefault();syncMaterialDrafts();const input=$('#assistant-input'),message=input.value.trim()?input.value:'';if(!message&&(materialDrafts.get(materialScope)||[]).length){$('#assistant-status').textContent='请写下要求';return;}if((!message&&!chatAttachments.items.length)||assistantState.busy||composerMedia.loading)return;
-  const sentScope=materialScope,materials=(materialDrafts.get(sentScope)||[]).map(m=>({...m})),context=assistantContext(),unsaved=state.dirty;
+  const retryKey=JSON.stringify({message,tool:composerMedia.kind,workflow:writingWorkflow.selected});
+  const retryable=!composerMedia.kind&&!writingWorkflow.selected;
+  // Freeze reference cards and request identity together; a retry belongs to
+  // its original work even when the visible selection or draft cards changed.
+  const sent=retryable&&assistantState.pendingSend?.key===retryKey?assistantState.pendingSend:{key:retryKey,sentScope:materialScope,materials:(materialDrafts.get(materialScope)||[]).map(m=>({...m})),context:assistantContext(),unsaved:state.dirty};
+  assistantState.pendingSend=retryable?sent:null;
+  const sendEpoch=assistantState.sendEpoch=(assistantState.sendEpoch||0)+1;
   assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
+  assistantState.liveClarification=null;
   assistantBusy(true);
   try{
-    const attachments=await readyChatAttachments();
-    const result=await submitComposerMedia(message,{unsaved,attachments,materials,context});
-    const sentIds=new Set(materials.map(m=>m.id));
-    materialDrafts.set(sentScope,(materialDrafts.get(sentScope)||[]).filter(m=>!sentIds.has(m.id)));syncMaterialDrafts();
-    if(currentMaterialScope()===sentScope&&input.value===message)input.value='';
+    if(!sent.attachments)sent.attachments=structuredClone(await readyChatAttachments());
+    const result=await submitComposerMedia(message,{unsaved:sent.unsaved,attachments:sent.attachments,materials:sent.materials,context:sent.context});
+    if(assistantState.sendEpoch!==sendEpoch)return;
+    if(assistantState.pendingSend===sent)assistantState.pendingSend=null;
+    const sentIds=new Set(sent.materials.map(m=>m.id));
+    materialDrafts.set(sent.sentScope,(materialDrafts.get(sent.sentScope)||[]).filter(m=>!sentIds.has(m.id)));syncMaterialDrafts();
+    if(currentMaterialScope()===sent.sentScope&&input.value===message)input.value='';
     clearChatAttachments();clearMediaTool();selectWritingWorkflow(false);
     assistantScroll.followLatest=true;
     if(result.media_job){
       assistantBusy(false);await openAssistant();
       jumpToLatestAssistant();
     }else{assistantState.active=result.id;renderAssistant(result);pollAssistant(result.id);}
-  }catch(e){assistantBusy(false);$('#assistant-status').textContent=e.message;}
+  }catch(e){if(assistantState.sendEpoch===sendEpoch){assistantBusy(false);$('#assistant-status').textContent=e.message;}}
 }
 
 $('#assistant-toggle').onclick=()=>assistantState.open?closeAssistant():openAssistant();
@@ -168,13 +208,14 @@ $('#assistant-new-chat').onclick=async()=>{
   // Reset the old draft at the click, never after a delayed response: a new
   // draft typed while this request settles must belong to the new conversation.
   const epoch=assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
+  assistantState.liveClarification=null;assistantState.pendingSend=null;assistantState.sendEpoch=(assistantState.sendEpoch||0)+1;composerMedia.request=null;
   selectWritingWorkflow(false);$('#assistant-input').value='';
   clearMaterialDrafts();clearChatAttachments();clearMediaTool();$('#assistant-chips').hidden=true;
   $('#assistant-shortcuts').setAttribute('aria-expanded','false');
   try{
     await api('/api/assistant/new-chat',{});
     if(assistantState.pollEpoch!==epoch)return;
-    assistantState.messages=[];renderAssistant();
+    assistantState.liveClarification=null;assistantState.messages=[];renderAssistant();
     toast('已开始新对话，输入草稿和调研模式已重置');
   }catch(e){toast(e.message);}
 };

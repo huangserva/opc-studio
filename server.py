@@ -208,7 +208,9 @@ class Store(WorkStoreBase):
             if cover:
                 cover['url'] = self.asset_url(slug, version['id'], cover['file'])
             versions = [importer.read_json(p / 'version.json') for p in sorted(path.parent.glob('v*'), reverse=True)]
-            return {'slug': slug, 'title': manifest['title'], 'head': self.meta(slug)['head'],
+            creation=self.assistant_creation_for_read(slug)
+            return {**({'assistant_creation':creation} if creation else {}),
+                    'slug': slug, 'title': manifest['title'], 'head': self.meta(slug)['head'],
                     'version': version, 'versions': versions, 'cover': cover, 'blocks': blocks,
                     'studio': self.studio_public(slug, version['id'], content.studio_at(path)), 'deliveries': self.delivery_records(slug),
                     'image_count': len(manifest['body_media']) + bool(cover),
@@ -1296,7 +1298,8 @@ class Handler(BaseHTTPRequestHandler):
                     (segments == ['api', 'assistant', 'send']) or
                     (len(segments)==5 and segments[:3]==['api','assistant','workflows'] and segments[4]=='save') or
                     (segments == ['api', 'assistant', 'stop']) or
-                    (segments == ['api', 'assistant', 'new-chat'])):
+                    (segments == ['api', 'assistant', 'new-chat']) or
+                    (len(segments)==5 and segments[:3]==['api','assistant','created-work'] and segments[4] in ('undo','restore'))):
                 from schedules_assistant_api import post_route
                 return post_route(self, segments, payload)
             if segments==['api','local-publishing','connection']:

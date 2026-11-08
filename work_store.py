@@ -322,6 +322,41 @@ class WorkStoreBase(content.ContentMixin):
             importer.write_json(self.collections_path, records)
             return record
 
+    def assistant_creation(self, slug):
+        """Strict write authorization; bad optional metadata must never authorize."""
+        path=self.article(slug)/'assistant-created.json'
+        if not path.is_file():
+            raise ValueError('只支持撤销或恢复助手新建的作品')
+        try:
+            receipt=content.read(path)
+            if not isinstance(receipt,dict):raise ValueError('invalid receipt')
+            turn=receipt.get('turn_id','')
+            _,version,_=self.info(slug,'v0001')
+            if (not isinstance(turn,str) or not re.fullmatch(r'[a-f0-9-]{20,40}',turn)
+                    or slug!='assistant-'+hashlib.sha256(turn.encode()).hexdigest()[:32]
+                    or receipt.get('slug')!=slug or receipt.get('version')!='v0001'
+                    or not isinstance(receipt.get('archived'),bool)
+                    or version.get('source')!='AI 助手创作（generated）'
+                    or version.get('source_fingerprint')!='assistant-turn:'+turn):
+                raise ValueError('invalid receipt')
+        except (OSError,ValueError,TypeError,KeyError):
+            raise ValueError('只支持撤销或恢复带有效建稿回执的助手作品') from None
+        return receipt
+
+    def assistant_creation_for_read(self, slug):
+        """Invalid optional receipts are ignored on ordinary read/list paths."""
+        try:
+            return self.assistant_creation(slug)
+        except (OSError,ValueError,TypeError,KeyError):
+            return None
+
+    def archive_assistant_creation(self, slug, archived):
+        with self.lock:
+            receipt=self.assistant_creation(slug)
+            receipt['archived']=bool(archived)
+            content.write(self.article(slug)/'assistant-created.json',receipt)
+            return {'slug':slug,'archived':receipt['archived']}
+
     def listing(self):
         self.scan()
         articles = []
@@ -330,6 +365,9 @@ class WorkStoreBase(content.ContentMixin):
                 if not (folder / 'article.json').is_file():
                     continue
                 meta = self.meta(folder.name)
+                creation=self.assistant_creation_for_read(folder.name)
+                if creation and creation['archived']:
+                    continue
                 manifest, version, path = self.info(folder.name)
                 studio = content.studio_at(path)
                 preview = studio.get('poster')

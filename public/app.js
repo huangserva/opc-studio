@@ -47,8 +47,11 @@ async function loadLibrary({initial=false}={}) {
     openCollection(new URLSearchParams(location.search).get('collection')||'all',{reveal:false});
   } else if (initial && result.articles.length) {
     const requested = reader ? decodeURIComponent(location.pathname.split('/')[2]) : new URLSearchParams(location.search).get('article');
+    if(requested?.startsWith('assistant-')&&!result.articles.some(a=>a.slug===requested)){await openArticle(requested,undefined,{reveal:false});return;}
     const chosen = result.articles.find(a => a.slug === requested) || result.articles.find(a=>a.slug==='v100-qwen') || result.articles[0];
     await openArticle(chosen.slug, new URLSearchParams(location.search).get('version') || history.state?.studioReturn?.version,{reveal:false});
+  } else if (initial && new URLSearchParams(location.search).get('article')?.startsWith('assistant-')) {
+    await openArticle(new URLSearchParams(location.search).get('article'),undefined,{reveal:false});
   } else if (initial) {
     $('#loading').innerHTML = '这里还没有文章。<br><small>点击「新建作品」开始写作，也可以接收已有的图文文件。</small>';
   } else if(state.page==='collections'){
@@ -88,6 +91,15 @@ async function openArticle(slug, revision, {reveal=true,accept=()=>true,refresh=
     $('#version-notice').hidden=article.version.id===article.head;
     $('#version-notice').textContent='您正在查看历史版本 '+versionName(article.version.id)+'，原稿保持不变。';
     $('#loading').hidden=true; $('#paper').hidden=false;
+    if(article.assistant_creation?.archived){
+      renderHistory();editControls();$('#publishing').hidden=true;$('#comparison').hidden=true;
+      $('.toolbar').hidden=true;document.querySelectorAll('.toolbar button').forEach(button=>button.disabled=true);$('#crumb').textContent=article.title;
+      $('#paper').innerHTML=`<h1>${escapeHTML(article.title)}</h1><p>已撤销</p><p>作品及版本仍保留，可以恢复。</p><button type="button" id="restore-created-work">恢复</button>`;
+      $('#restore-created-work').onclick=e=>changeAssistantCreation(slug,'restore',e.currentTarget);
+      if(typeof updateAssistantContext==='function')updateAssistantContext();
+      if(reveal)window.StudioPanels?.contentRequested();
+      return;
+    }
     $('#crumb').textContent=article.title;
     $('#gallery').textContent='图片 '+article.image_count;
     document.querySelectorAll('[data-slug]').forEach(el=>el.classList.toggle('selected',el.dataset.slug===slug));

@@ -416,6 +416,67 @@ def _open_work_policy(pasted_text=False):
     return policy
 
 
+def _creation_instruction_lines(message):
+    """Current input only; material continues until an explicit user resumption.
+
+    Blank lines alone do not promote pasted material into commands. A user can
+    resume with e.g. 请把上面... or 以上内容请..., even at the end of the input.
+    Quoted blocks and fenced code never grant or revoke creation permission.
+    """
+    active=[];material=False;fence=None
+    for raw_line in str(message or '').splitlines():
+        line=raw_line.strip()
+        if line.startswith('>'):
+            continue
+        marker=re.match(r'^(`{3,}|~{3,})',line)
+        if fence:
+            if marker and marker.group(1)[0]==fence[0] and len(marker.group(1))>=len(fence):fence=None
+            continue
+        if marker:
+            fence=marker.group(1)
+            continue
+        line=re.sub(r'“[^”]*”|「[^」]*」|"[^"\n]*"|`[^`]*`',' ',line).strip()
+        if not line:continue
+        resume=bool(re.match(r'^(?:(?:请|帮我|麻烦你|现在|接下来|最后)\s*)*(?:(?:把|将)(?:上面|以上|上述|这些)|(?:上面|以上|上述)(?:(?:的|这些|内容|素材|资料)|(?=.*(?:写成|写篇|写一篇|整理成|新建|起草)))|(?:我的要求|我的指令|要求是|现在请)[：:]?)',line))
+        if material and not resume:continue
+        if resume:
+            material=False
+            line=re.sub(r'^(?:我的要求|我的指令|要求是)[：:]?\s*','',line)
+        label=bool(re.match(r'^(?:(?:请)?(?:阅读|查看|看看|分析)\s*)?(?:(?:以下|下面|这些|这)(?:是|为|的)?)?(?:参考素材|参考资料|参考内容|素材|原文|引用|贴文|资料)(?:[：:\s]|$|[，,])',line))
+        quoted_source=bool(re.match(r'^(?:历史(?:对话|记录)|(?:(?:上次|之前)\s*)?(?:助手|AI|assistant)(?:的)?(?:回答|回复)|网页内容|知识检索结果)[：:]',line,re.I))
+        if label or quoted_source:
+            material=True
+            continue
+        directive,sep,_=re.split(r'([：:])',line,maxsplit=1) if re.search(r'[：:]',line) else (line,'','')
+        introduces=bool(re.search(r'下面|以下|这段|这些|素材|原文|内容',directive))
+        active.append(directive if sep and introduces else line)
+        # A creation command using following material remains an instruction;
+        # the passage after it stays data unless the user explicitly resumes.
+        if re.search(r'(?:用|根据|参考|把|将).*(?:下面|以下).*(?:素材|内容|资料|这段)|(?:用|根据|参考).*(?:下面素材|以下素材)',directive):
+            material=True
+        elif sep and introduces:
+            material=True
+    return active
+
+
+def new_work_intent(message):
+    """Creation is authorized by user-owned text across the entire current turn."""
+    instructions=_creation_instruction_lines(message)
+    # A user's explicit refusal anywhere outside material wins over creation.
+    if any(re.search(r'不要(?:新建|保存|写入)|不(?:用|要|必)保存|只(?:给我)?看看|不需(?:要)?保存|先不保存|别保存|不写入|只给我看|先别(?:建|新建|保存)|不用新建|不要建|不(?:用|必)建',line) for line in instructions):
+        return None
+    for line in instructions:
+        if re.search(r'这句话什么意思|是什么意思|如何|怎么|上次|之前|曾经|他说|我说|如果|是否|要不要|不执行',line):continue
+        if re.match(r'^(?:请)?(?:阅读|看看|分析|解释|理解)',line):continue
+        create=re.search(r'(?:写成(?:一篇)?(?:文章|长文|推文)|写(?:一篇|篇|个)(?:新)?(?:文章|长文|推文|稿子?|类似的)|写(?:一篇|篇)(?=\s*(?:$|[，。；！?？：:]|关于|讲讲|介绍))|新建(?:一篇|文章|作品)|整理成(?:一篇(?:文章|长文|推文|稿子?|(?=$|[，。；！?？：:\s]))|文章)|另起一篇|起草一篇)',line)
+        if not create:continue
+        if re.search(r'改写成|重写(?:这篇|当前)|(?:把|将)(?:这篇|当前作品|当前文章).*写成',line) and not re.search(r'新建|另起|新文章|新的一篇',line):
+            return 'clarify'
+        if re.search(r'^(?:(?:请帮我|帮我|请|麻烦你|麻烦|给我|能不能|能否|可以|能|你)(?:帮我)?)*\s*(?:把|将|用|根据|参考|写|新建|整理|另起|起草|以上|上面|上述)',line):
+            return 'create'
+    return None
+
+
 def policy_for(message, work_open=False):
     """work_open：当前页面上确实打开着一篇作品。
 
@@ -427,6 +488,13 @@ def policy_for(message, work_open=False):
     明确操作（「删除第二段」「把 Rea 项目第二段改写」）沿用逐子句规则照旧授权，
     执行层仍要求本轮先 read_work 那一篇。
     """
+    intent=new_work_intent(message)
+    if intent=='create':
+        return {'allowed_tools':sorted(READ_TOOLS | {'create_work'}),'allow_insert':False,
+                'reply':None,'edit_grants':[],'text_source':'generated'}
+    if intent=='clarify':
+        return {'allowed_tools':sorted(READ_TOOLS),'allow_insert':False,'edit_grants':[],
+                'reply':'这篇文章要新建一篇，还是改当前作品？','creation_clarification':True}
     plain=message.strip()
     greeting=re.fullmatch(r'(?:你好|您好|嗨|哈喽|哈啰|早上好|晚上好|下午好|早|在吗|谢谢|谢了|好的|收到|hello|hi|hey|thanks|thank you)[呀啊哦哈\s！!。.?？~～]*',plain,re.I)
     if greeting:

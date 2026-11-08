@@ -90,6 +90,9 @@ def post_route(handler, segments, payload):
         return self.reply(200, self.server.assistant.select_model(payload))
     if segments == ['api', 'assistant', 'test-settings']:
         return self.reply(200, self.server.assistant.test_settings(payload))
+    if len(segments)==5 and segments[:3]==['api','assistant','created-work'] and segments[4] in ('undo','restore'):
+        if payload != {}:raise ValueError('撤销或恢复只接收作品编号')
+        return self.reply(200,self.server.store.archive_assistant_creation(segments[3],segments[4]=='undo'))
     if segments == ['api', 'assistant', 'send']:
         return self.reply(202, self.server.assistant.start(payload))
     if len(segments)==5 and segments[:3]==['api','assistant','workflows'] and segments[4]=='save':
