@@ -123,3 +123,19 @@ mark{background:var(--c-note);color:inherit;padding:0 2px;border-radius:var(--ra
 #assistant-panel #model-picker-toggle{min-width:0;max-width:100%}
 #assistant-panel #model-picker-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #assistant-panel .assistant-compose-actions .model-picker{min-width:0}
+
+/* Reference cards are text-only and remain readable at narrow panel widths. */
+#chat-material-draft{display:grid;gap:6px;max-height:200px;overflow:auto;margin:8px 0}
+#chat-material-draft[hidden]{display:none}
+.material-card{border:1px solid var(--border,#d4d4d8);border-radius:8px;padding:8px;margin:6px 0;min-width:0;max-width:100%;overflow-wrap:anywhere}
+.material-card summary{cursor:pointer;min-width:0;overflow-wrap:anywhere}
+.material-card summary strong,.material-card summary span,.material-card summary small{display:block}
+.material-card summary small{opacity:.7;font-size:11px}
+.material-card pre{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-height:240px;overflow:auto;font:inherit;font-size:12px}
+.material-card button{font-size:12px;margin-top:6px}
+.chat-user>div{min-width:0;max-width:100%}
+#material-dialog{width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;box-sizing:border-box;border:1px solid var(--border,#d4d4d8);border-radius:12px;padding:20px}
+#material-dialog textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:120px;max-height:45dvh}
+#material-dialog p{font-size:13px;overflow-wrap:anywhere}
+#material-error{color:#c33;min-height:1em}
+.material-dialog-actions{display:flex;justify-content:flex-end;gap:8px}

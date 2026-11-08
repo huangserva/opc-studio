@@ -1,3 +1,37 @@
+// Reference drafts follow the selected work; history cards never enter this map.
+const materialDrafts=new Map();
+let materialScope=null,materialDialogScope=null;
+function currentMaterialScope(){return state.page==='article'&&state.slug?'work:'+state.slug:'workspace';}
+function materialCardsMarkup(items,draft=false){
+  return (items||[]).map(m=>`<div class="material-card" data-material-card="${escapeHTML(m.id)}"><details><summary><strong>参考素材</strong><span>${escapeHTML(m.text.split('\n').find(t=>t.trim())?.slice(0,60)||'素材')}</span><small>${Array.from(m.text).length} 字 · 仅供参考</small></summary><pre>${escapeHTML(m.text)}</pre></details>${draft?`<button type="button" data-material-remove="${escapeHTML(m.id)}" aria-label="删除素材卡">删除</button>`:''}</div>`).join('');
+}
+function syncMaterialDrafts(){
+  materialScope=currentMaterialScope();
+  const box=$('#chat-material-draft'),items=materialDrafts.get(materialScope)||[];
+  const signature=JSON.stringify([materialScope,items]);
+  if(box.dataset.signature===signature)return;
+  const expanded=new Set([...box.querySelectorAll('details[open]')].map(n=>n.closest('[data-material-card]').dataset.materialCard));
+  box.dataset.signature=signature;box.innerHTML=materialCardsMarkup(items,true);box.hidden=!items.length;
+  box.querySelectorAll('details').forEach(n=>n.open=expanded.has(n.closest('[data-material-card]').dataset.materialCard));
+  box.querySelectorAll('[data-material-remove]').forEach(b=>b.onclick=()=>{
+    materialDrafts.set(materialScope,(materialDrafts.get(materialScope)||[]).filter(m=>m.id!==b.dataset.materialRemove));syncMaterialDrafts();
+  });
+}
+function clearMaterialDrafts(){materialDrafts.clear();$('#material-dialog').close();$('#material-text').value='';syncMaterialDrafts();}
+$('#chat-material-add').onclick=()=>{
+  syncMaterialDrafts();materialDialogScope=materialScope;
+  if((materialDrafts.get(materialScope)||[]).length>=4){toast('每条消息最多添加 4 张素材卡');return;}
+  $('#material-text').value='';$('#material-error').textContent='';$('#material-dialog').showModal();$('#material-text').focus();
+};
+$('#material-cancel').onclick=()=>$('#material-dialog').close();
+$('#material-confirm').onclick=()=>{
+  const text=$('#material-text').value,items=materialDrafts.get(materialDialogScope)||[];
+  if(currentMaterialScope()!==materialDialogScope){$('#material-error').textContent='当前作品已切换，请重新添加素材';return;}
+  if(!text.trim()){$('#material-error').textContent='请粘贴素材';return;}
+  if(Array.from(text).length>12000){$('#material-error').textContent='每张素材最多 12000 字';return;}
+  if(items.length>=4){$('#material-error').textContent='每条消息最多添加 4 张素材卡';return;}
+  materialDrafts.set(materialDialogScope,[...items,{id:crypto.randomUUID(),text}]);$('#material-dialog').close();syncMaterialDrafts();
+};
 const ASSISTANT_EVENTS_ENABLED=false; // 4-1：保留事件建议代码，关闭跳转入口。
 const assistantState={open:false,loaded:false,active:null,messages:[],poll:null,busy:false,config:null,contextTimer:null};
 function assistantContext(){
@@ -10,6 +44,7 @@ function assistantContext(){
   return {ui};
 }
 function updateAssistantContext(){
+  syncMaterialDrafts();
   const context=assistantContext();
   $('#assistant-context-label').textContent=context?.slug?'当前作品 · '+context.title:'整个工作台 · 查询与整理合集';
   $('#assistant-context-label').title=(context?.title||'整个工作台')+'；聊天与选中作品的相关内容会发送至您配置的模型服务';
@@ -45,11 +80,12 @@ function renderAssistant(active=null){
   if(assistantState.renderedSignature===signature){restoreAssistantScroll();return;}
   const position=captureAssistantScroll(),box=$('#assistant-message-list');
   const expanded=new Set([...box.querySelectorAll('[data-workflow-details][open]')].map(node=>node.dataset.workflowDetails));
+  const materialsExpanded=new Set([...box.querySelectorAll('.material-card details[open]')].map(n=>n.closest('[data-material-card]').dataset.materialCard));
   const sourcesExpanded=new Set([...box.querySelectorAll('[data-read-sources][open]')].map(node=>node.closest('[data-chat-turn]').dataset.chatTurn));
   assistantState.renderedSignature=signature;
   stopChatMedia();
   if(!list.length){assistantScroll.followLatest=true;box.innerHTML='<div class="assistant-welcome"><span>✦</span><h3>把想法告诉我</h3><p>我可以帮您改稿、找作品、生成图片与视频、整理合集。修改会保存新版本。</p></div>';restoreAssistantScroll();return;}
-  box.innerHTML=list.map((t,i)=>`<div class="chat-turn" data-chat-turn="${escapeHTML(t.id)}"><div class="chat-user"><div><div>${chatText(t.prompt)}</div>${attachmentMarkup(t.attachments)}<button type="button" class="chat-copy" data-copy-turn="${i}" data-copy-role="user" aria-label="复制我的消息">⧉ 复制</button></div></div><div class="chat-assistant">${t.model?`<small class="chat-model">${escapeHTML(t.model)}</small>`:''}${workflowCard(t.workflow)}${assistantActions(t.workflow?t.actions.filter(a=>a.name!=='submit_workflow_stage'):t.actions)}${t.answer?`<div class="assistant-answer">${chatText(t.answer)}</div><button type="button" class="chat-copy" data-copy-turn="${i}" data-copy-role="assistant" aria-label="复制助手回复">⧉ 复制</button>`:`<div class="assistant-thinking">${t.status==='stopping'?'正在停止…':escapeHTML(t.phase||'正在处理…')}</div>`}${chatReadSources(t.citations)}</div></div>`).join('');
+  box.innerHTML=list.map((t,i)=>`<div class="chat-turn" data-chat-turn="${escapeHTML(t.id)}"><div class="chat-user"><div><div>${chatText(t.prompt)}</div>${attachmentMarkup(t.attachments)}${t.materials?.length?materialCardsMarkup(t.materials):''}<button type="button" class="chat-copy" data-copy-turn="${i}" data-copy-role="user" aria-label="复制我的消息">⧉ 复制</button></div></div><div class="chat-assistant">${t.model?`<small class="chat-model">${escapeHTML(t.model)}</small>`:''}${workflowCard(t.workflow)}${assistantActions(t.workflow?t.actions.filter(a=>a.name!=='submit_workflow_stage'):t.actions)}${t.answer?`<div class="assistant-answer">${chatText(t.answer)}</div><button type="button" class="chat-copy" data-copy-turn="${i}" data-copy-role="assistant" aria-label="复制助手回复">⧉ 复制</button>`:`<div class="assistant-thinking">${t.status==='stopping'?'正在停止…':escapeHTML(t.phase||'正在处理…')}</div>`}${chatReadSources(t.citations)}</div></div>`).join('');
   box.querySelectorAll('[data-copy-turn]').forEach(button=>button.onclick=()=>copyChatMessage(button.dataset.copyRole==='user'?list[Number(button.dataset.copyTurn)].prompt:list[Number(button.dataset.copyTurn)].answer,button));
   box.querySelectorAll('[data-assistant-slug]').forEach(b=>b.onclick=()=>requestOpen(b.dataset.assistantSlug,b.dataset.assistantVersion));
   box.querySelectorAll('[data-event-proposal]').forEach(b=>b.onclick=()=>{
@@ -59,6 +95,7 @@ function renderAssistant(active=null){
   });
   box.querySelectorAll('[data-workflow-details]').forEach(node=>node.open=expanded.has(node.dataset.workflowDetails));
   box.querySelectorAll('[data-read-sources]').forEach(node=>node.open=sourcesExpanded.has(node.closest('[data-chat-turn]').dataset.chatTurn));
+  box.querySelectorAll('.material-card details').forEach(n=>n.open=materialsExpanded.has(n.closest('[data-material-card]').dataset.materialCard));
   bindWorkflowCards(box);
   syncChatMedia();
   restoreAssistantScroll(position);
@@ -96,13 +133,16 @@ async function pollAssistant(id){
   }catch(e){if(current()){assistantBusy(false);$('#assistant-status').textContent=e.message;}}
 }
 async function sendAssistant(event){
-  event.preventDefault();const input=$('#assistant-input'),message=input.value.trim()?input.value:'';if((!message&&!chatAttachments.items.length)||assistantState.busy||composerMedia.loading)return;
+  event.preventDefault();syncMaterialDrafts();const input=$('#assistant-input'),message=input.value.trim()?input.value:'';if(!message&&(materialDrafts.get(materialScope)||[]).length){$('#assistant-status').textContent='请写下要求';return;}if((!message&&!chatAttachments.items.length)||assistantState.busy||composerMedia.loading)return;
+  const sentScope=materialScope,materials=(materialDrafts.get(sentScope)||[]).map(m=>({...m})),context=assistantContext(),unsaved=state.dirty;
   assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
   assistantBusy(true);
   try{
     const attachments=await readyChatAttachments();
-    const result=await submitComposerMedia(message,{unsaved:state.dirty,attachments});
-    if(input.value===message)input.value='';
+    const result=await submitComposerMedia(message,{unsaved,attachments,materials,context});
+    const sentIds=new Set(materials.map(m=>m.id));
+    materialDrafts.set(sentScope,(materialDrafts.get(sentScope)||[]).filter(m=>!sentIds.has(m.id)));syncMaterialDrafts();
+    if(currentMaterialScope()===sentScope&&input.value===message)input.value='';
     clearChatAttachments();clearMediaTool();selectWritingWorkflow(false);
     assistantScroll.followLatest=true;
     if(result.media_job){
@@ -129,7 +169,7 @@ $('#assistant-new-chat').onclick=async()=>{
   // draft typed while this request settles must belong to the new conversation.
   const epoch=assistantState.pollEpoch=(assistantState.pollEpoch||0)+1;
   selectWritingWorkflow(false);$('#assistant-input').value='';
-  clearChatAttachments();clearMediaTool();$('#assistant-chips').hidden=true;
+  clearMaterialDrafts();clearChatAttachments();clearMediaTool();$('#assistant-chips').hidden=true;
   $('#assistant-shortcuts').setAttribute('aria-expanded','false');
   try{
     await api('/api/assistant/new-chat',{});

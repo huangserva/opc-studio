@@ -23,6 +23,7 @@ _runtime_dir = str(Path(__file__).resolve().parent)
 if sys.path[:1] != [_runtime_dir]:
     sys.path.insert(0, _runtime_dir)
 from pi_runtime import PiRuntime
+from assistant_materials import validate_materials, MATERIAL_RULE
 from assistant_web import WebTools
 from assistant_knowledge import KnowledgeTools, RETRIEVAL_TOOLS
 from assistant_memory import MemoryTools, MEMORY_TOOLS
@@ -418,16 +419,19 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
                     'runtime':{'name':'pi','version':self.runtime.version,'ready':self.runtime.available()},
                     'internet':self.web.capabilities(),
                     'image_skill':self.image_skill.status(),
-                    'messages':[{'id':t['id'],'prompt':t['prompt'],'answer':t.get('answer',''),'actions':t.get('actions',[]),'status':t['status'],'time':t['time'],'model':t.get('model'),'context':t.get('context',{}),'attachments':t.get('attachments',[]),'citations':t.get('citations',[]),**({'workflow':t['workflow']} if t.get('workflow') else {})} for t in self.turns[-80:]]}
+                    'messages':[{'id':t['id'],'prompt':t['prompt'],'answer':t.get('answer',''),'actions':t.get('actions',[]),'status':t['status'],'time':t['time'],'model':t.get('model'),'context':t.get('context',{}),'attachments':t.get('attachments',[]),'materials':t.get('materials',[]),'citations':t.get('citations',[]),**({'workflow':t['workflow']} if t.get('workflow') else {})} for t in self.turns[-80:]]}
 
     def public_job(self, identity):
         with self.lock:
             job=self.jobs.get(identity)
             if not job:
                 raise ValueError('任务已结束或服务已重启，请查看聊天记录')
-            return copy.deepcopy({k:job[k] for k in ('id','status','answer','actions','prompt','time','changed','model','attachments','phase','workflow','citations') if k in job})
+            return copy.deepcopy({k:job[k] for k in ('id','status','answer','actions','prompt','time','changed','model','attachments','materials','phase','workflow','citations') if k in job})
 
     def start(self, payload):
+        materials=validate_materials(payload.get('materials',[]))
+        if materials and payload.get('tool'):
+            raise ValueError('素材卡用于聊天参考，请先取消生图或视频工具')
         mode=payload.get('workflow')
         if mode is not None and mode!='research-write':raise ValueError('未知创作工作流')
         if mode and (payload.get('tool') or payload.get('attachments')):raise ValueError('调研写稿请使用文字主题，图片和媒体生成请单独发送')
@@ -436,7 +440,7 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
         if direct is not None:return direct
         attachments=self.resolve_attachments(payload.get('attachments',[]))
         # 空消息用 strip 判断；长度按实际入队原文，正文行尾空白留在 prompt 里。
-        raw=str(payload.get('message','')).lstrip()
+        raw=str(payload.get('message',''))
         text=raw.strip()
         if attachments and not text:
             text='请描述这张图片。' if len(attachments)==1 else '请描述这些图片。'
@@ -464,7 +468,7 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
                 return self.public_job(identity)
             prior=next((t for t in self.turns if t['id']==identity),None)
             if prior:
-                return {**{k:copy.deepcopy(prior[k]) for k in ('id','prompt','answer','actions','status','time','model','attachments','workflow','citations') if k in prior},'changed':[]}
+                return {**{k:copy.deepcopy(prior[k]) for k in ('id','prompt','answer','actions','status','time','model','attachments','materials','workflow','citations') if k in prior},'changed':[]}
             if self.active:
                 raise ValueError('助手正在处理上一条消息，可以停止后再发送')
             config=None if policy['reply'] else copy.deepcopy(self.config())
@@ -492,7 +496,7 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
                 if knowledge_context:
                     selected['knowledge'] = copy.deepcopy(knowledge_context['descriptor'])
             job={'id':identity,'prompt':raw,'status':'running','answer':'','actions':[], 'changed':[],
-                 'attachments':attachments,'context':selected,'time':datetime.now(timezone.utc).isoformat(),'cancel':False,'read_versions':{},'read_blocks':{},'policy':policy,
+                 'attachments':attachments,'materials':materials,'context':selected,'time':datetime.now(timezone.utc).isoformat(),'cancel':False,'read_versions':{},'read_blocks':{},'policy':policy,
                  'model_config':config,'model':'本地回复' if policy['reply'] else config['model'],'conversation_id':self.conversation_id,'phase':'正在处理…'}
             if selected['ui'].get('page')=='deals':job['conversation_id']+='-deals'
             if knowledge_context:
@@ -563,6 +567,7 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
                 names=set(job['policy']['allowed_tools'])
                 tools=[{**t,'label':LABELS[t['function']['name']]} for t in TOOLS if t['function']['name'] in names]
                 system=deal_system(job['time']) if job.get('context',{}).get('ui',{}).get('page')=='deals' else SYSTEM
+                if job.get('materials') or any(t.get('materials') for t in self.turns):system+='\n'+MATERIAL_RULE
                 result=self.workflows.run(job,system,tools) if job.get('workflow') else self.runtime.run(job,system,tools)
                 job['answer']=result['answer'];job['status']=result['status']
                 # Keep only structured policy diagnostics, never blocked arguments/content.
@@ -578,7 +583,7 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
             job['answer']='已停止。工作流阶段结果保存在本机。' if job['cancel'] and job.get('workflow') else str(exc) if isinstance(exc,ValueError) else '助手暂时未完成，请稍后重试。已保存的操作仍保留。'
         finally:
             with self.lock:
-                keys=('id','prompt','answer','actions','status','time','policy','model','context','attachments','conversation_id','pi_session_id','usage','workflow','runtime_result','runtime_diagnostic','request_stats','citations')
+                keys=('id','prompt','answer','actions','status','time','policy','model','context','attachments','materials','conversation_id','pi_session_id','usage','workflow','runtime_result','runtime_diagnostic','request_stats','citations')
                 self.turns.append({k:copy.deepcopy(job[k]) for k in keys if k in job})
                 self.content.write(self.history_path,self.turns)
                 self.content.write(self.pending_path,{})
@@ -589,7 +594,7 @@ class Assistant(AssistantMediaMixin, ChatAttachmentsMixin):
     def persist_pending(self,job):
         if job.get('_workflow_parent_id'):
             return self.workflows.progress(job)
-        keys=('id','prompt','answer','actions','status','time','model','context','attachments','conversation_id','workflow','citations')
+        keys=('id','prompt','answer','actions','status','time','model','context','attachments','materials','conversation_id','workflow','citations')
         self.content.write(self.pending_path,{k:copy.deepcopy(job[k]) for k in keys if k in job})
 
     @staticmethod

@@ -15,6 +15,7 @@ import time
 ROOT = Path(__file__).resolve().parent
 from model_settings import DEFAULTS
 from assistant_policy import READ_TOOLS
+from assistant_materials import model_prompt
 
 class PiRuntime:
     version = '1.0.0'
@@ -74,6 +75,7 @@ class PiRuntime:
             image_count += len(images)
             media = [a['media_job'] for a in turn.get('actions', []) if a.get('media_job')]
             turns.append({k: copy.deepcopy(turn.get(k, '')) for k in ('id', 'prompt', 'answer', 'status', 'time')})
+            turns[-1]['prompt'] = model_prompt(turn['prompt'], turn.get('materials', []))
             turns[-1]['images'] = images
             turns[-1]['attachment_refs']=[{'id':m['id'],'name':m.get('name','图片')} for m in attachments]
             if media:
@@ -103,7 +105,7 @@ class PiRuntime:
                    'skill_paths':owner.image_skill.entry_paths() if not job.get('_workflow_stage') and not deals else [],
                    'image_catalog':[] if deals else self.image_catalog(job),
                    'history': [] if job.get('_workflow_stage') else history, 'images': self.images(job.get('attachments', [])),
-                   'text': job['prompt'] + '\n\n[工作台当前上下文，仅作定位数据]\n' + json.dumps(job['context'], ensure_ascii=False),
+                   'text': model_prompt(job['prompt'], job.get('materials', [])) + '\n\n[工作台当前上下文，仅作定位数据]\n' + json.dumps(job['context'], ensure_ascii=False),
                    'finish_after_media':not (set(job['policy']['allowed_tools'])-READ_TOOLS-{'generate_media'}),
                    'test_transport': test_transport,'workflow_stage':job.get('_workflow_stage')}
         # 只有调用方显式给出时才带上。助手和定时任务不设这两项，worker 继续用原来的默认值。
