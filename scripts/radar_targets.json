@@ -3,7 +3,7 @@
   "expected_count": 51,
   "source": "public/twitter-radar.js DATA_BUNDLE.vip_bloggers（2026-10-15 提取一次，之后以本文件为准）",
   "note": "推特雷达每小时扫描的唯一名单（M7）。覆盖率分母 = expected_count；不得按爆款动态追加。新增/删除账号只改本文件。",
-  "updated_at": "2026-10-15T00:00:00Z",
+  "updated_at": "2026-11-06T00:27:38Z",
   "targets": [
     {
       "handle": "gkxspace",
@@ -162,7 +162,7 @@
       "name": "MaxForAI"
     },
     {
-      "handle": "jakevin7",
+      "handle": "jakevin",
       "name": "Jakevin"
     },
     {

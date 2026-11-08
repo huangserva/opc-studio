@@ -20,6 +20,47 @@ ROUND_NAME = re.compile(r'^(?:[0-2][0-9]-)?\d{4}-\d{2}-\d{2}[-T_]\d{2}(?:[-:]?\d
 AUX_NAME = re.compile(r'(?:^|[-_])(?:state|targets-copy|manifest|shard|ledger|usage|knowledge_results)(?:[-_.]|$)', re.I)
 METRICS = ('views', 'likes', 'retweets', 'replies', 'followers')
 ROOT = Path(__file__).resolve().parent
+# 新增的北京时间整点标签最多容忍半小时调度延迟/时钟偏差，远小于两小时轮次间隔。
+SLOT_START_TOLERANCE = timedelta(minutes=30)
+SAFE_REASONS = frozenset((
+    '轮次 schema 不符', '时间字段不符', '时段格式不符', '时段与开始时间不符',
+    '完成时间早于开始时间', '名单版本或人数不符', '账号格式异常', '账号回执异常',
+    '观察字段缺失', '观察编号异常或重复', '观察结构异常', '观察时间晚于完成时间',
+    '指标必须为精确安全数字或 null', '观察 URL 与编号不符', '事件结构异常', '轮次时间在未来',
+))
+
+
+class _RosterMismatch(ValueError):
+    def __init__(self, started, finished, updated_at):
+        super().__init__('名单版本或人数不符')
+        self.started, self.finished = started, finished
+        try:
+            self.superseded = started < stamp(updated_at)
+        except (ValueError, TypeError, OverflowError):
+            self.superseded = False
+
+
+def _slot(raw, started):
+    try:
+        if isinstance(raw, str) and re.fullmatch(r'(?:[01][0-9]|2[0-3])', raw):
+            return started.astimezone(G.BEIJING).replace(hour=int(raw), minute=0, second=0, microsecond=0)
+        if isinstance(raw, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3])', raw):
+            slot = datetime.strptime(raw, '%Y-%m-%dT%H').replace(tzinfo=G.BEIJING)
+            if abs(started - slot) > SLOT_START_TOLERANCE:
+                raise ValueError('时段与开始时间不符')
+            return slot
+        return stamp(raw)
+    except (ValueError, TypeError, OverflowError) as exc:
+        if str(exc) == '时段与开始时间不符':
+            raise
+        raise ValueError('时段格式不符') from None
+
+
+def _time(raw):
+    try:
+        return stamp(raw)
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError('时间字段不符') from None
 
 
 def round_paths(reports=None):
@@ -46,26 +87,24 @@ def read_round(path):
             or not isinstance(data.get('rule_version'), str) or not data['rule_version']
             or not all(isinstance(data.get(k), list) for k in ('accounts', 'observations', 'events'))):
         raise ValueError('轮次 schema 不符')
-    started, finished = (stamp(data.get(k)) for k in ('round_started_at', 'finished_at'))
-    raw_slot = data.get('scheduled_slot')
-    slot = (started.astimezone(G.BEIJING).replace(hour=int(raw_slot), minute=0, second=0, microsecond=0)
-            if isinstance(raw_slot,str) and re.fullmatch(r'(?:[01][0-9]|2[0-3])',raw_slot) else stamp(raw_slot))
+    started, finished = (_time(data.get(k)) for k in ('round_started_at', 'finished_at'))
+    slot = _slot(data.get('scheduled_slot'), started)
     if finished < started:
         raise ValueError('完成时间早于开始时间')
     roster_path = ROOT / 'scripts/radar_targets.json'
     roster_raw = roster_path.read_bytes()
     roster = json.loads(roster_raw)
     handles = {_handle(r['handle']) for r in roster['targets']}
-    if (not handles or len(handles) != len(roster['targets']) or roster['expected_count'] != len(handles)
-            or data.get('target_count') != len(handles)
-            or data.get('target_list_sha') != hashlib.sha256(roster_raw).hexdigest()):
+    if not handles or len(handles) != len(roster['targets']) or roster['expected_count'] != len(handles):
         raise ValueError('名单版本或人数不符')
+    roster_mismatch = (data.get('target_count') != len(handles)
+                       or data.get('target_list_sha') != hashlib.sha256(roster_raw).hexdigest())
     accounts = {}; truncation_unknown = []
     for account in data['accounts']:
         if not isinstance(account, dict):
             raise ValueError('账号回执异常')
         handle = _handle(account.get('handle'))
-        if handle not in handles or handle in accounts or account.get('status') not in ('ok', 'empty', 'error', 'incomplete', 'not_run', 'not_due') or not (type(account.get('truncated')) is bool or type(account.get('truncated')) is int and account['truncated'] >= 0):
+        if (not roster_mismatch and handle not in handles) or handle in accounts or account.get('status') not in ('ok', 'empty', 'error', 'incomplete', 'not_run', 'not_due') or not (type(account.get('truncated')) is bool or type(account.get('truncated')) is int and account['truncated'] >= 0):
             raise ValueError('账号回执异常')
         accounts[handle] = account
         if type(account['truncated']) is not bool:truncation_unknown.append(handle)
@@ -90,10 +129,10 @@ def read_round(path):
                 or type(raw['is_stale']) is not bool or not isinstance(raw['full_text'], str)
                 or not isinstance(raw['missing_reasons'], list)):
             raise ValueError('观察结构异常')
-        fetched = stamp(raw['fetched_at'])
+        fetched = _time(raw['fetched_at'])
         if fetched > finished + timedelta(seconds=1):
             raise ValueError('观察时间晚于完成时间')
-        published = stamp(raw['published_at']) if raw['published_at'] is not None else None
+        published = _time(raw['published_at']) if raw['published_at'] is not None else None
         if any(raw.get(k) is not None and number(raw[k]) is None for k in (*METRICS,'bookmarks','quote_count')):
             raise ValueError('指标必须为精确安全数字或 null')
         if not G.safe_url(raw['url']) or G.URL_RE.fullmatch(raw['url']) is None or G.URL_RE.fullmatch(raw['url'])[1] != tid:
@@ -111,6 +150,9 @@ def read_round(path):
                 or any(event[k] is not None and number(event[k]) is None for k in ('age_hours','views_delta','interval_hours','hourly_delta'))
                 or event.get('event_type') not in TWEET_EVENTS or event.get('tweet_id') not in seen):
             raise ValueError('事件结构异常')
+    # 先完成所有字段校验，避免旧名单掩盖同文件中的格式/观察错误。
+    if roster_mismatch:
+        raise _RosterMismatch(started, finished, roster.get('updated_at'))
     return dict(data, observations=rows, complete=complete, truncation_unknown=truncation_unknown, started=started, finished=finished, slot=slot.astimezone(timezone.utc).isoformat())
 
 
@@ -129,7 +171,7 @@ class _Replay(Monitor):
 def load(root, now=None, reports=None):
     from interest_sources import workspace, read_json
     now = now or datetime.now(timezone.utc)
-    errors, rounds = [], []
+    errors, rounds, superseded = [], [], []
     try:
         paths = round_paths(reports)
     except (OSError, ValueError):
@@ -140,8 +182,21 @@ def load(root, now=None, reports=None):
             if data['started'] > now or data['finished'] > now:
                 raise ValueError('轮次时间在未来')
             rounds.append((path, data))
-        except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError):
-            errors.append(path.name + '：轮次损坏或字段异常')
+        except _RosterMismatch as exc:
+            if exc.started > now or exc.finished > now:
+                errors.append(path.name + '：轮次时间在未来')
+            elif exc.superseded:
+                superseded.append(path.name)
+            else:
+                errors.append(path.name + '：名单版本或人数不符')
+        except json.JSONDecodeError:
+            errors.append(path.name + '：schema 不符')
+        except OSError:
+            errors.append(path.name + '：文件不可读')
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError) as exc:
+            # 只输出本模块固定原因，绝不转发解析器异常里的输入值/正文。
+            reason = str(exc) if str(exc) in SAFE_REASONS else '轮次损坏或字段异常'
+            errors.append(path.name + '：' + reason)
     # 同 slot 优先完整成功、成功但截断未知、失败；同档取较新执行。
     # 重复 slot 只回放一次，不因重复文件重判事件。
     selected = {}
@@ -203,9 +258,14 @@ def load(root, now=None, reports=None):
         row['events'] = sorted({e['type'] for e in state['events'] if e.get('tweet', {}).get('tweet_id') == tid})
     latest = max((data['finished'] for _, data in rounds), default=None)
     unknown_handles = sorted({h for _,data in selected.values() for h in data['truncation_unknown']})
+    notes = []
+    if not paths: notes.append('等待 Grok 产出雷达轮次文件')
+    if unknown_handles: notes.append('截断情况未知')
+    if superseded: notes.append(f'旧名单轮次 {len(superseded)} 个已忽略')
     state_view = dict(updated_at=latest.isoformat() if latest else None, status='error' if errors else 'ok' if rounds else 'waiting',
                       error='；'.join(errors[:20]) if errors else None, round_count=len(selected), bad_files=len(errors),
-                      duplicate_slots=len(rounds)-len(selected), note='等待 Grok 产出雷达轮次文件' if not paths else '截断情况未知' if unknown_handles else '',
+                      duplicate_slots=len(rounds)-len(selected), note='；'.join(notes),
+                      superseded_rounds=superseded,
                       truncation_unknown=unknown_handles, complete_coverage=None if unknown_handles else all(data['complete'] for _,data in selected.values()) if rounds else None)
     return list(items.values()), state_view
 
